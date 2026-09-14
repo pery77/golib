@@ -1,0 +1,78 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "GoLib: setup",
+      "detail": "Check the environment and prepare local tools in .tools/",
+      "type": "process",
+      "command": "sh",
+      "args": ["./golib", "setup"],
+      "windows": { "command": "cmd.exe", "args": ["/d", "/c", ".\\golib.cmd", "setup"] },
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
+      "label": "GoLib: doctor",
+      "detail": "Diagnose the environment without changing anything",
+      "type": "process",
+      "command": "sh",
+      "args": ["./golib", "doctor"],
+      "windows": { "command": "cmd.exe", "args": ["/d", "/c", ".\\golib.cmd", "doctor"] },
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
+      "label": "GoLib: run",
+      "detail": "Build the game in games/ and run it (asks for no name, so it needs exactly one game)",
+      "type": "process",
+      "command": "sh",
+      "args": ["./golib", "run"],
+      "windows": { "command": "cmd.exe", "args": ["/d", "/c", ".\\golib.cmd", "run"] },
+      "options": { "cwd": "${workspaceFolder}" },
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": []
+    },
+    {
+      "label": "GoLib: build",
+      "detail": "Build the game in games/ into build/ (needs exactly one game)",
+      "type": "process",
+      "command": "sh",
+      "args": ["./golib", "build"],
+      "windows": { "command": "cmd.exe", "args": ["/d", "/c", ".\\golib.cmd", "build"] },
+      "options": { "cwd": "${workspaceFolder}" },
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "GoLib: test",
+      "detail": "Vet and test the framework and every game",
+      "type": "process",
+      "command": "sh",
+      "args": ["./golib", "test"],
+      "windows": { "command": "cmd.exe", "args": ["/d", "/c", ".\\golib.cmd", "test"] },
+      "options": { "cwd": "${workspaceFolder}" },
+      "group": { "kind": "test", "isDefault": true },
+      "problemMatcher": []
+    },
+    {
+      "label": "GoLib: clean",
+      "detail": "Delete build outputs (build/)",
+      "type": "process",
+      "command": "sh",
+      "args": ["./golib", "clean"],
+      "windows": { "command": "cmd.exe", "args": ["/d", "/c", ".\\golib.cmd", "clean"] },
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
+      "label": "GoLib: clean all",
+      "detail": "Delete build outputs and downloaded tools (.tools/)",
+      "type": "process",
+      "command": "sh",
+      "args": ["./golib", "clean", "--all"],
+      "windows": { "command": "cmd.exe", "args": ["/d", "/c", ".\\golib.cmd", "clean", "--all"] },
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    }
+  ]
+}

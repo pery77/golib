@@ -1,0 +1,26 @@
+# Text files are stored and checked out with LF on every OS.
+* text=auto eol=lf
+
+# cmd.exe misparses batch files that don't use CRLF.
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# Binary files: never convert line endings, never show textual diffs.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.aseprite binary
+*.ase binary
+*.wav binary
+*.ogg binary
+*.mp3 binary
+*.flac binary
+*.ttf binary
+*.otf binary
+*.dll binary
+*.so binary
+*.dylib binary
+*.exe binary
+*.zip binary

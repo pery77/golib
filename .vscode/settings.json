@@ -1,0 +1,36 @@
+{
+  "files.encoding": "utf8",
+  "files.eol": "\n",
+  "files.insertFinalNewline": true,
+  "files.trimTrailingWhitespace": true,
+  "[bat]": {
+    "files.eol": "\r\n"
+  },
+  "[go]": {
+    "editor.formatOnSave": true,
+    "editor.insertSpaces": false,
+    "editor.tabSize": 4
+  },
+  "search.exclude": {
+    "**/.tools": true,
+    "**/build": true
+  },
+  "files.watcherExclude": {
+    "**/.tools/**": true,
+    "**/build/**": true
+  },
+  "go.goroot": "${workspaceFolder}/.tools/go",
+  "go.toolsGopath": "${workspaceFolder}/.tools/gotools",
+  "go.toolsEnvVars": {
+    "GOPATH": "${workspaceFolder}/.tools/gopath",
+    "GOMODCACHE": "${workspaceFolder}/.tools/gopath/pkg/mod",
+    "GOCACHE": "${workspaceFolder}/.tools/gocache",
+    "GOENV": "off",
+    "GOTOOLCHAIN": "local",
+    "CGO_ENABLED": "0",
+    "GOFLAGS": "-tags=raylib_no_embed",
+    "APPDATA": "${workspaceFolder}/.tools/config",
+    "XDG_CONFIG_HOME": "${workspaceFolder}/.tools/config"
+  },
+  "chat.useAgentsMdFile": true
+}

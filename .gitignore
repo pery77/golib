@@ -1,0 +1,16 @@
+# Local toolchains downloaded by "golib setup". Safe to delete; setup recreates them.
+/.tools/
+
+# Build outputs
+/build/
+*.exe
+*.test
+*.out
+
+# Personal Claude Code settings
+.claude/settings.local.json
+
+# OS noise
+.DS_Store
+Thumbs.db
+desktop.ini

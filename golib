@@ -1,0 +1,18 @@
+#!/bin/sh
+# GoLib command-line entry point for Linux, macOS and POSIX shells on Windows (Git Bash, MSYS2).
+# Usage: ./golib <command> [options]     Run "./golib help" to list commands.
+#
+# This file only picks an implementation; all logic lives in tools/bootstrap/.
+set -eu
+
+root=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+
+case "$(uname -s)" in
+  MINGW* | MSYS* | CYGWIN*)
+    # Windows always uses the PowerShell implementation, whatever shell started it.
+    exec powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$root/tools/bootstrap/golib.ps1")" "$@"
+    ;;
+  *)
+    exec sh "$root/tools/bootstrap/golib.sh" "$@"
+    ;;
+esac
