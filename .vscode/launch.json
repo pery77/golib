@@ -1,0 +1,37 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "GoLib: debug game",
+      "type": "go",
+      "request": "launch",
+      "mode": "debug",
+      "program": "${workspaceFolder}/games/${input:game}",
+      "cwd": "${workspaceFolder}/games/${input:game}",
+      "output": "${workspaceFolder}/build/${input:game}/debug",
+      "windows": {
+        "env": {
+          "PATH": "${workspaceFolder}\\.tools\\raylib;${env:PATH}"
+        }
+      },
+      "linux": {
+        "env": {
+          "LD_LIBRARY_PATH": "${workspaceFolder}/.tools/raylib"
+        }
+      },
+      "osx": {
+        "env": {
+          "DYLD_LIBRARY_PATH": "${workspaceFolder}/.tools/raylib"
+        }
+      }
+    }
+  ],
+  "inputs": [
+    {
+      "id": "game",
+      "type": "promptString",
+      "description": "Game to debug: a folder name in games/",
+      "default": "platformer"
+    }
+  ]
+}

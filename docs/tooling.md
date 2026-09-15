@@ -8,6 +8,7 @@ How the `golib` command works, where its files live, and how to change it.
 | --- | --- | --- |
 | `golib.cmd` | cmd, PowerShell | Runs `tools/bootstrap/golib.ps1`. `-ExecutionPolicy Bypass` applies to that single run; no system setting changes. |
 | `golib` | sh, bash, zsh on Linux and macOS; Git Bash and MSYS2 on Windows | Runs `tools/bootstrap/golib.sh`. On Windows POSIX shells it delegates to `golib.ps1`, so Windows always uses one implementation. |
+| `golib-ui.cmd` | Double-click in Explorer, or `.\golib-ui` | Starts the [GoLib window](#golib-window), `tools/ui/golib-ui.ps1`, in a hidden Windows PowerShell, and returns at once. |
 
 PowerShell and cmd both resolve `.\golib` to `golib.cmd`, so the same word works in every shell; only the prefix changes (`.\` on Windows, `./` elsewhere). Gradle's `gradlew` and `gradlew.bat` use the same pattern.
 
@@ -54,30 +55,95 @@ Every `go` command that golib starts gets this environment, and so do the progra
 | `GOENV` | `off` | Ignore settings saved globally with `go env -w` |
 | `GOTOOLCHAIN` | `local` | Never switch to another Go version |
 | `CGO_ENABLED` | `0` | raylib-go in purego mode: no C compiler |
-| `GOFLAGS` | `-tags=raylib_no_embed` | Stop raylib-go from extracting its library into the user's cache folder when a game starts |
+| `GOFLAGS` | `-tags=raylib_no_embed,ffi_no_embed` | Debug builds load raylib and libffi from files golib provides, instead of extracting embedded copies into the user's cache folder when a game starts. `golib dist` replaces these tags: see [Dist builds](#dist-builds) |
 | `APPDATA` (Windows), `XDG_CONFIG_HOME` (Linux), `HOME` (macOS) | `.tools/config` (`.tools/home` on macOS) | Go writes telemetry counters to the user's config folder; this keeps them in the project. `golib run` restores the real value before starting the game. |
 
 The variables exist only while golib runs; nothing is saved. Running `.tools/go/bin/go` or `gofmt` directly skips them, and Go then writes caches and telemetry into your user folders. Use `golib go <args>` instead.
 
-## raylib library
+## raylib libraries
 
-raylib-go loads the raylib shared library when a program starts. Its module ships prebuilt libraries for Windows, Linux and macOS, on amd64 and arm64, in its `libs/` folder. golib extracts the one for this machine into `.tools/raylib/<raylib-go version>/` during `setup`, `build` and `test`, and makes sure programs find it:
+raylib-go loads the raylib shared library when a program starts, and calls it through libffi, using the [ffi](https://github.com/jupiterrider/ffi) module. Both modules can embed their library in the executable and extract it into the user's cache folder at startup. Debug builds turn that off with the `raylib_no_embed` and `ffi_no_embed` tags and load the libraries from files golib provides; [dist builds](#dist-builds) keep the embedded copies.
 
-| Platform | Library | `build` and `run` | `test` |
+raylib-go's module ships prebuilt raylib libraries for Windows, Linux and macOS, on amd64 and arm64, in its `libs/` folder. The ffi module ships libffi for Windows amd64 and macOS in its `assets/libffi/` folder. golib copies the ones for this machine into `.tools/raylib/` during `setup`, `build` and `test`, writes the versions they came from to `.tools/raylib/VERSION` (the raylib-go version on the first line, then `ffi <version>`), and makes sure debug builds find them:
+
+| Platform | Libraries | `build`, `run` and `shot` | `test` |
 | --- | --- | --- | --- |
-| Windows | `raylib.dll` | Copied next to the `.exe` | Added to `PATH` |
-| Linux | `libraylib.so.6.0.0` | Copied next to the executable; `run` sets `LD_LIBRARY_PATH` | `LD_LIBRARY_PATH` |
-| macOS | `libraylib.6.0.0.dylib` | Copied next to the executable; `run` sets `DYLD_LIBRARY_PATH` | `DYLD_LIBRARY_PATH` |
+| Windows | `raylib.dll`, `libffi-8.dll` | Copied next to the `.exe` | `.tools/raylib/` added to `PATH` |
+| Linux | `libraylib.so.6.0.0`; `libffi.so.8` comes from the system | Copied next to the executable; `run` and `shot` set `LD_LIBRARY_PATH` | `LD_LIBRARY_PATH` |
+| macOS | `libraylib.6.0.0.dylib`, `libffi.8.dylib` | Copied next to the executable; `run` and `shot` set `DYLD_LIBRARY_PATH` | `DYLD_LIBRARY_PATH` |
 
-A program that can't find the library stops as soon as it starts, with `cannot load library ...`. That includes test binaries started with `golib go test`: use `golib test`.
+A debug program that can't find a library stops as soon as it starts, with `cannot load library ...` for raylib or `error loading library` for libffi. That includes test binaries started with `golib go test`: use `golib test`.
 
-The prebuilt Linux library links against `libX11.so.6` and loads `libGL.so.1` when a window opens. Desktop Linux systems have both; `golib doctor` checks for them and prints the install command when they are missing.
+The prebuilt Linux library links against `libX11.so.6` and loads `libGL.so.1` when a window opens, and raylib-go needs the system's `libffi.so.8`. Desktop Linux systems usually have all three; `golib doctor` checks for them and prints the install command when they are missing.
 
 To update raylib-go, run `golib go -C framework get github.com/gen2brain/raylib-go/raylib@<version>`, then `golib go -C <module folder> mod tidy` for the framework and every game, then `golib setup`.
 
+## Screenshots
+
+`golib shot [game] [frame...] [--input "<script>"]` builds a game and runs it with these environment variables set:
+
+| Variable | Value |
+| --- | --- |
+| `GOLIB_SHOT_DIR` | `build/<game>/shots/`, emptied first |
+| `GOLIB_SHOT_FRAMES` | The requested frames, ascending, separated by commas. Default: `60`, one second of game time. |
+| `GOLIB_SHOT_INPUT` | The `--input` value, or unset |
+
+`golib.Run` reads them, so games need no code for screenshots. It opens a hidden window, runs exactly one update per frame without waiting, draws each frame into an off-screen texture and saves the requested frames as `frame-NNNNNN.png` (RGB, no alpha channel). Then `Run` returns and the game exits. Frame N always shows the game after N updates, so the same code gives the same pictures on any machine, as long as the game bases its timing on `dt`.
+
+The CLI stops a game that is still running after 120 seconds. It then prints an `[ok]` line for each saved file and a `[fail]` line for each missing one.
+
+`--input` plays keyboard and mouse input, so shots can reach every scene. It takes items separated by spaces:
+
+| Item | Effect |
+| --- | --- |
+| `Name@N` | Holds a key or mouse button down in update N only: one press or click |
+| `Name@A-B` | Holds it down from update A to update B, both included |
+| `Mouse@N:X,Y` | Moves the mouse pointer to pixel X, Y in update N; it stays there until the next move. Before the first move it is at 0, 0. |
+| `MouseWheel@N:A` | Turns the mouse wheel by A notches in update N: up when positive, down when negative |
+| `GamepadLeftStick@N:X,Y`, `GamepadRightStick@N:X,Y` | Tilts a stick of gamepad 0 to X, Y, each from -1 to 1, in update N; it stays there until the next tilt |
+
+Names are the `golib.Key` constants without `Key` (`Enter`, `Escape`, `Space`, `Left`, `A`, `Zero`), the `golib.MouseButton` constants (`MouseLeft`, `MouseRight`, `MouseMiddle`) and the `golib.GamepadButton` constants (`GamepadA`, `GamepadStart`, `GamepadUp`), in any letter case. The game sees a press in the first update of each hold, exactly as `Input.KeyPressed`, `Input.MousePressed` and `Input.GamepadPressed` report real ones. Gamepad items act on gamepad 0, which is connected, with the name `golib shot`, whenever the script has a gamepad item; real devices are ignored. Frame N is drawn right after update N, so `golib shot 90 --input "Enter@1 Escape@60"` shows the game 30 updates after Escape went down, and `--input "Mouse@10:640,500 MouseLeft@11"` clicks at 640, 500. An invalid item makes the game exit with an error that lists the names. Quote the script in every shell.
+
+Random numbers from `golib.RandomInt` and `golib.RandomFloat` start from the same seed in every shot, so the same command gives the same pictures. The framework picks that seed when the program starts, before `main`, by checking `GOLIB_SHOT_FRAMES`.
+
+## Dist builds
+
+`golib dist [game]` builds a game for players: one executable to share, with nothing next to it. Every other command makes a debug build.
+
+| | Debug build: `build`, `run`, `shot`, `test`, F5 | Dist build: `dist` |
+| --- | --- | --- |
+| Output | `build/<game>/<game>.exe`, next to the libraries | `build/<game>/dist/<game>.exe`, alone (no `.exe` on Linux and macOS) |
+| Console window (Windows) | Yes: raylib's warnings and Go's errors appear there | No. `golib.Run` shows its error, or a panic in the game, in a message box |
+| Debug symbols and paths from this machine | Kept, for Delve and readable stack traces | Removed |
+| raylib and libffi | Loaded from next to the executable | Embedded; written to the player's cache folder the first time the game starts |
+| The game's `assets/` folder | Read from disk, in the working directory | Embedded, through the game's `assets.go` |
+
+It runs `go build -trimpath -tags=golib_dist -ldflags="-s -w -H=windowsgui"`, without `-H=windowsgui` outside Windows, and writes into `build/<game>/dist/`, emptied first. `-tags=golib_dist` replaces the tags in `GOFLAGS`, so raylib-go and ffi embed their libraries again. The same tag switches the framework to dist behavior and includes the game's `assets.go`, which embeds its assets folder:
+
+```go
+//go:build golib_dist
+
+package main
+
+import (
+	"embed"
+
+	"golib"
+)
+
+//go:embed all:assets
+var assets embed.FS
+
+func init() { golib.EmbedAssets(assets) }
+```
+
+Debug builds leave that file out, so they never embed assets. Before building, `dist` checks with `go list` that a game with an `assets/` folder embeds `assets` or `all:assets`, and stops with a `[fail]` line otherwise: without it the executable would build and then fail on the player's machine. `dist` builds for the machine it runs on; there is no cross-compiling yet.
+
+When a dist build starts, raylib-go and ffi write their libraries to the user's cache folder, in folders they name: `%LOCALAPPDATA%\github.com\gen2brain\raylib-go\<raylib version>\` and `%LOCALAPPDATA%\github.com\jupiterrider\ffi\libffi\<libffi version>\` on Windows, under `~/.cache/` on Linux and `~/Library/Caches/` on macOS. They write each file only when it is missing and never check it afterwards, so a damaged copy stops the game from starting until that folder is deleted. On Linux, players also need `libX11.so.6`, `libGL.so.1` and `libffi.so.8`.
+
 ## PowerShell argument splitting
 
-Windows PowerShell 5.1 splits arguments that start with `-` and contain a dot before they reach a native program. `.\golib go -C games/hello mod edit -replace=golib=../../framework` arrives with `-replace=golib=` and `../../framework` as separate arguments. Quote such arguments: `'-replace=golib=../../framework'`. cmd and Git Bash pass them unchanged.
+Windows PowerShell 5.1 splits arguments that start with `-` and contain a dot before they reach a native program. `.\golib go -C games/platformer mod edit -replace=golib=../../framework` arrives with `-replace=golib=` and `../../framework` as separate arguments. Quote such arguments: `'-replace=golib=../../framework'`. cmd and Git Bash pass them unchanged.
 
 ## Folders owned by the tooling
 
@@ -86,12 +152,14 @@ Windows PowerShell 5.1 splits arguments that start with `-` and contain a dot be
 | `.tools/go/` | The Go toolchain |
 | `.tools/gopath/` | Downloaded Go modules. Go makes them read-only; `clean --all` handles that. |
 | `.tools/gocache/` | Go's build cache |
-| `.tools/raylib/<version>/` | The raylib library, extracted from raylib-go |
+| `.tools/raylib/` | The raylib library, extracted from raylib-go; libffi, copied from the ffi module on Windows amd64 and macOS; and a `VERSION` file naming both versions |
 | `.tools/config/`, `.tools/home/` | Go's telemetry counters (Windows and Linux; macOS) |
 | `.tools/gotools/` | Tools the VS Code Go extension installs, such as gopls |
-| `build/<game>/` | A game's executable, next to its copy of the raylib library |
+| `build/<game>/` | A game's debug executable, next to its copies of the raylib libraries |
+| `build/<game>/shots/` | Screenshots from the latest `golib shot` |
+| `build/<game>/dist/` | The latest `golib dist` build: the game as a single file |
 
-`.tools/` and `build/` are git-ignored. `golib setup` creates `.tools/` and `golib clean --all` removes it; `golib build` and `run` create `build/` and `golib clean` removes it. `.tools/downloads/` only exists while setup is downloading.
+`.tools/` and `build/` are git-ignored. `golib setup` creates `.tools/` and `golib clean --all` removes it; `golib build`, `run`, `shot` and `dist` create `build/` and `golib clean` removes it. `.tools/downloads/` only exists while setup is downloading.
 
 `.tools/` stays visible in the VS Code Explorer on purpose: nothing is hidden from the user. It is only excluded from search and file watching, for speed.
 
@@ -99,11 +167,21 @@ Windows PowerShell 5.1 splits arguments that start with `-` and contain a dot be
 
 1. Add `cmd_<name>` to `golib.sh` and `Invoke-<Name>` to `golib.ps1`.
 2. Register it in both dispatchers and both help texts.
-3. If people run it often, add a task to `.vscode/tasks.json`.
+3. If people run it often, add a task to `.vscode/tasks.json` and a button to `$Actions` in `tools/ui/golib-ui.ps1`.
 4. Document it in the Commands tables of `AGENTS.md` and `README.md`.
 5. Test on Windows (PowerShell, cmd and Git Bash) and on Linux or macOS.
 
 `.claude/settings.json` already allows every `golib` subcommand, so no permission change is needed.
+
+## GoLib window
+
+`tools/ui/golib-ui.ps1` is a window with a button for each command, for people who would rather click than type. `golib-ui.cmd` starts it. It is Windows only: it uses WPF and Windows PowerShell 5.1, which come with Windows 10 and 11, so it needs nothing installed. Linux and macOS use `./golib <command>` or the VS Code tasks.
+
+- **No build logic.** Each command button starts `golib.ps1` with the same arguments as typing `.\golib <command>`, shows its output as it arrives, and reports the exit code. Stop ends the command's whole process tree, including a game started by Run.
+- **Buttons come from the `$Actions` table** at the top of the script. `Command` is golib's arguments, where `{game}` is the game picked in the list and `{frames}` the frame numbers in the box; `Folder` opens a folder in Explorer instead; `Confirm` asks before running. A new CLI command usually needs one line there.
+- **One command at a time.** While a command runs, the other command buttons are disabled, so two commands never write to `.tools/raylib/` or `build/` together.
+- **Same rules as `golib.ps1`:** ASCII only, no PowerShell 7-only syntax, `Set-StrictMode -Version 3.0`.
+- **Output without threads.** PowerShell script blocks can't run as callbacks on other threads, so the window reads the command's output with `ReadLineAsync` and collects the lines from a `DispatcherTimer` on its own thread.
 
 ## Line endings and file modes
 
@@ -116,8 +194,13 @@ Windows PowerShell 5.1 splits arguments that start with `-` and contain a dot be
 | File | Provides |
 | --- | --- |
 | `.vscode/tasks.json` | "GoLib: ..." tasks that call the CLI (Terminal > Run Task...). "GoLib: run" is the default build task (Ctrl+Shift+B) and "GoLib: test" the default test task. Windows tasks run `cmd.exe /d /c .\golib.cmd`, so they work whatever the default terminal shell is. |
-| `.vscode/settings.json` | Line endings and formatting defaults; `.tools/` and `build/` excluded from search and file watching. The Go extension uses `.tools/go` (`go.goroot`) with the CLI's environment (`go.toolsEnvVars`) and installs its tools into `.tools/gotools/`. Not yet checked in the editor; on macOS, tools started by the extension still write Go telemetry to the user folder. |
+| `.vscode/settings.json` | Line endings and formatting defaults; `.tools/` and `build/` excluded from search and file watching. The Go extension uses `.tools/go` (`go.goroot`) with the CLI's environment (`go.toolsEnvVars`) and installs its tools, gopls and Delve, into `.tools/gotools/`. Tool update checks are off (`go.toolsManagement.checkForUpdates`), because they run `go` outside that environment on every debug session. |
+| `.vscode/launch.json` | "GoLib: debug game" (F5). It asks for a game folder name, has Delve build the game into `build/<game>/`, and runs it from `games/<game>/` with `.tools/raylib/` on the library search path. The `raylib_no_embed` and `ffi_no_embed` tags come from `GOFLAGS` in `go.toolsEnvVars`: the configuration sets no `buildFlags`, because whenever `buildFlags` is set the extension runs `go` outside the project environment to inspect Delve. The game sees the same redirected config folder as the tools. The Go extension offers to install Delve the first time. |
 | `.vscode/extensions.json` | Recommended extensions: Go, EditorConfig, Claude Code. |
+
+The Go extension looks for Go only when it starts. If it started before `golib setup` installed Go, for example because a `.go` file was open, it fails to activate and stays that way: run **Developer: Reload Window** after setup.
+
+Known limitation: every time the Go extension starts, and when you run **Go: Locate Configured Go Tools**, it runs `go version -m` on its installed tools without `go.toolsEnvVars`. Go then updates its local telemetry counters in the user's config folder (`%APPDATA%\go\telemetry` on Windows). No setting redirects those calls. The counters stay on the machine unless the user opts in to uploading them with `go telemetry on`. On macOS every tool the extension starts writes there, because the redirect relies on `HOME`, which the settings leave alone.
 
 ## Planned architecture
 

@@ -21,6 +21,7 @@
   },
   "go.goroot": "${workspaceFolder}/.tools/go",
   "go.toolsGopath": "${workspaceFolder}/.tools/gotools",
+  "go.toolsManagement.checkForUpdates": "off",
   "go.toolsEnvVars": {
     "GOPATH": "${workspaceFolder}/.tools/gopath",
     "GOMODCACHE": "${workspaceFolder}/.tools/gopath/pkg/mod",
@@ -28,7 +29,7 @@
     "GOENV": "off",
     "GOTOOLCHAIN": "local",
     "CGO_ENABLED": "0",
-    "GOFLAGS": "-tags=raylib_no_embed",
+    "GOFLAGS": "-tags=raylib_no_embed,ffi_no_embed",
     "APPDATA": "${workspaceFolder}/.tools/config",
     "XDG_CONFIG_HOME": "${workspaceFolder}/.tools/config"
   },

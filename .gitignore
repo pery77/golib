@@ -6,6 +6,7 @@
 *.exe
 *.test
 *.out
+__debug_bin*
 
 # Personal Claude Code settings
 .claude/settings.local.json

@@ -10,6 +10,7 @@ A change is done when all of these hold:
 2. On a clean checkout, `golib setup`, `golib doctor` and `golib test` succeed, and every game in `games/` builds with `golib build <game>`. Go code is formatted: `golib go -C <module folder> fmt ./...` lists no files.
 3. Every doc that describes the changed behavior is updated in the same change: the status table, commands and layout in `AGENTS.md`, `README.md`, and the relevant files in `docs/`.
 4. A fresh agent session that only reads `AGENTS.md` and follows its links would use the change correctly.
+5. Anything that draws has been checked with `golib shot`, by looking at the screenshots, not just by building.
 
 ## Designing the API for agents
 

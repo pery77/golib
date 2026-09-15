@@ -22,6 +22,14 @@ go_sha256_darwin_arm64=ee215d57e0ec269c60cc9ceca68e6bda321ba9ee5afe24f4b0988703c
 # The raylib binding. Its version is pinned in framework/go.mod; the prebuilt raylib library
 # for each platform ships inside the module, in its libs/ folder.
 raylib_module=github.com/gen2brain/raylib-go/raylib
+# raylib-go calls raylib through libffi. The ffi module ships libffi for macOS in its
+# assets/libffi/ folder; Linux games load the system's libffi.so.8.
+ffi_module=github.com/jupiterrider/ffi
+
+# golib shot: the frame captured when none is given (one second of game time), and how many
+# seconds a game may run before it is stopped.
+shot_default_frame=60
+shot_timeout=120
 
 root=$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)
 tools_dir="$root/.tools"
@@ -42,15 +50,20 @@ GoLib - make games in Go, powered by raylib.
 Usage: golib <command> [options]
 
 Commands:
-  setup          Check the environment, then install Go, Go modules and raylib into .tools/
-  doctor         Diagnose the environment without changing anything
-  build [game]   Build games/<game> into build/<game>/
-  run [game]     Build games/<game>, then run it from its folder
-  test           Vet and test the framework and every game
-  go <args>      Run the project's Go toolchain, with GoLib's settings
-  clean          Delete build outputs (build/)
-  clean --all    Also delete downloaded tools (.tools/); run setup again afterwards
-  help           Show this help
+  setup                   Check the environment, then install Go, Go modules and raylib into .tools/
+  doctor                  Diagnose the environment without changing anything
+  build [game]            Debug build of games/<game> into build/<game>/
+  dist [game]             Build games/<game> as a single file to share, in build/<game>/dist/
+  run [game]              Build games/<game>, then run it from its folder
+  shot [game] [frame...]  Run games/<game> in a hidden window and save screenshots of the given
+                          frames into build/<game>/shots/ (default: frame 60, one second in).
+                          --input "Enter@1 Right@30-90 Mouse@100:640,360 MouseLeft@101" plays keyboard,
+                          mouse and gamepad input in those updates (see docs/tooling.md)
+  test                    Vet and test the framework and every game
+  go <args>               Run the project's Go toolchain, with GoLib's settings
+  clean                   Delete build outputs (build/)
+  clean --all             Also delete downloaded tools (.tools/); run setup again afterwards
+  help                    Show this help
 
 [game] is a folder name in games/. Leave it out when there is only one game.
 
@@ -166,13 +179,14 @@ check_environment() {
     check warn "neither curl nor wget found: setup can't download Go. Install curl (Debian/Ubuntu: sudo apt install curl; Fedora: sudo dnf install curl)"
   fi
 
-  # raylib's prebuilt Linux library links against X11, and loads OpenGL when a window opens.
+  # raylib's prebuilt Linux library links against X11 and loads OpenGL when a window opens.
+  # raylib-go calls it through the system's libffi.
   if [ "$goos" = linux ]; then
-    for ce_library in libX11.so.6 libGL.so.1; do
+    for ce_library in libX11.so.6 libGL.so.1 libffi.so.8; do
       find_linux_library "$ce_library"
       case "$library_state" in
         found) check ok "system library $ce_library found" ;;
-        missing) check warn "system library $ce_library not found: games can't open a window. Install it (Debian/Ubuntu: sudo apt install libx11-6 libgl1; Fedora: sudo dnf install libX11 mesa-libGL)" ;;
+        missing) check warn "system library $ce_library not found: games can't start. Install it (Debian/Ubuntu: sudo apt install libx11-6 libgl1 libffi8; Fedora: sudo dnf install libX11 mesa-libGL libffi)" ;;
         *) check info "could not check for $ce_library (ldconfig not found)" ;;
       esac
     done
@@ -265,7 +279,9 @@ set_go_environment() {
   GOENV=off                        # ignore any global "go env -w" settings
   GOTOOLCHAIN=local                # never download a different Go version
   CGO_ENABLED=0                    # raylib-go without a C compiler
-  GOFLAGS=-tags=raylib_no_embed    # load raylib from build/ or .tools/, never extract it to a user folder
+  # Debug builds load raylib and libffi from build/ or .tools/ instead of extracting them into a
+  # user folder. golib dist replaces these tags, so dist builds embed them.
+  GOFLAGS=-tags=raylib_no_embed,ffi_no_embed
   PATH="$go_root/bin:$PATH"
   export GOROOT GOPATH GOMODCACHE GOCACHE GOENV GOTOOLCHAIN CGO_ENABLED GOFLAGS PATH
   # Go writes telemetry counters to the user's config folder ($XDG_CONFIG_HOME or ~/.config on
@@ -356,16 +372,39 @@ resolve_game() {
   usage_error "$rg_command needs a game name (available: $(comma_list "$games"))"
 }
 
-# Makes sure the raylib library matching a module's raylib-go version is extracted into
-# .tools/raylib/<version>/. Sets raylib_lib to its path, or sets raylib_error and returns 1.
+# Prints the raylib-go version whose library is in .tools/raylib/, or nothing. It is the first line
+# of .tools/raylib/VERSION.
+raylib_version() {
+  if [ -f "$raylib_dir/VERSION" ]; then
+    sed -n '1p' "$raylib_dir/VERSION"
+  fi
+}
+
+# Makes sure .tools/raylib/ holds the libraries that a module's debug builds load: raylib, from the
+# module's raylib-go version, and on macOS libffi, from its ffi version. VERSION records both
+# versions. The folder has no version in its name, so editor settings can point at it. Sets
+# raylib_lib and ffi_lib (empty on Linux, which uses the system's libffi) to the libraries' paths
+# and sr_version to the raylib-go version, or sets raylib_error and returns 1.
 # Requires set_go_environment.
 sync_raylib() {
-  if ! sr_info=$("$go_exe" -C "$1" list -m -f '{{.Version}}|{{.Dir}}' "$raylib_module"); then
-    raylib_error="cannot find $raylib_module for $1 (run: golib setup)"
+  if ! sr_info=$("$go_exe" -C "$1" list -m -f '{{.Path}}|{{.Version}}|{{.Dir}}' "$raylib_module" "$ffi_module"); then
+    raylib_error="cannot find $raylib_module and $ffi_module for $1 (run: golib setup)"
     return 1
   fi
-  sr_version=${sr_info%%|*}
-  sr_cache=${sr_info#*|}
+  sr_raylib=$(printf '%s\n' "$sr_info" | sed -n "s#^$raylib_module|##p")
+  sr_ffi=$(printf '%s\n' "$sr_info" | sed -n "s#^$ffi_module|##p")
+  if [ -z "$sr_raylib" ] || [ -z "$sr_ffi" ]; then
+    raylib_error="cannot find $raylib_module and $ffi_module for $1 (run: golib setup)"
+    return 1
+  fi
+  sr_version=${sr_raylib%%|*}
+  sr_cache=${sr_raylib#*|}
+  sr_ffi_version=${sr_ffi%%|*}
+  sr_ffi_cache=${sr_ffi#*|}
+  case "$goos" in
+    darwin) sr_ffi_source="assets/libffi/darwin_$goarch/libffi.8.dylib" ;;
+    *) sr_ffi_source='' ;;
+  esac
   if [ -z "$sr_cache" ]; then
     raylib_error="$raylib_module $sr_version is not downloaded yet (run: golib setup)"
     return 1
@@ -387,13 +426,32 @@ sync_raylib() {
   fi
   # The archive holds a single file, such as libraylib.so.6.0.0.
   sr_name=$(tar -tzf "$sr_archive" | head -n 1)
-  raylib_lib="$raylib_dir/$sr_version/$sr_name"
-  if [ -f "$raylib_lib" ]; then return 0; fi
-  mkdir -p "$raylib_dir/$sr_version"
-  if ! tar -xzf "$sr_archive" -C "$raylib_dir/$sr_version" || [ ! -f "$raylib_lib" ]; then
+  raylib_lib="$raylib_dir/$sr_name"
+  ffi_lib=''
+  if [ -n "$sr_ffi_source" ]; then ffi_lib="$raylib_dir/$(basename "$sr_ffi_source")"; fi
+  sr_expected=$(printf '%s\nffi %s' "$sr_version" "$sr_ffi_version")
+  if [ -f "$raylib_lib" ] && { [ -z "$ffi_lib" ] || [ -f "$ffi_lib" ]; } &&
+    [ "$(cat "$raylib_dir/VERSION" 2>/dev/null)" = "$sr_expected" ]; then
+    return 0
+  fi
+  if [ -n "$sr_ffi_source" ] && [ -z "$sr_ffi_cache" ]; then
+    raylib_error="$ffi_module $sr_ffi_version is not downloaded yet (run: golib setup)"
+    return 1
+  fi
+  remove_tree "$raylib_dir"
+  mkdir -p "$raylib_dir"
+  if ! tar -xzf "$sr_archive" -C "$raylib_dir" || [ ! -f "$raylib_lib" ]; then
     raylib_error="could not extract $sr_name from $sr_archive"
     return 1
   fi
+  if [ -n "$ffi_lib" ]; then
+    if ! cp "$sr_ffi_cache/$sr_ffi_source" "$ffi_lib"; then
+      raylib_error="could not copy $sr_ffi_source from $sr_ffi_cache"
+      return 1
+    fi
+    chmod u+w "$ffi_lib" # Go's module cache is read-only; the copy doesn't need to be
+  fi
+  printf '%s\n' "$sr_expected" >"$raylib_dir/VERSION"
 }
 
 # Adds a folder to the dynamic library search path. Call it in a subshell.
@@ -407,8 +465,8 @@ use_library_dir() {
   fi
 }
 
-# Builds games/<game> into build/<game>/ next to a copy of the raylib library. Sets built_exe;
-# prints a failure and returns 1 if something goes wrong.
+# Builds games/<game> as a debug build into build/<game>/, next to copies of the libraries it
+# loads. Sets built_exe; prints a failure and returns 1 if something goes wrong.
 build_game() {
   bg_dir="$games_dir/$1"
   bg_out="$build_dir/$1"
@@ -423,7 +481,43 @@ build_game() {
     return 1
   fi
   cp -f "$raylib_lib" "$bg_out/"
+  if [ -n "$ffi_lib" ]; then cp -f "$ffi_lib" "$bg_out/"; fi
   check ok "built games/$1 into build/$1/$1"
+}
+
+# Builds games/<game> as a dist build: build/<game>/dist/<game>, a single file to share. It has no
+# debug symbols and no paths from this machine, and it embeds the raylib library (and libffi on
+# macOS) and the game's assets folder. Sets built_exe; prints a failure and returns 1 if something
+# goes wrong.
+dist_game() {
+  dg_dir="$games_dir/$1"
+  if [ -d "$dg_dir/assets" ]; then
+    # A game embeds its assets from assets.go (see golib.EmbedAssets). Without it, the file
+    # would build fine and fail on the player's machine.
+    if ! dg_patterns=$("$go_exe" -C "$dg_dir" list -tags=golib_dist -f '{{range .EmbedPatterns}}{{println .}}{{end}}' .); then
+      check fail "could not inspect games/$1 (see the Go errors above)"
+      return 1
+    fi
+    if ! printf '%s\n' "$dg_patterns" | grep -q -x -e 'all:assets' -e 'assets'; then
+      check fail "games/$1/assets/ would be missing from the dist build: add games/$1/assets.go, as the golib.EmbedAssets documentation shows"
+      return 1
+    fi
+  fi
+  dg_out="$build_dir/$1/dist"
+  built_exe="$dg_out/$1"
+  remove_tree "$dg_out"
+  mkdir -p "$dg_out"
+  # -tags replaces raylib_no_embed and ffi_no_embed from GOFLAGS, so the libraries are embedded.
+  if ! "$go_exe" -C "$dg_dir" build -trimpath -tags=golib_dist '-ldflags=-s -w' -o "$built_exe" .; then
+    check fail "dist build failed for games/$1 (see the Go errors above)"
+    return 1
+  fi
+  check ok "built games/$1 into build/$1/dist/$1"
+  if [ "$goos" = darwin ]; then
+    check info "one file with raylib, libffi and the assets inside; it copies raylib and libffi into the player's ~/Library/Caches folder when it first starts"
+  else
+    check info "one file with raylib and the assets inside; it copies raylib into the player's ~/.cache folder when it first starts. Players need libX11.so.6, libGL.so.1 and libffi.so.8"
+  fi
 }
 
 # --- Commands -------------------------------------------------------------------------------
@@ -453,7 +547,7 @@ cmd_setup() {
       continue
     fi
     if sync_raylib "$root/$cs_module"; then
-      check ok "$cs_module: modules downloaded, raylib library in .tools/raylib/$(basename "$(dirname "$raylib_lib")")/"
+      check ok "$cs_module: modules downloaded, raylib library for raylib-go $sr_version in .tools/raylib/"
     else
       check fail "$cs_module: $raylib_error"
     fi
@@ -503,7 +597,8 @@ cmd_doctor() {
     cd_version=$(sed -n 's#^[[:space:]]*\(require[[:space:]][[:space:]]*\)\{0,1\}github\.com/gen2brain/raylib-go/raylib[[:space:]][[:space:]]*\(v[^[:space:]]*\).*#\2#p' "$root/$cd_module/go.mod" | head -n 1)
     if [ -z "$cd_version" ]; then
       check warn "$cd_module: go.mod does not require $raylib_module"
-    elif ls "$raylib_dir/$cd_version"/libraylib.* >/dev/null 2>&1; then
+    elif [ "$(raylib_version)" = "$cd_version" ] && ls "$raylib_dir"/libraylib.* >/dev/null 2>&1 &&
+      { [ "$goos" != darwin ] || [ -f "$raylib_dir/libffi.8.dylib" ]; }; then
       check ok "$cd_module: raylib library for raylib-go $cd_version ready"
     else
       check warn "$cd_module: raylib library for raylib-go $cd_version not ready (run: golib setup)"
@@ -523,6 +618,17 @@ cmd_build() {
     exit 0
   fi
   summary build
+  exit 1
+}
+
+cmd_dist() {
+  resolve_game dist "$@"
+  assert_toolchain dist
+  if dist_game "$game"; then
+    summary dist
+    exit 0
+  fi
+  summary dist
   exit 1
 }
 
@@ -546,6 +652,95 @@ cmd_run() {
   exit 0
 }
 
+# shot [game] [frame...] [--input <script>]: numbers are frames, anything else names the game.
+cmd_shot() {
+  cs_names=''
+  cs_list=''
+  cs_input=''
+  while [ $# -gt 0 ]; do
+    cs_arg=$1
+    shift
+    case "$cs_arg" in
+      '') usage_error "shot got an empty argument" ;;
+      --input)
+        if [ $# -eq 0 ]; then usage_error 'shot --input needs input to play, for example: --input "Enter@1 Right@30-90"'; fi
+        cs_input=$1
+        shift
+        ;;
+      --input=*) cs_input=${cs_arg#--input=} ;;
+      -*) usage_error "unknown option for shot: $cs_arg" ;;
+      *[!0-9]*) cs_names="${cs_names:+$cs_names }$cs_arg" ;;
+      *)
+        if [ ${#cs_arg} -gt 6 ] || [ "$cs_arg" -lt 1 ]; then
+          usage_error "frame numbers go from 1 to 999999 (got: $cs_arg)"
+        fi
+        cs_list="${cs_list:+$cs_list }$(expr "$cs_arg" + 0)"
+        ;;
+    esac
+  done
+  if [ -z "$cs_list" ]; then cs_list=$shot_default_frame; fi
+  cs_frames=$(printf '%s\n' $cs_list | sort -n -u | tr '\n' ' ')
+  resolve_game shot $cs_names
+  assert_toolchain shot
+  if ! build_game "$game"; then
+    summary shot
+    exit 1
+  fi
+
+  cs_dir="$build_dir/$game/shots"
+  remove_tree "$cs_dir"
+  mkdir -p "$cs_dir"
+  check info "running $game for $(printf '%s\n' $cs_frames | tail -n 1) frame(s) in a hidden window${cs_input:+, playing $cs_input}"
+  cs_code=0
+  (
+    restore_user_environment
+    use_library_dir "$build_dir/$game"
+    GOLIB_SHOT_DIR=$cs_dir
+    GOLIB_SHOT_FRAMES=$(printf '%s\n' $cs_frames | paste -s -d , -)
+    GOLIB_SHOT_INPUT=$cs_input
+    export GOLIB_SHOT_DIR GOLIB_SHOT_FRAMES GOLIB_SHOT_INPUT
+    cd "$games_dir/$game" || exit 1
+    "$built_exe" &
+    cs_pid=$!
+    # Stop a game that never finishes, so whoever waits for shot isn't stuck.
+    (
+      cs_waited=0
+      while kill -0 "$cs_pid" 2>/dev/null; do
+        if [ "$cs_waited" -ge "$shot_timeout" ]; then
+          : >"$cs_dir/.timed-out"
+          kill "$cs_pid" 2>/dev/null
+          exit 0
+        fi
+        sleep 1
+        cs_waited=$((cs_waited + 1))
+      done
+    ) &
+    cs_watchdog=$!
+    cs_status=0
+    wait "$cs_pid" || cs_status=$?
+    wait "$cs_watchdog" 2>/dev/null || true
+    exit "$cs_status"
+  ) || cs_code=$?
+
+  if [ -f "$cs_dir/.timed-out" ]; then
+    rm -f "$cs_dir/.timed-out"
+    check fail "$game didn't finish within $shot_timeout seconds and was stopped (does Update or Draw loop forever?)"
+  elif [ "$cs_code" -ne 0 ]; then
+    check fail "$game exited with code $cs_code (see its output above)"
+  fi
+  for cs_frame in $cs_frames; do
+    cs_file=$(printf 'frame-%06d.png' "$cs_frame")
+    if [ -f "$cs_dir/$cs_file" ]; then
+      check ok "frame $cs_frame: build/$game/shots/$cs_file"
+    else
+      check fail "frame $cs_frame: no screenshot was saved"
+    fi
+  done
+  summary shot
+  if [ "$failures" -gt 0 ]; then exit 1; fi
+  exit 0
+}
+
 cmd_test() {
   if [ $# -gt 0 ]; then usage_error "test takes no options (got: $*)"; fi
   assert_toolchain test
@@ -561,7 +756,8 @@ cmd_test() {
       check fail "$ct_module: $raylib_error"
       continue
     fi
-    # Test binaries load the raylib library when they start, so it must be on the search path.
+    # Test binaries load the raylib library (and libffi on macOS) when they start, so .tools/raylib/
+    # must be on the search path.
     if (use_library_dir "$(dirname "$raylib_lib")" && "$go_exe" -C "$ct_dir" test ./...); then
       check ok "$ct_module: vet and tests passed"
     else
@@ -621,7 +817,9 @@ case "$command" in
   setup) cmd_setup "$@" ;;
   doctor) cmd_doctor "$@" ;;
   build) cmd_build "$@" ;;
+  dist) cmd_dist "$@" ;;
   run) cmd_run "$@" ;;
+  shot) cmd_shot "$@" ;;
   test) cmd_test "$@" ;;
   go) cmd_go "$@" ;;
   clean) cmd_clean "$@" ;;

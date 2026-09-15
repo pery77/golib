@@ -25,6 +25,14 @@ $GoSha256 = @{
 # The raylib binding. Its version is pinned in framework/go.mod; the prebuilt raylib library
 # for each platform ships inside the module, in its libs/ folder.
 $RaylibModule = 'github.com/gen2brain/raylib-go/raylib'
+# raylib-go calls raylib through libffi. The ffi module ships libffi for Windows amd64 in its
+# assets/libffi/ folder.
+$FfiModule = 'github.com/jupiterrider/ffi'
+
+# golib shot: the frame captured when none is given (one second of game time), and how many
+# seconds a game may run before it is stopped.
+$ShotDefaultFrame = 60
+$ShotTimeoutSeconds = 120
 
 $Root = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 $ToolsDir = Join-Path $Root '.tools'
@@ -46,15 +54,20 @@ GoLib - make games in Go, powered by raylib.
 Usage: golib <command> [options]
 
 Commands:
-  setup          Check the environment, then install Go, Go modules and raylib into .tools/
-  doctor         Diagnose the environment without changing anything
-  build [game]   Build games/<game> into build/<game>/
-  run [game]     Build games/<game>, then run it from its folder
-  test           Vet and test the framework and every game
-  go <args>      Run the project's Go toolchain, with GoLib's settings
-  clean          Delete build outputs (build/)
-  clean --all    Also delete downloaded tools (.tools/); run setup again afterwards
-  help           Show this help
+  setup                   Check the environment, then install Go, Go modules and raylib into .tools/
+  doctor                  Diagnose the environment without changing anything
+  build [game]            Debug build of games/<game> into build/<game>/
+  dist [game]             Build games/<game> as a single file to share, in build/<game>/dist/
+  run [game]              Build games/<game>, then run it from its folder
+  shot [game] [frame...]  Run games/<game> in a hidden window and save screenshots of the given
+                          frames into build/<game>/shots/ (default: frame 60, one second in).
+                          --input "Enter@1 Right@30-90 Mouse@100:640,360 MouseLeft@101" plays keyboard,
+                          mouse and gamepad input in those updates (see docs/tooling.md)
+  test                    Vet and test the framework and every game
+  go <args>               Run the project's Go toolchain, with GoLib's settings
+  clean                   Delete build outputs (build/)
+  clean --all             Also delete downloaded tools (.tools/); run setup again afterwards
+  help                    Show this help
 
 [game] is a folder name in games/. Leave it out when there is only one game.
 
@@ -216,7 +229,9 @@ function Set-GoEnvironment {
     $env:GOENV = 'off'                        # ignore any global "go env -w" settings
     $env:GOTOOLCHAIN = 'local'                # never download a different Go version
     $env:CGO_ENABLED = '0'                    # raylib-go without a C compiler
-    $env:GOFLAGS = '-tags=raylib_no_embed'    # load raylib from build/ or .tools/, never extract it to a user folder
+    # Debug builds load raylib and libffi from build/ or .tools/ instead of extracting them into
+    # a user folder. golib dist replaces these tags, so dist builds embed both.
+    $env:GOFLAGS = '-tags=raylib_no_embed,ffi_no_embed'
     $env:PATH = (Join-Path $GoRoot 'bin') + ';' + $env:PATH
     # Go writes telemetry counters to the user's config folder (%APPDATA%\go\telemetry).
     # Redirect that folder into .tools/; Invoke-Run restores it before starting a game.
@@ -270,34 +285,71 @@ function Resolve-Game([string]$Command, [string[]]$Options) {
     Stop-WithUsageError "$Command needs a game name (available: $($games -join ', '))"
 }
 
-# Makes sure the raylib library matching a module's raylib-go version is extracted into
-# .tools/raylib/<version>/, and returns the library's full path. Requires Set-GoEnvironment.
+# Returns the raylib-go version whose library is in .tools/raylib/, or $null. It is the first line
+# of .tools/raylib/VERSION.
+function Get-RaylibVersion {
+    $versionFile = Join-Path $RaylibDir 'VERSION'
+    if (-not (Test-Path -LiteralPath $versionFile -PathType Leaf)) { return $null }
+    $first = @(Get-Content -LiteralPath $versionFile -TotalCount 1)
+    if ($first.Count -eq 0) { return $null }
+    return ([string]$first[0]).Trim()
+}
+
+# Makes sure .tools/raylib/ holds the libraries that a module's debug builds load: raylib, from the
+# module's raylib-go version, and libffi, from its ffi version (ffi ships it for amd64 only).
+# VERSION records both versions. Returns the libraries' full paths. The folder has no version in
+# its name, so editor settings can point at it. Requires Set-GoEnvironment.
 function Sync-Raylib([string]$ModuleDir) {
-    $info = @(& $GoExe -C $ModuleDir list -m -f '{{.Version}}|{{.Dir}}' $RaylibModule)
-    if ($LASTEXITCODE -ne 0 -or $info.Count -eq 0) {
-        throw "cannot find $RaylibModule for $ModuleDir (run: golib setup)"
+    $modules = @{}
+    foreach ($line in @(& $GoExe -C $ModuleDir list -m -f '{{.Path}}|{{.Version}}|{{.Dir}}' $RaylibModule $FfiModule)) {
+        $path, $version, $dir = ([string]$line) -split '\|', 3
+        $modules[$path] = @{ Version = $version; Dir = $dir }
     }
-    $version, $moduleCacheDir = ([string]$info[0]) -split '\|', 2
-    $lib = Join-Path (Join-Path $RaylibDir $version) 'raylib.dll'
-    if (Test-Path -LiteralPath $lib -PathType Leaf) { return $lib }
+    if ($LASTEXITCODE -ne 0 -or -not $modules.ContainsKey($RaylibModule) -or -not $modules.ContainsKey($FfiModule)) {
+        throw "cannot find $RaylibModule and $FfiModule for $ModuleDir (run: golib setup)"
+    }
+    $raylib = $modules[$RaylibModule]
+    $ffi = $modules[$FfiModule]
+    $lib = Join-Path $RaylibDir 'raylib.dll'
+    $libs = @($lib)
+    $ffiSource = $null
+    if ((Get-GoArch) -eq 'amd64') {
+        $ffiSource = 'assets\libffi\windows_amd64\libffi-8.dll'
+        $libs += Join-Path $RaylibDir 'libffi-8.dll'
+    }
+    $versionFile = Join-Path $RaylibDir 'VERSION'
+    $versionText = "$($raylib.Version)`nffi $($ffi.Version)`n"
+    $ready = (Test-Path -LiteralPath $versionFile -PathType Leaf) -and ([System.IO.File]::ReadAllText($versionFile) -eq $versionText)
+    foreach ($path in $libs) {
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { $ready = $false }
+    }
+    if ($ready) { return $libs }
 
-    if (-not $moduleCacheDir) { throw "$RaylibModule $version is not downloaded yet (run: golib setup)" }
+    if (-not $raylib.Dir) { throw "$RaylibModule $($raylib.Version) is not downloaded yet (run: golib setup)" }
+    if ($ffiSource -and -not $ffi.Dir) { throw "$FfiModule $($ffi.Version) is not downloaded yet (run: golib setup)" }
     $pattern = @{ 'amd64' = 'raylib-*_win64_msvc16.tar.gz'; 'arm64' = 'raylib-*_winarm64_msvc16.tar.gz' }[(Get-GoArch)]
-    $archive = @(Get-ChildItem -LiteralPath (Join-Path $moduleCacheDir 'libs') -Filter $pattern)
-    if ($archive.Count -eq 0) { throw "$RaylibModule $version has no prebuilt library matching $pattern" }
+    $archive = @(Get-ChildItem -LiteralPath (Join-Path $raylib.Dir 'libs') -Filter $pattern)
+    if ($archive.Count -eq 0) { throw "$RaylibModule $($raylib.Version) has no prebuilt library matching $pattern" }
 
-    $target = Split-Path -Parent $lib
-    New-Item -ItemType Directory -Force -Path $target | Out-Null
+    Remove-Tree $RaylibDir
+    New-Item -ItemType Directory -Force -Path $RaylibDir | Out-Null
     # tar.exe ships with Windows 10 (1803) and later.
-    & (Join-Path $env:SystemRoot 'System32\tar.exe') -xzf $archive[0].FullName -C $target | Out-Host
+    & (Join-Path $env:SystemRoot 'System32\tar.exe') -xzf $archive[0].FullName -C $RaylibDir | Out-Host
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $lib -PathType Leaf)) {
         throw "could not extract raylib.dll from $($archive[0].FullName)"
     }
-    return $lib
+    if ($ffiSource) {
+        $ffiLib = Join-Path $ffi.Dir $ffiSource
+        if (-not (Test-Path -LiteralPath $ffiLib -PathType Leaf)) { throw "$FfiModule $($ffi.Version) has no $ffiSource" }
+        $copy = Copy-Item -LiteralPath $ffiLib -Destination $RaylibDir -PassThru
+        $copy.IsReadOnly = $false    # Go's module cache is read-only; the copy doesn't need to be
+    }
+    [System.IO.File]::WriteAllText($versionFile, $versionText)
+    return $libs
 }
 
-# Builds games/<Game> into build/<Game>/ next to a copy of raylib.dll. Returns the executable
-# path, or $null after printing a failure.
+# Builds games/<Game> as a debug build into build/<Game>/, next to copies of the libraries it
+# loads. Returns the executable path, or $null after printing a failure.
 function New-GameBuild([string]$Game) {
     $gameDir = Join-Path $GamesDir $Game
     $outDir = Join-Path $BuildDir $Game
@@ -309,13 +361,48 @@ function New-GameBuild([string]$Game) {
         return $null
     }
     try {
-        $lib = Sync-Raylib $gameDir
+        $libs = @(Sync-Raylib $gameDir)
     } catch {
         Write-Check fail $_.Exception.Message
         return $null
     }
-    Copy-Item -LiteralPath $lib -Destination $outDir -Force
+    foreach ($lib in $libs) { Copy-Item -LiteralPath $lib -Destination $outDir -Force }
     Write-Check ok "built games/$Game into build/$Game/$Game.exe"
+    return $exe
+}
+
+# Builds games/<Game> as a dist build: build/<Game>/dist/<Game>.exe, a single file to share. It has
+# no console window, no debug symbols and no paths from this machine, and it embeds raylib,
+# libffi and the game's assets folder. Returns the executable path, or $null after printing a
+# failure.
+function New-GameDist([string]$Game) {
+    $gameDir = Join-Path $GamesDir $Game
+    if (Test-Path -LiteralPath (Join-Path $gameDir 'assets') -PathType Container) {
+        # A game embeds its assets from assets.go (see golib.EmbedAssets). Without it, the file
+        # would build fine and fail on the player's machine.
+        $patterns = @(& $GoExe -C $gameDir list -tags=golib_dist -f '{{range .EmbedPatterns}}{{println .}}{{end}}' .)
+        if ($LASTEXITCODE -ne 0) {
+            Write-Check fail "could not inspect games/$Game (see the Go errors above)"
+            return $null
+        }
+        if (-not ($patterns -contains 'all:assets' -or $patterns -contains 'assets')) {
+            Write-Check fail "games/$Game/assets/ would be missing from the dist build: add games/$Game/assets.go, as the golib.EmbedAssets documentation shows"
+            return $null
+        }
+    }
+    $outDir = Join-Path (Join-Path $BuildDir $Game) 'dist'
+    $exe = Join-Path $outDir "$Game.exe"
+    Remove-Tree $outDir
+    New-Item -ItemType Directory -Force -Path $outDir | Out-Null
+    # -tags replaces raylib_no_embed and ffi_no_embed from GOFLAGS, so both libraries are embedded.
+    # -H=windowsgui makes a program that opens no console window.
+    & $GoExe -C $gameDir build -trimpath -tags=golib_dist '-ldflags=-s -w -H=windowsgui' -o $exe . | Out-Host
+    if ($LASTEXITCODE -ne 0) {
+        Write-Check fail "dist build failed for games/$Game (see the Go errors above)"
+        return $null
+    }
+    Write-Check ok "built games/$Game into build/$Game/dist/$Game.exe"
+    Write-Check info 'one file with raylib, libffi and the assets inside; it copies raylib and libffi into the player''s %LOCALAPPDATA% folder when it first starts'
     return $exe
 }
 
@@ -355,8 +442,8 @@ function Invoke-Setup([string[]]$Options) {
             continue
         }
         try {
-            $lib = Sync-Raylib $dir
-            Write-Check ok ("{0}: modules downloaded, raylib library in .tools/raylib/{1}/" -f $module, (Split-Path -Leaf (Split-Path -Parent $lib)))
+            $null = Sync-Raylib $dir
+            Write-Check ok "${module}: modules downloaded, raylib library for raylib-go $(Get-RaylibVersion) in .tools/raylib/"
         } catch {
             Write-Check fail "${module}: $($_.Exception.Message)"
         }
@@ -402,12 +489,15 @@ function Invoke-Doctor([string[]]$Options) {
     }
 
     # Read go.mod as text instead of asking Go, so doctor starts nothing and changes nothing.
+    $libNames = @('raylib.dll')
+    if ((Get-GoArch) -eq 'amd64') { $libNames += 'libffi-8.dll' }
+    $missingLibs = @($libNames | Where-Object { -not (Test-Path -LiteralPath (Join-Path $RaylibDir $_) -PathType Leaf) })
     foreach ($module in Get-Modules) {
         $goMod = Get-Content -Raw -LiteralPath (Join-Path $Root "$module\go.mod")
         $match = [regex]::Match($goMod, '(?m)^\s*(?:require\s+)?github\.com/gen2brain/raylib-go/raylib\s+(v\S+)')
         if (-not $match.Success) {
             Write-Check warn "${module}: go.mod does not require $RaylibModule"
-        } elseif (Test-Path -LiteralPath (Join-Path $RaylibDir "$($match.Groups[1].Value)\raylib.dll") -PathType Leaf) {
+        } elseif ((Get-RaylibVersion) -eq $match.Groups[1].Value -and $missingLibs.Count -eq 0) {
             Write-Check ok "${module}: raylib library for raylib-go $($match.Groups[1].Value) ready"
         } else {
             Write-Check warn "${module}: raylib library for raylib-go $($match.Groups[1].Value) not ready (run: golib setup)"
@@ -424,6 +514,15 @@ function Invoke-Build([string[]]$Options) {
     Assert-Toolchain 'build'
     $exe = New-GameBuild $game
     Write-Summary 'build'
+    if (-not $exe) { exit 1 }
+    exit 0
+}
+
+function Invoke-Dist([string[]]$Options) {
+    $game = Resolve-Game 'dist' $Options
+    Assert-Toolchain 'dist'
+    $exe = New-GameDist $game
+    Write-Summary 'dist'
     if (-not $exe) { exit 1 }
     exit 0
 }
@@ -451,6 +550,71 @@ function Invoke-Run([string[]]$Options) {
     exit 0
 }
 
+# shot [game] [frame...] [--input <script>]: numbers are frames, anything else names the game.
+function Invoke-Shot([string[]]$Options) {
+    $names = @()
+    $frames = @()
+    $inputScript = ''    # not $input: PowerShell reserves that name
+    for ($i = 0; $i -lt $Options.Count; $i++) {
+        $option = $Options[$i]
+        if ($option -eq '') {
+            Stop-WithUsageError 'shot got an empty argument'
+        } elseif ($option -eq '--input') {
+            if ($i + 1 -ge $Options.Count) { Stop-WithUsageError 'shot --input needs input to play, for example: --input "Enter@1 Right@30-90"' }
+            $i++
+            $inputScript = $Options[$i]
+        } elseif ($option.StartsWith('--input=')) {
+            $inputScript = $option.Substring('--input='.Length)
+        } elseif ($option.StartsWith('-')) {
+            Stop-WithUsageError "unknown option for shot: $option"
+        } elseif ($option -match '^[0-9]+$') {
+            if ($option.Length -gt 6 -or [int]$option -lt 1) { Stop-WithUsageError "frame numbers go from 1 to 999999 (got: $option)" }
+            $frames += [int]$option
+        } else {
+            $names += $option
+        }
+    }
+    if ($frames.Count -eq 0) { $frames = @($ShotDefaultFrame) }
+    $frames = @($frames | Sort-Object -Unique)
+    $game = Resolve-Game 'shot' $names
+    Assert-Toolchain 'shot'
+    $exe = New-GameBuild $game
+    if (-not $exe) {
+        Write-Summary 'shot'
+        exit 1
+    }
+
+    $shotsDir = Join-Path (Join-Path $BuildDir $game) 'shots'
+    Remove-Tree $shotsDir
+    New-Item -ItemType Directory -Force -Path $shotsDir | Out-Null
+    $playing = if ($inputScript) { ", playing $inputScript" } else { '' }
+    Write-Check info "running $game for $($frames[-1]) frame(s) in a hidden window$playing"
+    $env:APPDATA = $script:UserAppData
+    $env:GOLIB_SHOT_DIR = $shotsDir
+    $env:GOLIB_SHOT_FRAMES = $frames -join ','
+    $env:GOLIB_SHOT_INPUT = $inputScript    # an empty value removes the variable
+    $process = Start-Process -FilePath $exe -WorkingDirectory (Join-Path $GamesDir $game) -NoNewWindow -PassThru
+    $null = $process.Handle    # keeps the exit code readable after the process ends
+    # Stop a game that never finishes, so whoever waits for shot isn't stuck.
+    if (-not $process.WaitForExit($ShotTimeoutSeconds * 1000)) {
+        $process.Kill()
+        Write-Check fail "$game didn't finish within $ShotTimeoutSeconds seconds and was stopped (does Update or Draw loop forever?)"
+    } elseif ($process.ExitCode -ne 0) {
+        Write-Check fail "$game exited with code $($process.ExitCode) (see its output above)"
+    }
+    foreach ($frame in $frames) {
+        $name = 'frame-{0:D6}.png' -f $frame
+        if (Test-Path -LiteralPath (Join-Path $shotsDir $name) -PathType Leaf) {
+            Write-Check ok "frame ${frame}: build/$game/shots/$name"
+        } else {
+            Write-Check fail "frame ${frame}: no screenshot was saved"
+        }
+    }
+    Write-Summary 'shot'
+    if ($script:Failures -gt 0) { exit 1 }
+    exit 0
+}
+
 function Invoke-Test([string[]]$Options) {
     if ($Options.Count -gt 0) { Stop-WithUsageError "test takes no options (got: $($Options -join ' '))" }
     Assert-Toolchain 'test'
@@ -464,14 +628,15 @@ function Invoke-Test([string[]]$Options) {
             continue
         }
         try {
-            $lib = Sync-Raylib $dir
+            $null = Sync-Raylib $dir
         } catch {
             Write-Check fail "${module}: $($_.Exception.Message)"
             continue
         }
-        # Test binaries load raylib.dll when they start, so it must be on the search path.
+        # Test binaries load raylib.dll and libffi-8.dll when they start, so .tools/raylib/ must be
+        # on the search path.
         $savedPath = $env:PATH
-        $env:PATH = (Split-Path -Parent $lib) + ';' + $env:PATH
+        $env:PATH = $RaylibDir + ';' + $env:PATH
         try {
             & $GoExe -C $dir test ./... | Out-Host
             $code = $LASTEXITCODE
@@ -522,7 +687,9 @@ switch -CaseSensitive ($command) {
     'setup'  { Invoke-Setup $options }
     'doctor' { Invoke-Doctor $options }
     'build'  { Invoke-Build $options }
+    'dist'   { Invoke-Dist $options }
     'run'    { Invoke-Run $options }
+    'shot'   { Invoke-Shot $options }
     'test'   { Invoke-Test $options }
     'go'     { Invoke-GoCommand $options }
     'clean'  { Invoke-Clean $options }

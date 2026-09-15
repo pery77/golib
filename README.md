@@ -2,7 +2,7 @@
 
 Make games in **Go**, powered by **[raylib](https://www.raylib.com)**, designed so an AI agent can turn a single prompt into a playable game.
 
-> **Status: early development.** GoLib installs its own Go toolchain and opens its first window. Input, sprites, sound and scenes come next: see the [roadmap](docs/roadmap.md).
+> **Status: early development.** GoLib installs its own Go toolchain, runs games with keyboard, mouse and gamepad input, shapes, text, random numbers and scenes, and builds them into a single file to share. `golib new` comes next; sprites, maps and sound come later: see the [roadmap](docs/roadmap.md).
 
 ## Quick start
 
@@ -13,7 +13,7 @@ Make games in **Go**, powered by **[raylib](https://www.raylib.com)**, designed 
    | --- | --- |
    | `.\golib setup` | `./golib setup` |
 
-3. Run the first game. A window says hello:
+3. Run the example game, a small platformer:
 
    | Windows (PowerShell or cmd) | Linux, macOS |
    | --- | --- |
@@ -25,7 +25,9 @@ That's all. There is nothing to install first:
 - No global installs, no PATH changes, no environment variables, no admin rights.
 - To reset, run `golib clean --all` and then `golib setup` again. To uninstall, delete the folder.
 
-Prefer clicking? In VS Code use **Terminal > Run Task... > GoLib: setup**, then **GoLib: run** (also on Ctrl+Shift+B).
+Prefer clicking? On Windows, double-click `golib-ui.cmd` in the project folder. It opens a window with a button for every command (Setup, Run, Screenshots, Dist build and more) and shows what they print. In VS Code you can also use **Terminal > Run Task... > GoLib: setup**, then **GoLib: run** (also on Ctrl+Shift+B). Press F5 to debug a game.
+
+If you opened a Go file before setup finished, run **Developer: Reload Window** (Ctrl+Shift+P) once setup is done. The Go extension looks for Go only when it starts, so until you reload it can't find the one setup installed.
 
 ## Making a game with AI
 
@@ -42,14 +44,14 @@ Then describe the game you want, for example:
 
 In Claude Code, `/make-game <your description>` runs the full game-making playbook.
 
-The framework is still small (a window and text), so for now the agent tells you what is missing instead of faking it.
+The framework is still small (shapes, text, keyboard, mouse, gamepad and scenes), so for now the agent tells you what is missing instead of faking it.
 
 ## How games are made
 
 - **Your game and the framework are separate.** The framework lives in `framework/` and each game in its own folder under `games/`. You make a game without touching the framework.
 - **No built-in editors.** Maps are made in [Tiled](https://www.mapeditor.org), sprites in [Aseprite](https://www.aseprite.org) and 3D models in [Blender](https://www.blender.org); GoLib loads their files. You only need these tools to edit content: games build and run without them.
 
-Loading files from these tools is planned for M2: see the [architecture](docs/architecture.md).
+Loading files from these tools is planned for M4, which is postponed for now: see the [architecture](docs/architecture.md).
 
 ## Commands
 
@@ -58,7 +60,9 @@ Loading files from these tools is planned for M2: see the [architecture](docs/ar
 | `golib setup` | Checks your system and prepares the local tools. Safe to run again. |
 | `golib doctor` | Diagnoses problems without changing anything. |
 | `golib run [game]` | Builds a game and runs it. |
-| `golib build [game]` | Builds a game into `build/`. |
+| `golib build [game]` | Builds a game into `build/`, for development. |
+| `golib dist [game]` | Builds a game as a single file to share, with everything inside. |
+| `golib shot [game] [frame...]` | Saves screenshots of a game at the given frames, without opening a visible window. |
 | `golib test` | Checks and tests the framework and every game. |
 | `golib go <args>` | Runs the project's own Go, for example `golib go version`. |
 | `golib clean` | Deletes build outputs. Add `--all` to also delete the downloaded tools. |
@@ -71,9 +75,10 @@ Type `.\golib` on Windows (PowerShell or cmd) and `./golib` in bash or zsh. `[ga
 | Path | Purpose |
 | --- | --- |
 | `golib`, `golib.cmd` | Command-line entry points |
+| `golib-ui.cmd`, `tools/ui/` | The GoLib window: a button for each command (Windows) |
 | `tools/bootstrap/` | The CLI itself: short, readable scripts |
 | `framework/` | The GoLib framework (Go package `golib`) |
-| `games/` | Games, one folder each; `hello` is the first |
+| `games/` | Games, one folder each; `platformer` is the example to learn from |
 | `AGENTS.md`, `CLAUDE.md` | Instructions for AI agents |
 | `docs/` | Vision, roadmap, internals and AI playbooks |
 | `.vscode/`, `.claude/` | Editor and Claude Code configuration |

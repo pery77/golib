@@ -12,7 +12,7 @@ The promise: someone downloads the template, runs a couple of commands, and buil
 
 Keep this section true: update it in the same change that lands or removes a feature. Never describe planned work as if it existed.
 
-Last updated: 2026-09-14 (milestone M1, Toolchain and first window, in progress).
+Last updated: 2026-09-15 (milestone M2, Framework basics, in progress).
 
 | Area | State |
 | --- | --- |
@@ -21,15 +21,24 @@ Last updated: 2026-09-14 (milestone M1, Toolchain and first window, in progress)
 | AI instructions: this file, `CLAUDE.md`, Claude Code settings, `/make-game` skill | Done |
 | Go 1.27.1 downloaded into `.tools/` by `golib setup` | Done |
 | raylib 6.0 through raylib-go, with no C compiler | Done |
-| `framework/` (package `golib`) and a first game, `games/hello`, that opens a window | Done |
+| `framework/` (package `golib`) and the example game, `games/platformer` | Done |
 | `golib run`, `golib build`, `golib test`, `golib go` | Done |
-| VS Code: Go extension on the local toolchain | Done, not yet checked in the editor |
-| VS Code debug configuration | Planned (M1) |
-| Linux and macOS (`golib.sh`) | Written; not yet run on a real Linux or macOS machine |
-| Framework basics: game loop, scenes, input, drawing, text, audio, assets, Tiled maps, Aseprite sprites, `golib new` | Planned (M2) |
-| Screenshots captured without a human, for agent verification | Planned (M3) |
+| VS Code: Go extension on the local toolchain | Done |
+| VS Code debug configuration: "GoLib: debug game" (F5) | Done |
+| GoLib window (`golib-ui.cmd`): a button for each `golib` command, with its output | Done (Windows only) |
+| Linux and macOS (`golib.sh`) | On hold: written but never run on a real Linux or macOS machine; Windows comes first for now |
+| Fixed-step game loop: 60 updates per second at any frame rate | Done (M2) |
+| `golib shot`: screenshots of chosen frames, rendered in a hidden window, with scripted keyboard, mouse and gamepad input (`--input`) and random numbers from a fixed seed | Done (brought forward from M3) |
+| `golib dist`: the game as a single file to share, with raylib and its assets inside | Done (brought forward from M5; tested on Windows only) |
+| Keyboard, mouse (pointer, buttons, wheel) and gamepad (buttons, sticks) input; rectangles and circles; `Rectangle` overlap and point checks | Done (M2) |
+| Random numbers: `golib.RandomInt`, `golib.RandomFloat`, `golib.SetRandomSeed` | Done (M2) |
+| `golib.Quit`; no key quits a game on its own, not even Esc | Done (M2) |
+| Scenes: `golib.SwitchScene` moves between title, play, pause and other screens | Done (M2) |
+| Reading files from the game's `assets/` folder (`golib.ReadAsset`), embedded in dist builds | Done (M2) |
+| `golib new` | Planned (M2) |
+| Content: textures, Aseprite sprites, Tiled maps, audio, fonts | Postponed (M4) |
 
-**The framework is only a seed.** It opens a window, runs the game loop, clears the screen and draws text: `golib.Run`, `Game`, `Config`, `Screen` and colors, documented in the doc comments in `framework/`. There is no input, sprites, audio or scenes yet (M2). If someone asks for a game that needs them, say what is missing and point to [docs/roadmap.md](docs/roadmap.md). Do not improvise a stand-alone engine to fill the gap.
+**The framework is still small.** It opens a window, runs a fixed-step game loop, reads the keyboard, the mouse and gamepads, draws rectangles, circles and text, makes random numbers, switches between scenes, reads files from the game's `assets/` folder, quits when the game asks, and takes screenshots for `golib shot`: `golib.Run`, `Game`, `Config`, `Input`, `Key`, `MouseButton`, `GamepadButton`, `Screen`, `Rectangle`, colors, `RandomInt`, `RandomFloat`, `SetRandomSeed`, `SwitchScene`, `Quit`, `ReadAsset` and `EmbedAssets`, documented in the doc comments in `framework/`. `games/platformer` is the reference for using it: read it before writing a game. There are no textures, sprites, maps, audio or fonts yet (M4, postponed). If someone asks for a game that needs them, say what is missing and point to [docs/roadmap.md](docs/roadmap.md). Do not improvise a stand-alone engine to fill the gap.
 
 ## Golden rules
 
@@ -55,17 +64,21 @@ Run from the project root. The command name is the same everywhere; only the pre
 
 | Command | Effect |
 | --- | --- |
-| `setup` | Checks the environment, then installs Go, the Go modules and the raylib library into `.tools/`. Safe to run repeatedly. |
+| `setup` | Checks the environment, then installs Go, the Go modules and the raylib libraries into `.tools/`. Safe to run repeatedly. |
 | `doctor` | Read-only diagnosis of the environment and the project. |
-| `build [game]` | Builds `games/<game>` into `build/<game>/`, next to a copy of the raylib library. |
+| `build [game]` | Debug build: builds `games/<game>` into `build/<game>/`, next to copies of the raylib libraries, with a console window for errors. `run`, `shot`, `test` and F5 build the same way, and read `assets/` from disk. |
+| `dist [game]` | Dist build, to share: builds `build/<game>/dist/<game>.exe` (no `.exe` on Linux and macOS), a single file with raylib and the game's `assets/` folder inside and, on Windows, no console window. A game with an `assets/` folder needs an `assets.go` file: see `golib.EmbedAssets`. |
 | `run [game]` | Builds the game, then runs it with `games/<game>/` as the working directory. |
+| `shot [game] [frame...] [--input "<script>"]` | Builds the game, runs it in a hidden window and saves screenshots of the given frames (default: 60) as `build/<game>/shots/frame-NNNNNN.png`. Frame N shows the game after N updates. `--input "Enter@1 Right@30-90 Mouse@100:640,360 MouseLeft@101"` presses Enter in update 1, holds Right from update 30 to 90, moves the mouse pointer to 640, 360 and clicks (see [docs/tooling.md](docs/tooling.md#screenshots)). Random numbers start from the same seed, so shots repeat. Open the files to see the game. |
 | `test` | Runs `go vet` and `go test` for the framework and every game. |
-| `go <args>` | Runs the project's Go toolchain with GoLib's environment, for example `go -C games/hello mod tidy`. |
+| `go <args>` | Runs the project's Go toolchain with GoLib's environment, for example `go -C games/platformer mod tidy`. |
 | `clean` | Deletes `build/`. |
 | `clean --all` | Also deletes `.tools/`. Run `setup` again afterwards. |
 | `help` | Lists commands. |
 
 `[game]` is a folder name in `games/`; leave it out when there is only one game. Check lines start with `[ok]`, `[info]`, `[warn]` or `[fail]`, followed by a summary line. Exit codes: `0` success, `1` failure, `2` usage error. When anything behaves unexpectedly, run `doctor` and read its output before trying fixes.
+
+People who would rather click can double-click `golib-ui.cmd` (Windows) for a window with a button per command; it runs this same CLI and shows its output. Agents use the CLI.
 
 In PowerShell, quote arguments that start with `-` and contain a dot, such as `'-replace=golib=../../framework'`: Windows PowerShell 5.1 splits them before `golib` receives them.
 
@@ -76,15 +89,17 @@ AGENTS.md            Canonical instructions for AI agents (this file)
 CLAUDE.md            Claude Code entry point; imports this file
 README.md            Human quick start
 golib, golib.cmd     CLI entry points for POSIX shells and Windows; thin shims, no logic
+golib-ui.cmd         Double-click to open the GoLib window (Windows); a thin shim too
 tools/bootstrap/     CLI implementations: golib.sh (Linux, macOS), golib.ps1 (Windows)
+tools/ui/            The GoLib window: golib-ui.ps1, buttons that run the CLI
 framework/           The framework: Go module and package "golib"
 games/               One folder per game, each its own Go module
-  hello/             The first game; tests the framework as features land
+  platformer/        The example game: tests each framework feature and shows how to use it
 docs/                Vision, roadmap, architecture, tooling, contributing, AI playbooks
 .claude/             Claude Code project settings and skills
 .vscode/             Recommended extensions, editor settings, tasks
-.tools/              Git-ignored. Go, Go modules and the raylib library, created by setup
-build/               Git-ignored. Build outputs, created by build and run
+.tools/              Git-ignored. Go, Go modules and the raylib libraries, created by setup
+build/               Git-ignored. Build outputs, created by build, run, shot and dist
 ```
 
 A game imports the framework as `"golib"`, and its `go.mod` points that name at `../../framework` with a `replace` directive. How to create a game and the rules between framework and games are in [docs/ai/making-a-game.md](docs/ai/making-a-game.md) and [docs/architecture.md](docs/architecture.md).
@@ -114,5 +129,5 @@ The test game developed alongside the framework is still a game: it follows the 
 - Windows baseline: Windows 10 or later with the built-in Windows PowerShell 5.1. PowerShell 7 is not required.
 - Always type the `.\` or `./` prefix. Some environments, including agent sandboxes, stop Windows from running programs from the current folder by bare name; an explicit relative path always works.
 - On Windows, `./golib` from Git Bash and `.\golib` from PowerShell run the same implementation (`golib.ps1`), so their results match.
-- Every program that uses raylib loads the raylib library when it starts, and stops with `cannot load library ...` if it can't find it. `golib build`, `run` and `test` take care of that; `golib go test` and running an executable from outside `build/<game>/` don't.
+- A debug build loads the raylib library, and libffi on Windows and macOS, when it starts, and stops with `cannot load library ...` if it can't find them. `golib build`, `run`, `shot` and `test` take care of that; `golib go test` and running a debug executable from outside `build/<game>/` don't. A `golib dist` build carries both inside and needs nothing next to it.
 - `.gitattributes` enforces line endings: LF everywhere, CRLF only for `*.cmd` and `*.bat`. Don't change files to work around it.

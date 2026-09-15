@@ -2,6 +2,16 @@
   "version": "2.0.0",
   "tasks": [
     {
+      "label": "GoLib: open window",
+      "detail": "Open the GoLib window: a button for each golib command (Windows only)",
+      "type": "process",
+      "command": "sh",
+      "args": ["-c", "echo 'The GoLib window needs Windows for now: use ./golib <command> or the other GoLib tasks.' >&2; exit 1"],
+      "windows": { "command": "cmd.exe", "args": ["/d", "/c", ".\\golib-ui.cmd"] },
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
       "label": "GoLib: setup",
       "detail": "Check the environment and prepare local tools in .tools/",
       "type": "process",
@@ -34,11 +44,22 @@
     },
     {
       "label": "GoLib: build",
-      "detail": "Build the game in games/ into build/ (needs exactly one game)",
+      "detail": "Debug build of the game in games/ into build/ (needs exactly one game)",
       "type": "process",
       "command": "sh",
       "args": ["./golib", "build"],
       "windows": { "command": "cmd.exe", "args": ["/d", "/c", ".\\golib.cmd", "build"] },
+      "options": { "cwd": "${workspaceFolder}" },
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "GoLib: dist",
+      "detail": "Build the game in games/ as a single file to share, in build/<game>/dist/ (needs exactly one game)",
+      "type": "process",
+      "command": "sh",
+      "args": ["./golib", "dist"],
+      "windows": { "command": "cmd.exe", "args": ["/d", "/c", ".\\golib.cmd", "dist"] },
       "options": { "cwd": "${workspaceFolder}" },
       "group": "build",
       "problemMatcher": []
