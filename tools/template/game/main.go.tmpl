@@ -1,0 +1,26 @@
+// {{name}} is a game made with GoLib. DESIGN.md says what it is.
+//
+// Read it in this order:
+//
+//   - main.go (this file) starts the game: main calls golib.Run with the first
+//     scene.
+//   - play.go is the scene where the game is played: Update turns the keyboard
+//     and gamepad into actions for the world, and Draw draws the world.
+//   - world.go holds the rules as plain Go, with no input or drawing, so that
+//     world_test.go can test them.
+//
+// games/platformer is a complete example, with a title, pause and win scenes.
+package main
+
+import (
+	"log"
+
+	"golib"
+)
+
+func main() {
+	config := golib.Config{Title: "{{name}}", Width: worldWidth, Height: worldHeight}
+	if err := golib.Run(newPlayScene(), config); err != nil {
+		log.Fatal(err)
+	}
+}

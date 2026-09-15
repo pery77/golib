@@ -1,0 +1,45 @@
+package main
+
+import "golib"
+
+// Tuning: the numbers that define how the game feels.
+const (
+	playerSpeed = 300 // pixels per second
+	playerSize  = 40  // pixels
+)
+
+// World size in pixels. It is also the window size (see main.go).
+const (
+	worldWidth  = 1280
+	worldHeight = 720
+)
+
+// world is the whole game state and its rules. It knows nothing about the
+// input or the screen, so world_test.go can play it directly.
+type world struct {
+	player golib.Rectangle
+}
+
+// newWorld returns the world at the start of a game: the player in the middle.
+func newWorld() world {
+	return world{
+		player: golib.Rectangle{
+			X:      (worldWidth - playerSize) / 2,
+			Y:      (worldHeight - playerSize) / 2,
+			Width:  playerSize,
+			Height: playerSize,
+		},
+	}
+}
+
+// step advances the world by dt seconds. moveX and moveY go from -1 to 1:
+// negative is left or up, positive is right or down.
+func (w *world) step(moveX, moveY, dt float32) {
+	w.player.X = clamp(w.player.X+moveX*playerSpeed*dt, 0, worldWidth-playerSize)
+	w.player.Y = clamp(w.player.Y+moveY*playerSpeed*dt, 0, worldHeight-playerSize)
+}
+
+// clamp returns value, kept between low and high.
+func clamp(value, low, high float32) float32 {
+	return max(low, min(value, high))
+}

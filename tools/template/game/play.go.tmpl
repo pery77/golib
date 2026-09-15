@@ -1,0 +1,56 @@
+package main
+
+import "golib"
+
+// The game's colors, in one place so the look is easy to change.
+var (
+	backgroundColor = golib.RayWhite
+	playerColor     = golib.Maroon
+	textColor       = golib.DarkGray
+)
+
+// playScene is the game itself. Update turns the keyboard and gamepad into
+// actions for the world, and Draw draws the world.
+type playScene struct {
+	world world
+}
+
+func newPlayScene() *playScene {
+	return &playScene{world: newWorld()}
+}
+
+// Update reads the input and advances the world. golib.Run calls it 60 times
+// per second, always with dt = 1/60.
+func (s *playScene) Update(input *golib.Input, dt float32) {
+	// No key quits by itself, not even Esc: the game calls golib.Quit when it
+	// wants to end.
+	if input.KeyPressed(golib.KeyEscape) || input.GamepadPressed(0, golib.GamepadBack) {
+		golib.Quit()
+		return
+	}
+
+	// The left stick is analog, so tilting it less moves slower. Keys and the
+	// d-pad move at full speed.
+	moveX, moveY := input.GamepadLeftStick(0)
+	if input.KeyDown(golib.KeyLeft) || input.KeyDown(golib.KeyA) || input.GamepadDown(0, golib.GamepadLeft) {
+		moveX = -1
+	}
+	if input.KeyDown(golib.KeyRight) || input.KeyDown(golib.KeyD) || input.GamepadDown(0, golib.GamepadRight) {
+		moveX = 1
+	}
+	if input.KeyDown(golib.KeyUp) || input.KeyDown(golib.KeyW) || input.GamepadDown(0, golib.GamepadUp) {
+		moveY = -1
+	}
+	if input.KeyDown(golib.KeyDown) || input.KeyDown(golib.KeyS) || input.GamepadDown(0, golib.GamepadDown) {
+		moveY = 1
+	}
+	s.world.step(moveX, moveY, dt)
+}
+
+// Draw draws the world. It reads the state and never changes it.
+func (s *playScene) Draw(screen *golib.Screen) {
+	screen.Clear(backgroundColor)
+	screen.DrawRectangle(s.world.player, playerColor)
+	screen.DrawText("{{name}}", 20, 20, 30, textColor)
+	screen.DrawText("Arrows, WASD, d-pad or left stick to move; Esc or Back to quit", 20, 60, 20, textColor)
+}

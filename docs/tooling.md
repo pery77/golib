@@ -141,6 +141,16 @@ Debug builds leave that file out, so they never embed assets. Before building, `
 
 When a dist build starts, raylib-go and ffi write their libraries to the user's cache folder, in folders they name: `%LOCALAPPDATA%\github.com\gen2brain\raylib-go\<raylib version>\` and `%LOCALAPPDATA%\github.com\jupiterrider\ffi\libffi\<libffi version>\` on Windows, under `~/.cache/` on Linux and `~/Library/Caches/` on macOS. They write each file only when it is missing and never check it afterwards, so a damaged copy stops the game from starting until that folder is deleted. On Linux, players also need `libX11.so.6`, `libGL.so.1` and `libffi.so.8`.
 
+## New games
+
+`golib new <name>` creates `games/<name>/` from the files in `tools/template/game/`:
+
+1. It checks the name: 1 to 32 lowercase letters, digits, `-` and `_`, starting with a letter. It refuses `golib`, which would clash with the framework's import path, names Windows reserves for devices, such as `con`, and folders that already exist in `games/`.
+2. It copies every `*.tmpl` file without its `.tmpl` suffix, replacing `{{name}}` with the name, `{{go}}` with the pinned Go version and `{{date}}` with today's date. The suffix stops Go and gopls from treating the templates as a module of their own.
+3. It copies `framework/go.sum`, so `go mod tidy` finds the checksums it needs, then runs `go mod tidy` in the new folder.
+
+If `go mod tidy` fails, `new` deletes the folder again, so it can simply run again. To change what new games start with, edit the templates, then try them with `golib new` on a throwaway name and `golib test`.
+
 ## PowerShell argument splitting
 
 Windows PowerShell 5.1 splits arguments that start with `-` and contain a dot before they reach a native program. `.\golib go -C games/platformer mod edit -replace=golib=../../framework` arrives with `-replace=golib=` and `../../framework` as separate arguments. Quote such arguments: `'-replace=golib=../../framework'`. cmd and Git Bash pass them unchanged.

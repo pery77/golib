@@ -10,23 +10,23 @@ A game the user can play and enjoy after one prompt, which you (or a later sessi
 
 ## Where a game lives
 
-Each game is its own folder, and its own Go module, in `games/`. Until `golib new` exists (M2), create one by hand:
+Each game is its own folder, and its own Go module, in `games/`. Create one with `golib new`, and a short lowercase name:
 
-1. Pick a short lowercase folder name, such as `asteroids`, and create `games/asteroids/`.
-2. Write `games/asteroids/go.mod`:
+```text
+golib new asteroids
+golib run asteroids
+```
 
-   ```text
-   module asteroids
+`golib new` copies `tools/template/game/` into `games/asteroids/` and runs `go mod tidy`, so the game runs straight away: a square that moves with the arrows, WASD, the d-pad or the left stick. Build the real game on top of it:
 
-   go 1.27.1
-
-   require golib v0.0.0
-
-   replace golib => ../../framework
-   ```
-
-3. Write `main.go` in `package main`, calling `golib.Run`.
-4. Run `golib go -C games/asteroids mod tidy`, then `golib run asteroids`.
+| File | Holds |
+| --- | --- |
+| `main.go` | `main`, which calls `golib.Run` with the first scene |
+| `play.go` | The play scene: `Update` turns input into actions, `Draw` draws the world |
+| `world.go` | The rules and the tuning constants, with no input or drawing |
+| `world_test.go` | Tests for the rules |
+| `DESIGN.md` | The design brief, with placeholder text to replace |
+| `go.mod`, `go.sum` | The Go module; `replace golib => ../../framework` points it at the framework |
 
 [games/platformer](../../games/platformer) is the reference game. Read it before writing one, and follow its shape:
 
@@ -58,7 +58,7 @@ The framework's API is documented in the doc comments of `framework/*.go`: read 
 
 ## 2. Write the design brief
 
-Before writing code, create a short `DESIGN.md` in the game's folder: `games/<name>/DESIGN.md`. It is the game's memory across sessions, so keep it current.
+Before writing code, fill in `games/<name>/DESIGN.md`, which `golib new` creates with placeholder text. Keep it short. It is the game's memory across sessions, so keep it current.
 
 ````markdown
 # <Game title>
@@ -94,7 +94,7 @@ Summarize the brief to the user in a few lines and carry on, unless they object.
 
 Each slice ends with a game that builds and runs. Never write the whole game before running it once.
 
-1. **Skeleton:** window, game loop, clear screen, clean exit.
+1. **Skeleton:** window, game loop, clear screen, clean exit. `golib new` starts you here.
 2. **Player:** the player moves with the controls.
 3. **Core mechanic:** the thing that makes this game this game.
 4. **Rules:** score, failure, victory, difficulty ramp.

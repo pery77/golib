@@ -32,6 +32,16 @@
       "problemMatcher": []
     },
     {
+      "label": "GoLib: new game",
+      "detail": "Create games/<name>/, a small game ready to run",
+      "type": "process",
+      "command": "sh",
+      "args": ["./golib", "new", "${input:gameName}"],
+      "windows": { "command": "cmd.exe", "args": ["/d", "/c", ".\\golib.cmd", "new", "${input:gameName}"] },
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
       "label": "GoLib: run",
       "detail": "Build the game in games/ and run it (asks for no name, so it needs exactly one game)",
       "type": "process",
@@ -94,6 +104,13 @@
       "windows": { "command": "cmd.exe", "args": ["/d", "/c", ".\\golib.cmd", "clean", "--all"] },
       "options": { "cwd": "${workspaceFolder}" },
       "problemMatcher": []
+    }
+  ],
+  "inputs": [
+    {
+      "id": "gameName",
+      "type": "promptString",
+      "description": "Name of the new game: lowercase letters, digits, - and _, such as asteroids"
     }
   ]
 }

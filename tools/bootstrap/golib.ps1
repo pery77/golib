@@ -42,6 +42,7 @@ $GoExe = Join-Path $GoRoot 'bin\go.exe'
 $RaylibDir = Join-Path $ToolsDir 'raylib'
 $FrameworkDir = Join-Path $Root 'framework'
 $GamesDir = Join-Path $Root 'games'
+$TemplateDir = Join-Path $Root 'tools\template\game'
 
 $script:Failures = 0
 $script:Warnings = 0
@@ -56,6 +57,7 @@ Usage: golib <command> [options]
 Commands:
   setup                   Check the environment, then install Go, Go modules and raylib into .tools/
   doctor                  Diagnose the environment without changing anything
+  new <name>              Create games/<name>/, a small game ready to run, from tools/template/game/
   build [game]            Debug build of games/<game> into build/<game>/
   dist [game]             Build games/<game> as a single file to share, in build/<game>/dist/
   run [game]              Build games/<game>, then run it from its folder
@@ -277,11 +279,11 @@ function Resolve-Game([string]$Command, [string[]]$Options) {
     if ($Options.Count -eq 1) {
         $match = @($games | Where-Object { $_ -eq $Options[0] })
         if ($match.Count -eq 1) { return $match[0] }
-        if ($games.Count -eq 0) { Stop-WithUsageError "no game named `"$($Options[0])`": games/ has no games yet" }
+        if ($games.Count -eq 0) { Stop-WithUsageError "no game named `"$($Options[0])`": games/ has no games yet (create one: golib new <name>)" }
         Stop-WithUsageError "no game named `"$($Options[0])`" in games/ (available: $($games -join ', '))"
     }
     if ($games.Count -eq 1) { return $games[0] }
-    if ($games.Count -eq 0) { Stop-WithUsageError 'there are no games in games/ yet' }
+    if ($games.Count -eq 0) { Stop-WithUsageError 'there are no games in games/ yet (create one: golib new <name>)' }
     Stop-WithUsageError "$Command needs a game name (available: $($games -join ', '))"
 }
 
@@ -509,6 +511,41 @@ function Invoke-Doctor([string[]]$Options) {
     exit 0
 }
 
+# new <name>: creates games/<name>/ from the templates in tools/template/game/.
+function Invoke-New([string[]]$Options) {
+    if ($Options.Count -ne 1) { Stop-WithUsageError 'new needs one game name, for example: golib new asteroids' }
+    $name = $Options[0]
+    if ($name -cnotmatch '^[a-z][a-z0-9_-]{0,31}$') {
+        Stop-WithUsageError "invalid game name `"$name`": use 1 to 32 lowercase letters, digits, - and _, starting with a letter"
+    }
+    # golib would clash with the framework's import path; the others are device names on Windows.
+    if ($name -match '^(golib|con|prn|aux|nul|com[1-9]|lpt[1-9])$') { Stop-WithUsageError "the game name `"$name`" is reserved: pick another one" }
+    $gameDir = Join-Path $GamesDir $name
+    if (Test-Path -LiteralPath $gameDir) { Stop-WithUsageError "games/$name already exists: pick another name, or delete that folder first" }
+    Assert-Toolchain 'new'
+
+    New-Item -ItemType Directory -Force -Path $gameDir | Out-Null
+    $utf8 = New-Object System.Text.UTF8Encoding $false
+    $today = Get-Date -Format 'yyyy-MM-dd'
+    foreach ($template in @(Get-ChildItem -LiteralPath $TemplateDir -File -Filter '*.tmpl')) {
+        $text = [System.IO.File]::ReadAllText($template.FullName).Replace('{{name}}', $name).Replace('{{go}}', $GoVersion).Replace('{{date}}', $today)
+        [System.IO.File]::WriteAllText((Join-Path $gameDir $template.BaseName), $text, $utf8)
+    }
+    # The framework's checksums cover the modules a new game needs, so tidy doesn't have to look them up.
+    Copy-Item -LiteralPath (Join-Path $FrameworkDir 'go.sum') -Destination (Join-Path $gameDir 'go.sum')
+    & $GoExe -C $gameDir mod tidy | Out-Host
+    if ($LASTEXITCODE -ne 0) {
+        Remove-Tree $gameDir
+        Write-Check fail "go mod tidy failed for games/$name (see the Go errors above); the folder was deleted, so new can run again"
+        Write-Summary 'new'
+        exit 1
+    }
+    Write-Check ok "created games/$name/ from tools/template/game/"
+    Write-Check info "next: golib run $name, and describe the game in games/$name/DESIGN.md"
+    Write-Summary 'new'
+    exit 0
+}
+
 function Invoke-Build([string[]]$Options) {
     $game = Resolve-Game 'build' $Options
     Assert-Toolchain 'build'
@@ -686,6 +723,7 @@ $options = @(if ($args.Count -gt 1) { $args[1..($args.Count - 1)] })
 switch -CaseSensitive ($command) {
     'setup'  { Invoke-Setup $options }
     'doctor' { Invoke-Doctor $options }
+    'new'    { Invoke-New $options }
     'build'  { Invoke-Build $options }
     'dist'   { Invoke-Dist $options }
     'run'    { Invoke-Run $options }

@@ -18,9 +18,9 @@ $GamesDir = Join-Path $Root 'games'
 $PowerShellExe = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
 
 # The buttons, one row per group, in this order. Command is golib's arguments: {game} becomes the
-# game picked in the list, {frames} the frame numbers typed in the box and {input} the input
-# typed in the other box, as --input. Folder opens a folder in Explorer instead. Confirm asks
-# before running.
+# game picked in the list, {frames} the frame numbers typed in the box, {input} the input
+# typed in the other box, as --input, and {name} the answer to Prompt, asked in a small dialog.
+# Folder opens a folder in Explorer instead. Confirm asks before running.
 $Actions = @(
     @{ Group = 'Play'; Label = 'Run'; Command = 'run {game}'; Tip = 'Build the game and play it' }
     @{ Group = 'Play'; Label = 'Screenshots'; Command = 'shot {game} {frames} {input}'; Tip = 'Run the game in a hidden window, playing the input in the box, and save screenshots of the frames in the box (60 frames are one second)' }
@@ -31,6 +31,7 @@ $Actions = @(
     @{ Group = 'Open'; Label = 'Game folder'; Folder = 'games\{game}'; Tip = 'Open the game''s folder: its code, DESIGN.md and assets' }
     @{ Group = 'Open'; Label = 'Screenshots folder'; Folder = 'build\{game}\shots'; Tip = 'Open the screenshots from the latest Screenshots' }
     @{ Group = 'Open'; Label = 'Dist folder'; Folder = 'build\{game}\dist'; Tip = 'Open the file to share from the latest Dist build' }
+    @{ Group = 'Tools'; Label = 'New game'; Command = 'new {name}'; Prompt = 'Name of the new game: lowercase letters, digits, - and _, such as asteroids'; Tip = 'Create games\<name>\, a small game ready to run' }
     @{ Group = 'Tools'; Label = 'Setup'; Command = 'setup'; Tip = 'Install Go, the Go modules and raylib into .tools\ (safe to run again)' }
     @{ Group = 'Tools'; Label = 'Clean'; Command = 'clean'; Tip = 'Delete the build outputs in build\' }
     @{ Group = 'Tools'; Label = 'Clean all'; Command = 'clean --all'; Tip = 'Also delete the downloaded tools in .tools\; run Setup again afterwards'; Confirm = 'Delete build\ and the downloaded tools in .tools\? You will need to press Setup again.' }
@@ -85,6 +86,7 @@ $script:Process = $null
 $script:Streams = @()
 $script:CommandName = ''
 $script:Stopped = $false
+$script:SelectAfter = $null    # a game to pick in the list once the command succeeds, such as a new one
 
 # Runs a script block from an event handler. Errors show in a message box instead of closing the
 # window.
@@ -94,6 +96,35 @@ function Invoke-Safely([scriptblock]$Script) {
     } catch {
         $null = [System.Windows.MessageBox]::Show("Something went wrong in the GoLib window:`n`n$_", 'GoLib', 'OK', 'Error')
     }
+}
+
+# Asks for one line of text in a small dialog over the window. Returns the text, trimmed, or $null
+# when the dialog is cancelled.
+function Read-Text([string]$Title, [string]$Prompt) {
+    [xml]$dialogXaml = @'
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Width="440" SizeToContent="Height" ResizeMode="NoResize" ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner" FontSize="13">
+  <StackPanel Margin="14">
+    <TextBlock x:Name="PromptText" TextWrapping="Wrap" Margin="0,0,0,8"/>
+    <TextBox x:Name="AnswerBox" Padding="2,3"/>
+    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+      <Button x:Name="OkButton" Content="OK" IsDefault="True" MinWidth="80" Padding="10,3" Margin="0,0,6,0"/>
+      <Button Content="Cancel" IsCancel="True" MinWidth="80" Padding="10,3"/>
+    </StackPanel>
+  </StackPanel>
+</Window>
+'@
+    $dialog = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $dialogXaml))
+    $dialog.Title = $Title
+    $dialog.Owner = $Window
+    $dialog.FindName('PromptText').Text = $Prompt
+    # Enter presses OK (IsDefault) and Esc presses Cancel (IsCancel).
+    $dialog.FindName('OkButton').Add_Click({ [System.Windows.Window]::GetWindow($this).DialogResult = $true })
+    $dialog.Add_ContentRendered({ $null = $this.FindName('AnswerBox').Focus() })
+    if ($dialog.ShowDialog()) { return $dialog.FindName('AnswerBox').Text.Trim() }
+    return $null
 }
 
 # State is Idle, Running, Done or Failed.
@@ -156,9 +187,18 @@ function Invoke-Action($Action) {
         $answer = [System.Windows.MessageBox]::Show($Window, $Action.Confirm, 'GoLib', 'YesNo', 'Warning')
         if ($answer -ne 'Yes') { return }
     }
+    $script:SelectAfter = $null
+    $reply = ''
+    if ($Action.ContainsKey('Prompt')) {
+        $reply = Read-Text $Action.Label $Action.Prompt
+        if (-not $reply) { return }    # cancelled, or left empty
+        $script:SelectAfter = $reply
+    }
     $arguments = @()
     foreach ($token in ($template -split ' ')) {
-        if ($token -eq '{game}') {
+        if ($token -eq '{name}') {
+            $arguments += $reply
+        } elseif ($token -eq '{game}') {
             $arguments += $game
         } elseif ($token -eq '{frames}') {
             $arguments += @($FramesBox.Text -split '[\s,]+' | Where-Object { $_ })
@@ -232,6 +272,11 @@ function Update-Command {
         Set-Status "$($script:CommandName): failed (exit code $code). The output below says why." 'Failed'
     }
     Set-Busy $false
+    # Commands can add or remove games, so look again.
+    Update-GameList
+    if ($code -eq 0 -and $script:SelectAfter -and $GameList.Items.Contains($script:SelectAfter)) {
+        $GameList.SelectedItem = $script:SelectAfter
+    }
 }
 
 function Stop-Command {

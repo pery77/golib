@@ -39,6 +39,7 @@ go_exe="$go_root/bin/go"
 raylib_dir="$tools_dir/raylib"
 framework_dir="$root/framework"
 games_dir="$root/games"
+template_dir="$root/tools/template/game"
 
 failures=0
 warnings=0
@@ -52,6 +53,7 @@ Usage: golib <command> [options]
 Commands:
   setup                   Check the environment, then install Go, Go modules and raylib into .tools/
   doctor                  Diagnose the environment without changing anything
+  new <name>              Create games/<name>/, a small game ready to run, from tools/template/game/
   build [game]            Debug build of games/<game> into build/<game>/
   dist [game]             Build games/<game> as a single file to share, in build/<game>/dist/
   run [game]              Build games/<game>, then run it from its folder
@@ -360,7 +362,7 @@ resolve_game() {
         return 0
       fi
     done
-    if [ -z "$games" ]; then usage_error "no game named \"$1\": games/ has no games yet"; fi
+    if [ -z "$games" ]; then usage_error "no game named \"$1\": games/ has no games yet (create one: golib new <name>)"; fi
     usage_error "no game named \"$1\" in games/ (available: $(comma_list "$games"))"
   fi
   set -- $games
@@ -368,7 +370,7 @@ resolve_game() {
     game=$1
     return 0
   fi
-  if [ $# -eq 0 ]; then usage_error "there are no games in games/ yet"; fi
+  if [ $# -eq 0 ]; then usage_error "there are no games in games/ yet (create one: golib new <name>)"; fi
   usage_error "$rg_command needs a game name (available: $(comma_list "$games"))"
 }
 
@@ -610,6 +612,47 @@ cmd_doctor() {
   exit 0
 }
 
+# new <name>: creates games/<name>/ from the templates in tools/template/game/.
+cmd_new() {
+  if [ $# -ne 1 ]; then usage_error "new needs one game name, for example: golib new asteroids"; fi
+  cn_name=$1
+  cn_invalid="invalid game name \"$cn_name\": use 1 to 32 lowercase letters, digits, - and _, starting with a letter"
+  case "$cn_name" in
+    [a-z]*) ;;
+    *) usage_error "$cn_invalid" ;;
+  esac
+  case "$cn_name" in
+    *[!a-z0-9_-]*) usage_error "$cn_invalid" ;;
+  esac
+  if [ ${#cn_name} -gt 32 ]; then usage_error "$cn_invalid"; fi
+  # golib would clash with the framework's import path; the others are device names on Windows.
+  case "$cn_name" in
+    golib | con | prn | aux | nul | com[1-9] | lpt[1-9]) usage_error "the game name \"$cn_name\" is reserved: pick another one" ;;
+  esac
+  cn_dir="$games_dir/$cn_name"
+  if [ -e "$cn_dir" ]; then usage_error "games/$cn_name already exists: pick another name, or delete that folder first"; fi
+  assert_toolchain new
+
+  mkdir -p "$cn_dir"
+  cn_today=$(date +%Y-%m-%d)
+  for cn_template in "$template_dir"/*.tmpl; do
+    sed -e "s/{{name}}/$cn_name/g" -e "s/{{go}}/$go_version/g" -e "s/{{date}}/$cn_today/g" \
+      "$cn_template" >"$cn_dir/$(basename "$cn_template" .tmpl)"
+  done
+  # The framework's checksums cover the modules a new game needs, so tidy doesn't have to look them up.
+  cp "$framework_dir/go.sum" "$cn_dir/go.sum"
+  if ! "$go_exe" -C "$cn_dir" mod tidy; then
+    remove_tree "$cn_dir"
+    check fail "go mod tidy failed for games/$cn_name (see the Go errors above); the folder was deleted, so new can run again"
+    summary new
+    exit 1
+  fi
+  check ok "created games/$cn_name/ from tools/template/game/"
+  check info "next: golib run $cn_name, and describe the game in games/$cn_name/DESIGN.md"
+  summary new
+  exit 0
+}
+
 cmd_build() {
   resolve_game build "$@"
   assert_toolchain build
@@ -816,6 +859,7 @@ if [ $# -gt 0 ]; then shift; fi
 case "$command" in
   setup) cmd_setup "$@" ;;
   doctor) cmd_doctor "$@" ;;
+  new) cmd_new "$@" ;;
   build) cmd_build "$@" ;;
   dist) cmd_dist "$@" ;;
   run) cmd_run "$@" ;;

@@ -35,7 +35,7 @@ Last updated: 2026-09-15 (milestone M2, Framework basics, in progress).
 | `golib.Quit`; no key quits a game on its own, not even Esc | Done (M2) |
 | Scenes: `golib.SwitchScene` moves between title, play, pause and other screens | Done (M2) |
 | Reading files from the game's `assets/` folder (`golib.ReadAsset`), embedded in dist builds | Done (M2) |
-| `golib new` | Planned (M2) |
+| `golib new <name>`: a new game, ready to run, from `tools/template/game/` | Done (M2) |
 | Content: textures, Aseprite sprites, Tiled maps, audio, fonts | Postponed (M4) |
 
 **The framework is still small.** It opens a window, runs a fixed-step game loop, reads the keyboard, the mouse and gamepads, draws rectangles, circles and text, makes random numbers, switches between scenes, reads files from the game's `assets/` folder, quits when the game asks, and takes screenshots for `golib shot`: `golib.Run`, `Game`, `Config`, `Input`, `Key`, `MouseButton`, `GamepadButton`, `Screen`, `Rectangle`, colors, `RandomInt`, `RandomFloat`, `SetRandomSeed`, `SwitchScene`, `Quit`, `ReadAsset` and `EmbedAssets`, documented in the doc comments in `framework/`. `games/platformer` is the reference for using it: read it before writing a game. There are no textures, sprites, maps, audio or fonts yet (M4, postponed). If someone asks for a game that needs them, say what is missing and point to [docs/roadmap.md](docs/roadmap.md). Do not improvise a stand-alone engine to fill the gap.
@@ -66,6 +66,7 @@ Run from the project root. The command name is the same everywhere; only the pre
 | --- | --- |
 | `setup` | Checks the environment, then installs Go, the Go modules and the raylib libraries into `.tools/`. Safe to run repeatedly. |
 | `doctor` | Read-only diagnosis of the environment and the project. |
+| `new <name>` | Creates `games/<name>/` from `tools/template/game/`: a small game that runs straight away, laid out like `games/platformer`. Names are lowercase letters, digits, `-` and `_`. |
 | `build [game]` | Debug build: builds `games/<game>` into `build/<game>/`, next to copies of the raylib libraries, with a console window for errors. `run`, `shot`, `test` and F5 build the same way, and read `assets/` from disk. |
 | `dist [game]` | Dist build, to share: builds `build/<game>/dist/<game>.exe` (no `.exe` on Linux and macOS), a single file with raylib and the game's `assets/` folder inside and, on Windows, no console window. A game with an `assets/` folder needs an `assets.go` file: see `golib.EmbedAssets`. |
 | `run [game]` | Builds the game, then runs it with `games/<game>/` as the working directory. |
@@ -92,6 +93,7 @@ golib, golib.cmd     CLI entry points for POSIX shells and Windows; thin shims, 
 golib-ui.cmd         Double-click to open the GoLib window (Windows); a thin shim too
 tools/bootstrap/     CLI implementations: golib.sh (Linux, macOS), golib.ps1 (Windows)
 tools/ui/            The GoLib window: golib-ui.ps1, buttons that run the CLI
+tools/template/game/ The files golib new copies into games/<name>/
 framework/           The framework: Go module and package "golib"
 games/               One folder per game, each its own Go module
   platformer/        The example game: tests each framework feature and shows how to use it

@@ -32,7 +32,7 @@ Known gaps, written down as the [definition of done](contributing.md#definition-
 - Done: `golib.Quit` ends a game. No key quits on its own: raylib's default of closing on Esc is turned off.
 - Done: 2D drawing with rectangles, circles, text, and `Rectangle` overlap checks. Textures and sprites are part of M4.
 - Done: reading files from the game's `assets/` folder with `golib.ReadAsset`, from disk in debug builds and from the copy embedded in dist builds.
-- `golib new <name>`: create a game folder in `games/`, ready to run, without touching the framework.
+- Done: `golib new <name>` creates a game folder in `games/` from `tools/template/game/`, ready to run, without touching the framework.
 - An example game that doubles as documentation. In progress: `games/platformer` grows with each feature.
 - An API guide for agents.
 

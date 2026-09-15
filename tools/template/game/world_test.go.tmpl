@@ -1,0 +1,26 @@
+package main
+
+import "testing"
+
+const dt = 1.0 / 60 // the step golib.Run passes to Update
+
+func TestPlayerMoves(t *testing.T) {
+	w := newWorld()
+	start := w.player.X
+	for range 60 {
+		w.step(1, 0, dt)
+	}
+	if moved := w.player.X - start; moved < playerSpeed-1 || moved > playerSpeed+1 {
+		t.Errorf("after one second moving right, the player moved %v pixels, want about %v", moved, playerSpeed)
+	}
+}
+
+func TestPlayerStaysInsideTheWorld(t *testing.T) {
+	w := newWorld()
+	for range 600 {
+		w.step(-1, -1, dt)
+	}
+	if w.player.X != 0 || w.player.Y != 0 {
+		t.Errorf("after ten seconds moving up and left, the player is at %v, %v, want 0, 0", w.player.X, w.player.Y)
+	}
+}

@@ -2,7 +2,7 @@
 
 Make games in **Go**, powered by **[raylib](https://www.raylib.com)**, designed so an AI agent can turn a single prompt into a playable game.
 
-> **Status: early development.** GoLib installs its own Go toolchain, runs games with keyboard, mouse and gamepad input, shapes, text, random numbers and scenes, and builds them into a single file to share. `golib new` comes next; sprites, maps and sound come later: see the [roadmap](docs/roadmap.md).
+> **Status: early development.** GoLib installs its own Go toolchain, runs games with keyboard, mouse and gamepad input, shapes, text, random numbers and scenes, and builds them into a single file to share, and `golib new` starts a new game; sprites, maps and sound come later: see the [roadmap](docs/roadmap.md).
 
 ## Quick start
 
@@ -59,6 +59,7 @@ Loading files from these tools is planned for M4, which is postponed for now: se
 | --- | --- |
 | `golib setup` | Checks your system and prepares the local tools. Safe to run again. |
 | `golib doctor` | Diagnoses problems without changing anything. |
+| `golib new <name>` | Creates a new game in `games/<name>/`, ready to run. |
 | `golib run [game]` | Builds a game and runs it. |
 | `golib build [game]` | Builds a game into `build/`, for development. |
 | `golib dist [game]` | Builds a game as a single file to share, with everything inside. |
