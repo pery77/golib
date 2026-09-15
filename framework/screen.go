@@ -38,6 +38,21 @@ func (s *Screen) DrawCircle(x, y, radius float32, color Color) {
 	rl.DrawCircleV(rl.Vector2{X: x, Y: y}, radius, color)
 }
 
+// DrawLine draws a straight line from x1, y1 to x2, y2, thickness pixels wide.
+func (s *Screen) DrawLine(x1, y1, x2, y2, thickness float32, color Color) {
+	rl.DrawLineEx(rl.Vector2{X: x1, Y: y1}, rl.Vector2{X: x2, Y: y2}, thickness, color)
+}
+
+// DrawTriangle fills the triangle with corners x1, y1, x2, y2 and x3, y3. The
+// corners can come in any order.
+func (s *Screen) DrawTriangle(x1, y1, x2, y2, x3, y3 float32, color Color) {
+	// raylib only fills triangles whose corners go counterclockwise on screen.
+	if (x2-x1)*(y3-y1)-(y2-y1)*(x3-x1) > 0 {
+		x2, y2, x3, y3 = x3, y3, x2, y2
+	}
+	rl.DrawTriangle(rl.Vector2{X: x1, Y: y1}, rl.Vector2{X: x2, Y: y2}, rl.Vector2{X: x3, Y: y3}, color)
+}
+
 // DrawText draws text in the default font. x and y are the top-left corner and
 // size is the text height, all in pixels.
 func (s *Screen) DrawText(text string, x, y, size float32, color Color) {

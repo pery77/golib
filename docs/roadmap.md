@@ -30,10 +30,11 @@ Known gaps, written down as the [definition of done](contributing.md#definition-
 - Done: random numbers with `golib.RandomInt` and `golib.RandomFloat`, and `golib.SetRandomSeed` to repeat them.
 - Done: the GoLib window, `golib-ui.cmd`: a button for each `golib` command, with its output, for people who prefer clicking. Windows only; on Linux and macOS, use the CLI or the VS Code tasks.
 - Done: `golib.Quit` ends a game. No key quits on its own: raylib's default of closing on Esc is turned off.
-- Done: 2D drawing with rectangles, circles, text, and `Rectangle` overlap checks. Textures and sprites are part of M4.
+- Done: 2D drawing with rectangles, circles, lines, triangles, text, and `Rectangle` overlap and point checks. Textures and sprites are part of M4.
+- Done: the screen scales to any window size and to fullscreen (`golib.SetFullscreen`), with `Config.PixelArt` for sharp pixels, and post-processing shaders run over the whole picture (`golib.NewShader`, `golib.SetPostProcess`). `games/asteroids` tries them out.
 - Done: reading files from the game's `assets/` folder with `golib.ReadAsset`, from disk in debug builds and from the copy embedded in dist builds.
 - Done: `golib new <name>` creates a game folder in `games/` from `tools/template/game/`, ready to run, without touching the framework.
-- An example game that doubles as documentation. In progress: `games/platformer` grows with each feature.
+- Example games that double as documentation. In progress: `games/platformer` grows with each feature, and `games/asteroids` shows screen effects and fullscreen.
 - An API guide for agents.
 
 ## M3: Agent verification loop (done early, during M2, 2026-09-15)

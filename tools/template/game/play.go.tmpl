@@ -28,6 +28,12 @@ func (s *playScene) Update(input *golib.Input, dt float32) {
 		golib.Quit()
 		return
 	}
+	// F11 or Alt+Enter switches fullscreen. The screen keeps its size: GoLib
+	// scales it to fit.
+	altEnter := (input.KeyDown(golib.KeyLeftAlt) || input.KeyDown(golib.KeyRightAlt)) && input.KeyPressed(golib.KeyEnter)
+	if input.KeyPressed(golib.KeyF11) || altEnter {
+		golib.SetFullscreen(!golib.IsFullscreen())
+	}
 
 	// The left stick is analog, so tilting it less moves slower. Keys and the
 	// d-pad move at full speed.
@@ -52,5 +58,5 @@ func (s *playScene) Draw(screen *golib.Screen) {
 	screen.Clear(backgroundColor)
 	screen.DrawRectangle(s.world.player, playerColor)
 	screen.DrawText("{{name}}", 20, 20, 30, textColor)
-	screen.DrawText("Arrows, WASD, d-pad or left stick to move; Esc or Back to quit", 20, 60, 20, textColor)
+	screen.DrawText("Arrows, WASD, d-pad or left stick to move; F11 for fullscreen; Esc or Back to quit", 20, 60, 20, textColor)
 }

@@ -2,6 +2,7 @@ package golib
 
 import (
 	"slices"
+	"strconv"
 	"strings"
 
 	rl "github.com/gen2brain/raylib-go/raylib"
@@ -68,6 +69,19 @@ const (
 	KeySeven Key = rl.KeySeven
 	KeyEight Key = rl.KeyEight
 	KeyNine  Key = rl.KeyNine
+
+	KeyF1  Key = rl.KeyF1
+	KeyF2  Key = rl.KeyF2
+	KeyF3  Key = rl.KeyF3
+	KeyF4  Key = rl.KeyF4
+	KeyF5  Key = rl.KeyF5
+	KeyF6  Key = rl.KeyF6
+	KeyF7  Key = rl.KeyF7
+	KeyF8  Key = rl.KeyF8
+	KeyF9  Key = rl.KeyF9
+	KeyF10 Key = rl.KeyF10
+	KeyF11 Key = rl.KeyF11
+	KeyF12 Key = rl.KeyF12
 )
 
 // keyCount is one more than the highest raylib key code, so key codes can
@@ -88,6 +102,9 @@ var keyNames = func() map[Key]string {
 	}
 	for i, name := range []string{"Zero", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine"} {
 		names[KeyZero+Key(i)] = name
+	}
+	for i := range 12 {
+		names[KeyF1+Key(i)] = "F" + strconv.Itoa(i+1)
 	}
 	return names
 }()

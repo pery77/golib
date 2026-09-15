@@ -2,7 +2,7 @@
 
 Make games in **Go**, powered by **[raylib](https://www.raylib.com)**, designed so an AI agent can turn a single prompt into a playable game.
 
-> **Status: early development.** GoLib installs its own Go toolchain, runs games with keyboard, mouse and gamepad input, shapes, text, random numbers and scenes, and builds them into a single file to share, and `golib new` starts a new game; sprites, maps and sound come later: see the [roadmap](docs/roadmap.md).
+> **Status: early development.** GoLib installs its own Go toolchain, runs games with keyboard, mouse and gamepad input, shapes, text, random numbers, scenes, fullscreen and post-processing shaders, and builds them into a single file to share, and `golib new` starts a new game; sprites, maps and sound come later: see the [roadmap](docs/roadmap.md).
 
 ## Quick start
 
@@ -44,7 +44,7 @@ Then describe the game you want, for example:
 
 In Claude Code, `/make-game <your description>` runs the full game-making playbook.
 
-The framework is still small (shapes, text, keyboard, mouse, gamepad and scenes), so for now the agent tells you what is missing instead of faking it.
+The framework is still small (shapes, text, keyboard, mouse, gamepad, scenes and screen effects), so for now the agent tells you what is missing instead of faking it.
 
 ## How games are made
 

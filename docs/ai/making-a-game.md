@@ -2,7 +2,7 @@
 
 For AI agents. Follow it when a user asks you to create a game, or to change the game in this project.
 
-> **Status:** the framework is still small (M2 in progress): a window, a fixed-step game loop, keyboard, mouse and gamepad input, random numbers, rectangles, circles and text, reading files from `assets/`, quitting with `golib.Quit`, screenshots through `golib shot` and single-file builds through `golib dist`. scenes with `golib.SwitchScene`. Sprites, maps and audio are postponed; check the "Project status" table in [AGENTS.md](../../AGENTS.md). If the game needs something that doesn't exist yet, tell the user. Don't build a private engine to fill the gap.
+> **Status:** the framework is still small (M2 in progress): a window, a fixed-step game loop, keyboard, mouse and gamepad input, random numbers, rectangles, circles, lines, triangles and text, fullscreen, post-processing shaders, reading files from `assets/`, quitting with `golib.Quit`, screenshots through `golib shot` and single-file builds through `golib dist`. scenes with `golib.SwitchScene`. Sprites, maps and audio are postponed; check the "Project status" table in [AGENTS.md](../../AGENTS.md). If the game needs something that doesn't exist yet, tell the user. Don't build a private engine to fill the gap.
 
 ## Goal
 
@@ -38,6 +38,8 @@ golib run asteroids
 | [world_test.go](../../games/platformer/world_test.go) | Testing the rules by calling them directly, without a window or a keyboard |
 | [DESIGN.md](../../games/platformer/DESIGN.md) | The design brief |
 
+[games/asteroids](../../games/asteroids) is a second example, for screen effects: GLSL shaders in `shaders/`, embedded with `//go:embed` and turned on and off with `golib.SetPostProcess` (F2), and fullscreen on F11 or Alt+Enter.
+
 The framework's API is documented in the doc comments of `framework/*.go`: read them too. Where the framework has nothing yet, a game may call raylib directly (`github.com/gen2brain/raylib-go/raylib`). Tell the user when you do, because that code should move to framework APIs as they land.
 
 ## 1. Understand the request
@@ -48,7 +50,7 @@ The framework's API is documented in the doc comments of `framework/*.go`: read 
 
 | Topic | Default |
 | --- | --- |
-| Window | 1280x720 |
+| Window | 1280x720, resizable; F11 or Alt+Enter for fullscreen |
 | Timing | 60 FPS target; movement scaled by frame time |
 | Input | Keyboard (arrow keys and WASD) and gamepad 0 (d-pad or left stick, A to act, Start to pause) together; mouse when the genre needs it |
 | Art | Simple shapes and a small, coherent color palette drawn in code. No external files unless the user provides them |
@@ -136,6 +138,8 @@ GoLib has no editors. Content comes from established tools, and the game loads t
 - Group tuning constants together, with units in the name or a comment: `playerSpeed = 240 // pixels per second`. "Make the player faster" should be a one-line change.
 - Keep game state in structs you pass around, not in package-level variables.
 - Base every timer, movement and animation on `dt` (always 1/60 s), never on `time.Now`. The game then plays the same on every machine and in screenshots.
+- Draw for the screen size in `golib.Config`, never for the window: GoLib scales the screen to any window size and to fullscreen, and reports mouse positions in screen pixels.
+- Screen effects (glow, CRT, color grading) are GLSL 330 fragment shaders in `shaders/*.fs`, embedded with `//go:embed` and run with `golib.SetPostProcess`; `golib.NewShader` documents the uniforms GoLib sets. Let the player turn them off, and check them with `golib shot`: screenshots include post-processing.
 - Get random numbers from `golib.RandomInt` and `golib.RandomFloat`, never from `math/rand`: they start from the same seed under `golib shot`, so shots repeat. Tests that use them call `golib.SetRandomSeed` first.
 - Separate updating (input, logic) from drawing. Drawing never changes game state.
 - End the game with `golib.Quit()` from `Update`, for example from a Quit menu entry. No key quits on its own, not even Esc; closing the window always does.
@@ -157,6 +161,7 @@ Before calling a game done:
 - [ ] Scoring, damage and failure give clear feedback.
 - [ ] Pause and resume work; restart after game over works without relaunching.
 - [ ] Closing the window exits cleanly.
+- [ ] Fullscreen switches on and off, and the game looks right in a resized window.
 - [ ] `golib dist <name>` succeeds.
 - [ ] Game speed is the same at 30, 60 and 144 FPS.
 - [ ] Visual style is consistent and text is readable.

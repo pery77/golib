@@ -293,10 +293,13 @@ func runShots(game Game, config Config, plan *shotPlan) error {
 	}
 	defer rl.CloseWindow()
 
-	// Draw into a texture instead of the window: a hidden or covered window
-	// has no reliable pixels to read back.
-	target := rl.LoadRenderTexture(int32(config.Width), int32(config.Height))
-	defer rl.UnloadRenderTexture(target)
+	// Draw the final picture into a texture instead of the window: a hidden or
+	// covered window has no reliable pixels to read back.
+	render := newRenderer(config)
+	defer render.close()
+	picture := render.loadTarget()
+	defer rl.UnloadRenderTexture(picture)
+	whole := rl.Rectangle{Width: float32(config.Width), Height: float32(config.Height)}
 
 	screen := &Screen{width: float32(config.Width), height: float32(config.Height)}
 	scene := game
@@ -317,11 +320,14 @@ func runShots(game Game, config Config, plan *shotPlan) error {
 		if quit {
 			return fmt.Errorf("golib.Run: the game called golib.Quit in update %d, so frame %d can't be captured: take screenshots of earlier frames", frame, plan.frames[next])
 		}
-		rl.BeginTextureMode(target)
-		scene.Draw(screen)
-		rl.EndTextureMode()
+		render.drawScene(scene, screen)
 		if frame == plan.frames[next] {
-			if err := saveTexture(target.Texture, filepath.Join(plan.dir, shotFileName(frame))); err != nil {
+			// The screenshot shows the picture after post-processing, at the
+			// screen's size.
+			if err := render.present(&picture, whole, float32(frame)*updateStep); err != nil {
+				return err
+			}
+			if err := saveTexture(picture.Texture, filepath.Join(plan.dir, shotFileName(frame))); err != nil {
 				return err
 			}
 			next++

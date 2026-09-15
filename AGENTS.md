@@ -30,7 +30,8 @@ Last updated: 2026-09-15 (milestone M2, Framework basics, in progress).
 | Fixed-step game loop: 60 updates per second at any frame rate | Done (M2) |
 | `golib shot`: screenshots of chosen frames, rendered in a hidden window, with scripted keyboard, mouse and gamepad input (`--input`) and random numbers from a fixed seed | Done (brought forward from M3) |
 | `golib dist`: the game as a single file to share, with raylib and its assets inside | Done (brought forward from M5; tested on Windows only) |
-| Keyboard, mouse (pointer, buttons, wheel) and gamepad (buttons, sticks) input; rectangles and circles; `Rectangle` overlap and point checks | Done (M2) |
+| Keyboard, mouse (pointer, buttons, wheel) and gamepad (buttons, sticks) input; rectangles, circles, lines and triangles; `Rectangle` overlap and point checks | Done (M2) |
+| Screen scaled to any window size, fullscreen (`golib.SetFullscreen`), post-processing shaders (`golib.NewShader`, `golib.SetPostProcess`) | Done (M2) |
 | Random numbers: `golib.RandomInt`, `golib.RandomFloat`, `golib.SetRandomSeed` | Done (M2) |
 | `golib.Quit`; no key quits a game on its own, not even Esc | Done (M2) |
 | Scenes: `golib.SwitchScene` moves between title, play, pause and other screens | Done (M2) |
@@ -38,7 +39,7 @@ Last updated: 2026-09-15 (milestone M2, Framework basics, in progress).
 | `golib new <name>`: a new game, ready to run, from `tools/template/game/` | Done (M2) |
 | Content: textures, Aseprite sprites, Tiled maps, audio, fonts | Postponed (M4) |
 
-**The framework is still small.** It opens a window, runs a fixed-step game loop, reads the keyboard, the mouse and gamepads, draws rectangles, circles and text, makes random numbers, switches between scenes, reads files from the game's `assets/` folder, quits when the game asks, and takes screenshots for `golib shot`: `golib.Run`, `Game`, `Config`, `Input`, `Key`, `MouseButton`, `GamepadButton`, `Screen`, `Rectangle`, colors, `RandomInt`, `RandomFloat`, `SetRandomSeed`, `SwitchScene`, `Quit`, `ReadAsset` and `EmbedAssets`, documented in the doc comments in `framework/`. `games/platformer` is the reference for using it: read it before writing a game. There are no textures, sprites, maps, audio or fonts yet (M4, postponed). If someone asks for a game that needs them, say what is missing and point to [docs/roadmap.md](docs/roadmap.md). Do not improvise a stand-alone engine to fill the gap.
+**The framework is still small.** It opens a window, runs a fixed-step game loop, reads the keyboard, the mouse and gamepads, draws rectangles, circles, lines, triangles and text, scales the screen to any window or fullscreen, runs post-processing shaders, makes random numbers, switches between scenes, reads files from the game's `assets/` folder, quits when the game asks, and takes screenshots for `golib shot`: `golib.Run`, `Game`, `Config`, `Input`, `Key`, `MouseButton`, `GamepadButton`, `Screen`, `Rectangle`, colors, `Shader`, `NewShader`, `SetPostProcess`, `SetFullscreen`, `IsFullscreen`, `RandomInt`, `RandomFloat`, `SetRandomSeed`, `SwitchScene`, `Quit`, `ReadAsset` and `EmbedAssets`, documented in the doc comments in `framework/`. `games/platformer` is the reference for using it: read it before writing a game. `games/asteroids` shows post-processing shaders and fullscreen. There are no textures, sprites, maps, audio or fonts yet (M4, postponed). If someone asks for a game that needs them, say what is missing and point to [docs/roadmap.md](docs/roadmap.md). Do not improvise a stand-alone engine to fill the gap.
 
 ## Golden rules
 
@@ -97,6 +98,7 @@ tools/template/game/ The files golib new copies into games/<name>/
 framework/           The framework: Go module and package "golib"
 games/               One folder per game, each its own Go module
   platformer/        The example game: tests each framework feature and shows how to use it
+  asteroids/         A second example: post-processing shaders and fullscreen
 docs/                Vision, roadmap, architecture, tooling, contributing, AI playbooks
 .claude/             Claude Code project settings and skills
 .vscode/             Recommended extensions, editor settings, tasks

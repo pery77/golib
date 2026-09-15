@@ -35,6 +35,7 @@ games/
     DESIGN.md       Design brief: the game's memory across sessions
     assets/         Content: maps, sprites, models, sounds, fonts; read with golib.ReadAsset
     assets.go       Embeds assets/ in golib dist builds; needed only when assets/ exists
+    shaders/        GLSL post-processing shaders, embedded in the game's code with //go:embed (optional)
 ```
 
 The framework folder can't be called `golib/`: that name is taken by the CLI entry point in the project root.

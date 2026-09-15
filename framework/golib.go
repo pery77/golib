@@ -58,6 +58,14 @@
 // repeat. Use them rather than math/rand, and call [SetRandomSeed] at the
 // start of tests that use them.
 //
+// # Window, fullscreen and post-processing
+//
+// The game draws on a screen of Config.Width by Config.Height pixels, which Run
+// scales to fit the window, so games never deal with the window's size.
+// [SetFullscreen] switches to fullscreen and back. [SetPostProcess] runs
+// shaders made with [NewShader] over the whole picture, for effects such as
+// scanlines or a glow.
+//
 // # Quitting
 //
 // The game ends when the player closes the window or the game calls [Quit].
@@ -98,10 +106,21 @@ const (
 
 // Config describes the game window. Fields left at their zero value get the
 // default shown in their comment.
+//
+// Width and Height are the size of the screen the game draws on, which never
+// changes. The window opens at that size, and the player can resize it or go
+// fullscreen: Run scales the screen to fit, with black bars where the shapes
+// differ, and reports mouse positions in screen pixels.
 type Config struct {
-	Title  string // Window title. Default: "GoLib".
-	Width  int    // Window width in pixels. Default: 1280.
-	Height int    // Window height in pixels. Default: 720.
+	Title      string // Window title. Default: "GoLib".
+	Width      int    // Screen width in pixels. Default: 1280.
+	Height     int    // Screen height in pixels. Default: 720.
+	Fullscreen bool   // Start in fullscreen (see SetFullscreen). Default: in a window.
+
+	// PixelArt scales the screen by whole numbers only, without smoothing,
+	// so every pixel stays square and sharp. Use it with a small screen, such
+	// as 320 by 180. Default: smooth scaling to any size.
+	PixelArt bool
 }
 
 // Game is the interface every GoLib game implements.
@@ -145,6 +164,7 @@ func Run(game Game, config Config) (err error) {
 	if err != nil {
 		return err
 	}
+	fullscreenWanted.Store(config.Fullscreen)
 	plan, err := shotPlanFromEnv(os.Getenv)
 	if err != nil {
 		return err
@@ -155,40 +175,54 @@ func Run(game Game, config Config) (err error) {
 	return runWindow(game, config)
 }
 
-// runWindow is the normal game loop: fixed-step updates, then one draw per frame.
+// runWindow is the normal game loop: fixed-step updates, then one draw per
+// frame, post-processed and scaled to fit the window.
 func runWindow(game Game, config Config) error {
 	if err := openWindow(config, false); err != nil {
 		return err
 	}
 	defer rl.CloseWindow()
 	rl.SetTargetFPS(targetFPS)
+	render := newRenderer(config)
+	defer render.close()
 
-	screen := &Screen{width: float32(config.Width), height: float32(config.Height)}
+	screenWidth, screenHeight := float32(config.Width), float32(config.Height)
+	screen := &Screen{width: screenWidth, height: screenHeight}
 	var (
 		gameClock clock
 		queue     inputQueue
 		input     Input
+		display   window
+		updates   int // run so far, for the time uniform of shaders
 	)
 	scene := game
 	last := rl.GetTime()
 	for !rl.WindowShouldClose() {
+		display.apply()
+		fit := fitScreen(screenWidth, screenHeight, float32(rl.GetScreenWidth()), float32(rl.GetScreenHeight()), config.PixelArt)
+
 		now := rl.GetTime()
 		queue.readKeyboard(raylibKeyDown, raylibKeyPressed)
 		mouse := rl.GetMousePosition()
-		queue.readMouse(mouse.X, mouse.Y, rl.GetMouseWheelMove(), raylibMouseDown, raylibMousePressed)
+		mouseX, mouseY := toScreen(mouse.X, mouse.Y, fit, screenWidth, screenHeight)
+		queue.readMouse(mouseX, mouseY, rl.GetMouseWheelMove(), raylibMouseDown, raylibMousePressed)
 		queue.readGamepads(raylibGamepadFrame)
+		frameUpdates := gameClock.advance(now - last)
 		var (
 			quit bool
 			err  error
 		)
-		scene, quit, err = runUpdates(scene, &input, queue.next, gameClock.advance(now-last))
+		scene, quit, err = runUpdates(scene, &input, queue.next, frameUpdates)
 		if err != nil || quit {
 			return err
 		}
+		updates += frameUpdates
 		last = now
-		rl.BeginDrawing()
-		scene.Draw(screen)
-		rl.EndDrawing()
+
+		render.drawScene(scene, screen)
+		if err := render.present(nil, fit, float32(updates)*updateStep); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -219,6 +253,9 @@ func openWindow(config Config, hidden bool) error {
 	rl.SetTraceLogLevel(rl.LogWarning)
 	if hidden {
 		rl.SetConfigFlags(rl.FlagWindowHidden)
+	} else {
+		// Run scales the screen to fit, so the player may resize the window.
+		rl.SetConfigFlags(rl.FlagWindowResizable)
 	}
 	rl.InitWindow(int32(config.Width), int32(config.Height), config.Title)
 	if !rl.IsWindowReady() {
@@ -227,6 +264,9 @@ func openWindow(config Config, hidden bool) error {
 	// raylib closes the window when Esc is pressed. GoLib leaves every key to
 	// the game, which calls Quit to end.
 	rl.SetExitKey(rl.KeyNull)
+	if !hidden {
+		rl.SetWindowMinSize(max(config.Width/4, 1), max(config.Height/4, 1))
+	}
 	return nil
 }
 

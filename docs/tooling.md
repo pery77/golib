@@ -88,7 +88,7 @@ To update raylib-go, run `golib go -C framework get github.com/gen2brain/raylib-
 | `GOLIB_SHOT_FRAMES` | The requested frames, ascending, separated by commas. Default: `60`, one second of game time. |
 | `GOLIB_SHOT_INPUT` | The `--input` value, or unset |
 
-`golib.Run` reads them, so games need no code for screenshots. It opens a hidden window, runs exactly one update per frame without waiting, draws each frame into an off-screen texture and saves the requested frames as `frame-NNNNNN.png` (RGB, no alpha channel). Then `Run` returns and the game exits. Frame N always shows the game after N updates, so the same code gives the same pictures on any machine, as long as the game bases its timing on `dt`.
+`golib.Run` reads them, so games need no code for screenshots. It opens a hidden window, runs exactly one update per frame without waiting, draws each frame into an off-screen texture, runs the post-processing shaders over the requested frames and saves them as `frame-NNNNNN.png` (RGB, no alpha channel). Screenshots are always the screen's size, `Config.Width` by `Config.Height`, and ignore fullscreen. Then `Run` returns and the game exits. Frame N always shows the game after N updates, so the same code gives the same pictures on any machine, as long as the game bases its timing on `dt`.
 
 The CLI stops a game that is still running after 120 seconds. It then prints an `[ok]` line for each saved file and a `[fail]` line for each missing one.
 
