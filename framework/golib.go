@@ -143,11 +143,13 @@ type Game interface {
 // a hidden window, saves them as PNG files and returns.
 //
 // Run returns an error if game is nil, config is invalid, the window can't be
-// opened or a screenshot can't be saved. A golib dist build on Windows has no
-// console, so there Run also shows that error, or a panic in the game, in a
-// message box.
+// opened or a screenshot can't be saved. When the console can't show that
+// error, Run also shows it, or a panic in the game, in a message box: a golib
+// dist build on Windows has no console, and a debug build started from
+// Explorer has a console window of its own, which closes as soon as the game
+// ends.
 func Run(game Game, config Config) (err error) {
-	if distBuild {
+	if distBuild || ownConsole() {
 		title := config.Title
 		if title == "" {
 			title = defaultTitle

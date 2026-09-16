@@ -65,6 +65,45 @@ func TestReadAssetFromWorkingDirectory(t *testing.T) {
 	}
 }
 
+func TestDebugGameDir(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "project")
+	gameDir := filepath.Join(root, "games", "rocks")
+	buildDir := filepath.Join(root, "build", "rocks")
+	exe := filepath.Join(buildDir, "rocks.exe")
+	folders := map[string]bool{
+		filepath.Join(gameDir, "assets"): true,
+	}
+	isDir := func(path string) bool { return folders[path] }
+
+	tests := []struct {
+		name    string
+		workDir string
+		exe     string
+		want    string
+	}{
+		{name: "started in the game's folder", workDir: gameDir, exe: exe, want: gameDir},
+		{name: "started from Explorer", workDir: buildDir, exe: exe, want: gameDir},
+		{name: "started from another folder", workDir: root, exe: exe, want: gameDir},
+		{name: "F5 output name", workDir: buildDir, exe: filepath.Join(buildDir, "debug"), want: gameDir},
+		{name: "executable unknown", workDir: buildDir, exe: "", want: buildDir},
+		{name: "executable outside build", workDir: root, exe: filepath.Join(root, "rocks", "rocks.exe"), want: root},
+		{name: "game without assets", workDir: root, exe: filepath.Join(root, "build", "other", "other.exe"), want: root},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := debugGameDir(tt.workDir, tt.exe, isDir); got != tt.want {
+				t.Errorf("debugGameDir(%q, %q) = %q, want %q", tt.workDir, tt.exe, got, tt.want)
+			}
+		})
+	}
+
+	// A working directory with an assets folder wins, even in build/<game>/.
+	folders[filepath.Join(buildDir, "assets")] = true
+	if got := debugGameDir(buildDir, exe, isDir); got != buildDir {
+		t.Errorf("debugGameDir with assets in the working directory = %q, want %q", got, buildDir)
+	}
+}
+
 func TestAssetSource(t *testing.T) {
 	if _, where, err := assetSource(fstest.MapFS{}, true); err != nil || where != "in the executable" {
 		t.Errorf("with embedded assets: where = %q, error = %v; want %q and no error", where, err, "in the executable")

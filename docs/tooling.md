@@ -113,10 +113,10 @@ Random numbers from `golib.RandomInt` and `golib.RandomFloat` start from the sam
 | | Debug build: `build`, `run`, `shot`, `test`, F5 | Dist build: `dist` |
 | --- | --- | --- |
 | Output | `build/<game>/<game>.exe`, next to the libraries | `build/<game>/dist/<game>.exe`, alone (no `.exe` on Linux and macOS) |
-| Console window (Windows) | Yes: raylib's warnings and Go's errors appear there | No. `golib.Run` shows its error, or a panic in the game, in a message box |
+| Console window (Windows) | Yes: raylib's warnings and Go's errors appear there, and nothing else, so it stays empty while all is well. Started from Explorer, the window closes when the game ends, so `golib.Run` also shows its error, or a panic in the game, in a message box | No. `golib.Run` shows its error, or a panic in the game, in a message box |
 | Debug symbols and paths from this machine | Kept, for Delve and readable stack traces | Removed |
 | raylib and libffi | Loaded from next to the executable | Embedded; written to the player's cache folder the first time the game starts |
-| The game's `assets/` folder | Read from disk, in the working directory | Embedded, through the game's `assets.go` |
+| The game's `assets/` folder | Read from disk, in the working directory, which `run`, `shot`, `test` and F5 set to `games/<game>/`. When the working directory has no `assets/` folder, as when the executable is started from Explorer in `build/<game>/`, from `games/<game>/assets/` instead | Embedded, through the game's `assets.go` |
 
 It runs `go build -trimpath -tags=golib_dist -ldflags="-s -w -H=windowsgui"`, without `-H=windowsgui` outside Windows, and writes into `build/<game>/dist/`, emptied first. `-tags=golib_dist` replaces the tags in `GOFLAGS`, so raylib-go and ffi embed their libraries again. The same tag switches the framework to dist behavior and includes the game's `assets.go`, which embeds its assets folder:
 

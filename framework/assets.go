@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -24,8 +25,10 @@ var embeddedAssets fs.FS
 // Debug builds (golib build, run, shot and test) read the file from disk, from
 // the assets folder in the working directory. golib run and golib shot start
 // the game in its folder, and go test runs a game's tests there, so an edited
-// asset shows up on the next run. golib dist builds read the copy embedded in
-// the executable instead: see EmbedAssets.
+// asset shows up on the next run. A debug build started from Explorer runs in
+// build/<game>/, which has no assets folder, so it reads games/<game>/assets.
+// golib dist builds read the copy embedded in the executable instead: see
+// EmbedAssets.
 func ReadAsset(name string) ([]byte, error) {
 	files, where, err := assetSource(embeddedAssets, distBuild)
 	if err != nil {
@@ -70,11 +73,43 @@ func assetSource(embedded fs.FS, dist bool) (fs.FS, string, error) {
 	if dist {
 		return nil, "", errors.New("golib.ReadAsset: this golib dist build has no embedded assets: add assets.go to the game, as the golib.EmbedAssets documentation shows")
 	}
-	dir, err := os.Getwd()
+	workDir, err := os.Getwd()
 	if err != nil {
 		return nil, "", fmt.Errorf("golib.ReadAsset: cannot find the working directory: %w", err)
 	}
+	exe, err := os.Executable()
+	if err != nil {
+		exe = "" // only the working directory counts
+	}
+	dir := debugGameDir(workDir, exe, isDir)
 	return os.DirFS(dir), "in " + dir, nil
+}
+
+// debugGameDir returns the folder whose assets folder a debug build reads: the
+// working directory, which golib run, golib shot, F5 and go test set to the
+// game's folder. A debug build started another way, such as a double click on
+// build/<game>/<game>.exe, runs somewhere else: when the working directory has
+// no assets folder, it reads the one in games/<game>/, found from the
+// executable's place in build/<game>/, if there is one.
+func debugGameDir(workDir, exe string, isDir func(string) bool) string {
+	if exe == "" || isDir(filepath.Join(workDir, assetsDir)) {
+		return workDir
+	}
+	buildGameDir := filepath.Dir(exe)
+	if filepath.Base(filepath.Dir(buildGameDir)) != "build" {
+		return workDir
+	}
+	gameDir := filepath.Join(buildGameDir, "..", "..", "games", filepath.Base(buildGameDir))
+	if !isDir(filepath.Join(gameDir, assetsDir)) {
+		return workDir
+	}
+	return gameDir
+}
+
+// isDir reports whether path is a folder.
+func isDir(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
 }
 
 // readAsset reads assets/<name> from files. where says where files are, for

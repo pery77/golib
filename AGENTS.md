@@ -12,7 +12,7 @@ The promise: someone downloads the template, runs a couple of commands, and buil
 
 Keep this section true: update it in the same change that lands or removes a feature. Never describe planned work as if it existed.
 
-Last updated: 2026-09-15 (milestone M2, Framework basics, in progress).
+Last updated: 2026-09-16 (milestone M2, Framework basics, in progress).
 
 | Area | State |
 | --- | --- |
@@ -68,7 +68,7 @@ Run from the project root. The command name is the same everywhere; only the pre
 | `setup` | Checks the environment, then installs Go, the Go modules and the raylib libraries into `.tools/`. Safe to run repeatedly. |
 | `doctor` | Read-only diagnosis of the environment and the project. |
 | `new <name>` | Creates `games/<name>/` from `tools/template/game/`: a small game that runs straight away, laid out like `games/platformer`. Names are lowercase letters, digits, `-` and `_`. |
-| `build [game]` | Debug build: builds `games/<game>` into `build/<game>/`, next to copies of the raylib libraries, with a console window for errors. `run`, `shot`, `test` and F5 build the same way, and read `assets/` from disk. |
+| `build [game]` | Debug build: builds `games/<game>` into `build/<game>/`, next to copies of the raylib libraries, with a console window for errors. `run`, `shot`, `test` and F5 build the same way, and read `assets/` from disk. Started from Explorer, the executable still reads `games/<game>/assets/` and shows errors in a message box, because its console window closes when the game ends. |
 | `dist [game]` | Dist build, to share: builds `build/<game>/dist/<game>.exe` (no `.exe` on Linux and macOS), a single file with raylib and the game's `assets/` folder inside and, on Windows, no console window. A game with an `assets/` folder needs an `assets.go` file: see `golib.EmbedAssets`. |
 | `run [game]` | Builds the game, then runs it with `games/<game>/` as the working directory. |
 | `shot [game] [frame...] [--input "<script>"]` | Builds the game, runs it in a hidden window and saves screenshots of the given frames (default: 60) as `build/<game>/shots/frame-NNNNNN.png`. Frame N shows the game after N updates. `--input "Enter@1 Right@30-90 Mouse@100:640,360 MouseLeft@101"` presses Enter in update 1, holds Right from update 30 to 90, moves the mouse pointer to 640, 360 and clicks (see [docs/tooling.md](docs/tooling.md#screenshots)). Random numbers start from the same seed, so shots repeat. Open the files to see the game. |

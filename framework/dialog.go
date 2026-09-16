@@ -11,9 +11,11 @@ import (
 const crashStackLines = 30
 
 // reportInDialog shows Run's error, or a panic in the game, in a message box,
-// then lets the panic continue. golib dist builds defer it in Run: on Windows
-// they have no console, so nothing else would tell the player what went wrong.
-// It must be deferred directly, or recover returns nil.
+// then lets the panic continue. Run defers it when the console can't show the
+// error: a golib dist build on Windows has none, and a debug build started
+// from Explorer has one that closes as soon as the game ends, so nothing else
+// would tell the player what went wrong. It must be deferred directly, or
+// recover returns nil.
 func reportInDialog(title string, err *error) {
 	if r := recover(); r != nil {
 		showErrorDialog(title, crashMessage(r, debug.Stack()))
