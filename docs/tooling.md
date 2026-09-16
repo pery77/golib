@@ -178,7 +178,7 @@ On Windows, a dist build carries the game's icon, which Explorer, the title bar 
 | `icon.png` | The icon: a square PNG, ideally 256 by 256 pixels, transparent around the shape. Pixel art can be smaller, down to 16 by 16. | Windows' default program icon |
 | `game.json` | The title, version and author, below. `golib new` writes one. | The folder name and version 0.0.0 |
 
-Every field of `game.json` is optional:
+Every field of `game.json` is optional. Save it as UTF-8; the byte order mark that Windows PowerShell 5.1 writes is fine.
 
 | Field | Example | Becomes |
 | --- | --- | --- |

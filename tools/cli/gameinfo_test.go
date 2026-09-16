@@ -64,6 +64,12 @@ func TestReadGameInfo(t *testing.T) {
 	if got := info.version.String(); got != "1.20.3-beta.2" {
 		t.Errorf("version.String() = %q", got)
 	}
+
+	// Set-Content -Encoding UTF8 in Windows PowerShell 5.1 writes a byte order mark.
+	info, _, err = readGameInfo(gameDir(t, "\xef\xbb\xbf{\"title\": \"Pequeño\"}"))
+	if err != nil || info.Title != "Pequeño" {
+		t.Errorf("with a byte order mark: title %q, error %v; want Pequeño and no error", info.Title, err)
+	}
 }
 
 func TestReadGameInfoMistakes(t *testing.T) {

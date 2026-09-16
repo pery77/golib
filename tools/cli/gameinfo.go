@@ -45,6 +45,9 @@ func readGameInfo(dir string) (info gameInfo, found bool, err error) {
 	if err != nil {
 		return info, true, err
 	}
+	// Windows PowerShell 5.1 and some Windows editors start UTF-8 files with
+	// a byte order mark, which JSON doesn't allow.
+	data = bytes.TrimPrefix(data, []byte("\xef\xbb\xbf"))
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
