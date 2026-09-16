@@ -58,3 +58,4 @@ Follows the framework, one feature at a time:
 - 2026-09-15: gamepad controls everywhere, and a title menu that also works with the arrows, the d-pad and the mouse wheel.
 - 2026-09-16: sounds for jumping, collecting a coin, falling into the gap and winning, made in code by GoLib (`sounds.go`).
 - 2026-09-16: `game.json` (title, version 0.1.0, author) and a placeholder `icon.png`, which `golib dist` puts in the Windows executable.
+- 2026-09-16: `assets/` with the sprite sheets of "A platformer in the forest" (CC0, by Buch; see `assets/ATTRIBUTION.md`), not drawn yet because GoLib can't load images until M4, and `assets.go`, so `golib dist` embeds the folder.
