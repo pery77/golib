@@ -181,7 +181,7 @@ func TestMapTileData(t *testing.T) {
 	encode := base64.StdEncoding.EncodeToString
 
 	tests := map[string]string{
-		"csv":    `<data encoding="csv">1,0,
+		"csv": `<data encoding="csv">1,0,
 2147483649,3</data>`,
 		"xml":    `<data><tile gid="1"/><tile/><tile gid="2147483649"/><tile gid="3"/></data>`,
 		"base64": `<data encoding="base64">` + encode(raw) + `</data>`,
@@ -200,13 +200,13 @@ func TestMapTileData(t *testing.T) {
 
 	failures := map[string]string{
 		`<data encoding="base64" compression="zstd">KLUv/QBYAAA=</data>`: "the tile data is compressed with Zstandard, which GoLib can't read: in Tiled, pick another Tile Layer Format",
-		`<data encoding="csv">1,2,3</data>`:                             "the tile data has 3 tiles, but the layer is 4 tiles",
-		`<data encoding="csv">1,x,3,4</data>`:                           `the tile data has "x", which isn't a tile ID`,
-		`<data encoding="base64">AAAA</data>`:                           "the tile data is cut short",
-		`<data encoding="base64">!!</data>`:                             "the tile data isn't valid base64",
-		`<data encoding="base64" compression="zlib">AAAA</data>`:        "the tile data isn't valid zlib",
-		`<data encoding="hex">00</data>`:                                `the tile data is encoded as "hex", which GoLib doesn't know`,
-		``:                                                              "it has no tile data",
+		`<data encoding="csv">1,2,3</data>`:                              "the tile data has 3 tiles, but the layer is 4 tiles",
+		`<data encoding="csv">1,x,3,4</data>`:                            `the tile data has "x", which isn't a tile ID`,
+		`<data encoding="base64">AAAA</data>`:                            "the tile data is cut short",
+		`<data encoding="base64">!!</data>`:                              "the tile data isn't valid base64",
+		`<data encoding="base64" compression="zlib">AAAA</data>`:         "the tile data isn't valid zlib",
+		`<data encoding="hex">00</data>`:                                 `the tile data is encoded as "hex", which GoLib doesn't know`,
+		``:                                                               "it has no tile data",
 	}
 	for data, want := range failures {
 		useAssets(t, map[string][]byte{"map.tmx": mapFile(2, 2, data), "t.png": pngFile(t, 4, 4)})
