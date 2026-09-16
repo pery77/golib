@@ -13,6 +13,8 @@
 //     world_test.go can test them.
 //   - sounds.go holds the sound effects, which GoLib makes in code.
 //   - DESIGN.md says what the game is, its controls and where its numbers live.
+//   - game.json and icon.png name the game and give it an icon in the file
+//     golib dist builds.
 package main
 
 import (

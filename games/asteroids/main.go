@@ -15,6 +15,8 @@
 //   - sounds.go holds the sound effects, made by GoLib's synthesizer, and the
 //     music, which is the only file in assets/.
 //   - DESIGN.md says what the game is, its controls and where its numbers live.
+//   - game.json and icon.png name the game and give it an icon in the file
+//     golib dist builds.
 package main
 
 import (

@@ -51,9 +51,11 @@ All the numbers are at the top of `world.go`: ship handling (`turnSpeed`, `thrus
 - A flying saucer that shoots back.
 - Hyperspace: jump to a random spot, at a risk.
 - A high score that lasts between runs.
+- An icon drawn in Aseprite, instead of the placeholder `icon.png`, which was drawn in code.
 
 ## Changelog
 - 2026-09-15: created with `golib new`: a square that moves around the screen.
 - 2026-09-15: the game: ship, rocks that split, bullets, sparks, lives, waves, score; title, pause and game over scenes; keyboard and gamepad; glow and CRT screen effects (F2 or Y); fullscreen (F11 or Alt+Enter).
 - 2026-09-16: sound effects made in code (`sounds.go`): the gun, rocks breaking by size, the ship exploding and each new wave.
 - 2026-09-16: music, a tracker module in `assets/`, streamed with `golib.NewMusic` and turned on and off with F3 or X.
+- 2026-09-16: `game.json` (title, version 0.1.0, author) and a placeholder `icon.png`, which `golib dist` puts in the Windows executable.

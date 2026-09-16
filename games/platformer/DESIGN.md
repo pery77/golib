@@ -48,6 +48,7 @@ Follows the framework, one feature at a time:
 - Sprites and animations drawn in Aseprite instead of rectangles.
 - Music, when GoLib loads audio files.
 - The level as a Tiled map.
+- An icon drawn in Aseprite, instead of the placeholder `icon.png`, which was drawn in code.
 
 ## Changelog
 - 2026-09-15: first version, drawn with shapes: walking, jumping, platforms, coins, falling off, winning. Replaces `games/hello`.
@@ -56,3 +57,4 @@ Follows the framework, one feature at a time:
 - 2026-09-15: Play and Quit buttons on the title that work with the mouse, and random clouds with `golib.RandomFloat`.
 - 2026-09-15: gamepad controls everywhere, and a title menu that also works with the arrows, the d-pad and the mouse wheel.
 - 2026-09-16: sounds for jumping, collecting a coin, falling into the gap and winning, made in code by GoLib (`sounds.go`).
+- 2026-09-16: `game.json` (title, version 0.1.0, author) and a placeholder `icon.png`, which `golib dist` puts in the Windows executable.
