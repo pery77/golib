@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 )
@@ -236,6 +237,12 @@ func (c *cli) gameEnv(game string, extra ...string) []string {
 
 // toolModules are GoLib's own Go programs, which don't use raylib.
 var toolModules = []string{"tools/cli"}
+
+// isToolModule reports whether module, a path from the root, is one of GoLib's
+// own programs.
+func isToolModule(module string) bool {
+	return slices.Contains(toolModules, module)
+}
 
 // modules returns the project's Go modules, as paths from the root with
 // forward slashes: the framework, each game, then GoLib's own programs.

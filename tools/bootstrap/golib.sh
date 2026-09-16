@@ -6,8 +6,8 @@
 # tools/bootstrap/golib.ps1 is the Windows twin of this file. Both must expose the same
 # commands, options, output format and exit codes: change one, change the other.
 # Most commands live in tools/cli, a Go program that both scripts build and start (run_cli
-# here): new, build, run, shot, test and dist. This file keeps what has to work before that
-# program can be built: help, setup, doctor, go and clean.
+# here): new, build, run, shot, test, dist and the end of setup. This file keeps what has to
+# work before that program can be built: help, setup up to installing Go, doctor, go and clean.
 # POSIX sh only, so it runs under dash: no bash arrays, no [[ ]], no "local". Functions
 # share one variable namespace, so their variables carry a short prefix.
 #
@@ -25,9 +25,6 @@ go_sha256_darwin_arm64=ee215d57e0ec269c60cc9ceca68e6bda321ba9ee5afe24f4b0988703c
 # The raylib binding. Its version is pinned in framework/go.mod; the prebuilt raylib library
 # for each platform ships inside the module, in its libs/ folder.
 raylib_module=github.com/gen2brain/raylib-go/raylib
-# raylib-go calls raylib through libffi. The ffi module ships libffi for macOS in its
-# assets/libffi/ folder; Linux games load the system's libffi.so.8.
-ffi_module=github.com/jupiterrider/ffi
 
 root=$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)
 tools_dir="$root/.tools"
@@ -41,6 +38,7 @@ games_dir="$root/games"
 # folder: new refuses golib as a game name.
 cli_dir="$root/tools/cli"
 cli_exe="$build_dir/golib/golib"
+
 failures=0
 warnings=0
 
@@ -366,81 +364,6 @@ raylib_version() {
   fi
 }
 
-# For setup: makes sure .tools/raylib/ holds the libraries that a module's debug builds load:
-# raylib, from the module's raylib-go version, and on macOS libffi, from its ffi version. VERSION
-# records both versions. The folder has no version in its name, so editor settings can point at
-# it. Sets raylib_lib and ffi_lib (empty on Linux, which uses the system's libffi) to the
-# libraries' paths and sr_version to the raylib-go version, or sets raylib_error and returns 1.
-# Requires set_go_environment. syncRaylib in tools/cli/libraries.go does the same for the other
-# commands: keep them in step.
-sync_raylib() {
-  if ! sr_info=$("$go_exe" -C "$1" list -m -f '{{.Path}}|{{.Version}}|{{.Dir}}' "$raylib_module" "$ffi_module"); then
-    raylib_error="cannot find $raylib_module and $ffi_module for $1 (run: golib setup)"
-    return 1
-  fi
-  sr_raylib=$(printf '%s\n' "$sr_info" | sed -n "s#^$raylib_module|##p")
-  sr_ffi=$(printf '%s\n' "$sr_info" | sed -n "s#^$ffi_module|##p")
-  if [ -z "$sr_raylib" ] || [ -z "$sr_ffi" ]; then
-    raylib_error="cannot find $raylib_module and $ffi_module for $1 (run: golib setup)"
-    return 1
-  fi
-  sr_version=${sr_raylib%%|*}
-  sr_cache=${sr_raylib#*|}
-  sr_ffi_version=${sr_ffi%%|*}
-  sr_ffi_cache=${sr_ffi#*|}
-  case "$goos" in
-    darwin) sr_ffi_source="assets/libffi/darwin_$goarch/libffi.8.dylib" ;;
-    *) sr_ffi_source='' ;;
-  esac
-  if [ -z "$sr_cache" ]; then
-    raylib_error="$raylib_module $sr_version is not downloaded yet (run: golib setup)"
-    return 1
-  fi
-  case "$goos" in
-    darwin) sr_pattern="raylib-*_macos.tar.gz" ;;
-    *) sr_pattern="raylib-*_linux_$goarch.tar.gz" ;;
-  esac
-  sr_archive=''
-  for sr_candidate in "$sr_cache"/libs/$sr_pattern; do
-    if [ -f "$sr_candidate" ]; then
-      sr_archive=$sr_candidate
-      break
-    fi
-  done
-  if [ -z "$sr_archive" ]; then
-    raylib_error="$raylib_module $sr_version has no prebuilt library matching $sr_pattern"
-    return 1
-  fi
-  # The archive holds a single file, such as libraylib.so.6.0.0.
-  sr_name=$(tar -tzf "$sr_archive" | head -n 1)
-  raylib_lib="$raylib_dir/$sr_name"
-  ffi_lib=''
-  if [ -n "$sr_ffi_source" ]; then ffi_lib="$raylib_dir/$(basename "$sr_ffi_source")"; fi
-  sr_expected=$(printf '%s\nffi %s' "$sr_version" "$sr_ffi_version")
-  if [ -f "$raylib_lib" ] && { [ -z "$ffi_lib" ] || [ -f "$ffi_lib" ]; } &&
-    [ "$(cat "$raylib_dir/VERSION" 2>/dev/null)" = "$sr_expected" ]; then
-    return 0
-  fi
-  if [ -n "$sr_ffi_source" ] && [ -z "$sr_ffi_cache" ]; then
-    raylib_error="$ffi_module $sr_ffi_version is not downloaded yet (run: golib setup)"
-    return 1
-  fi
-  remove_tree "$raylib_dir"
-  mkdir -p "$raylib_dir"
-  if ! tar -xzf "$sr_archive" -C "$raylib_dir" || [ ! -f "$raylib_lib" ]; then
-    raylib_error="could not extract $sr_name from $sr_archive"
-    return 1
-  fi
-  if [ -n "$ffi_lib" ]; then
-    if ! cp "$sr_ffi_cache/$sr_ffi_source" "$ffi_lib"; then
-      raylib_error="could not copy $sr_ffi_source from $sr_ffi_cache"
-      return 1
-    fi
-    chmod u+w "$ffi_lib" # Go's module cache is read-only; the copy doesn't need to be
-  fi
-  printf '%s\n' "$sr_expected" >"$raylib_dir/VERSION"
-}
-
 # --- Commands -------------------------------------------------------------------------------
 
 cmd_setup() {
@@ -458,29 +381,9 @@ cmd_setup() {
     summary setup
     exit 1
   fi
-  set_go_environment
-
-  list_modules
-  if [ -z "$modules" ]; then check info "no Go modules yet: nothing more to download"; fi
-  for cs_module in $modules; do
-    if ! "$go_exe" -C "$root/$cs_module" mod download; then
-      check fail "could not download the Go modules for $cs_module (see the errors above)"
-      continue
-    fi
-    if sync_raylib "$root/$cs_module"; then
-      check ok "$cs_module: modules downloaded, raylib library for raylib-go $sr_version in .tools/raylib/"
-    else
-      check fail "$cs_module: $raylib_error"
-    fi
-  done
-
-  summary setup
-  if [ "$failures" -gt 0 ]; then
-    echo 'Setup incomplete. Fix the [fail] items above, then run setup again.'
-    exit 1
-  fi
-  echo 'Setup complete.'
-  exit 0
+  # tools/cli downloads the Go modules, fills .tools/raylib/ and prints the summary, which counts
+  # the warnings printed so far.
+  run_cli setup "--warnings=$warnings"
 }
 
 cmd_doctor() {

@@ -59,12 +59,12 @@ func (c *cli) buildGame(game string) string {
 		c.check("fail", fmt.Sprintf("build failed for games/%s (see the Go errors above)", game))
 		return ""
 	}
-	libraries, err := c.syncRaylib(dir)
+	synced, err := c.syncRaylib(dir)
 	if err != nil {
 		c.check("fail", err.Error())
 		return ""
 	}
-	for _, library := range libraries {
+	for _, library := range synced.libraries {
 		if err := copyFile(library, filepath.Join(outDir, filepath.Base(library))); err != nil {
 			c.check("fail", fmt.Sprintf("cannot copy %s into build/%s/ (is the game still running?): %v", filepath.Base(library), game, err))
 			return ""

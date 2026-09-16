@@ -17,7 +17,7 @@ Last updated: 2026-09-17 (milestone M5, Shipping, in progress; M4, Content, post
 | Area | State |
 | --- | --- |
 | `golib` CLI: `setup`, `doctor`, `clean`, `help` | Done |
-| The CLI in Go, `tools/cli`: one program for every platform that takes over the twin scripts' commands one at a time | In progress (M5): `new`, `build`, `run`, `shot`, `test` and `dist` have moved; `help`, `setup`, `doctor`, `go` and `clean` stay in the scripts, and `setup`'s module download is to move next |
+| The CLI in Go, `tools/cli`: one program for every platform with the commands' logic, started by the twin scripts | Done (M5): `new`, `build`, `run`, `shot`, `test`, `dist` and most of `setup`; `help`, `doctor`, `go` and `clean` stay in the scripts. Tested on Windows only |
 | VS Code workspace: extensions, settings, tasks | Done |
 | AI instructions: this file, `CLAUDE.md`, Claude Code settings, `/make-game` skill | Done |
 | Go 1.27.1 downloaded into `.tools/` by `golib setup` | Done |
@@ -99,8 +99,8 @@ README.md            Human quick start
 LICENSE              zlib license; games made in games/ are their authors'
 golib, golib.cmd     CLI entry points for POSIX shells and Windows; thin shims, no logic
 golib-ui.cmd         Double-click to open the GoLib window (Windows); a thin shim too
-tools/bootstrap/     CLI scripts: golib.sh (Linux, macOS), golib.ps1 (Windows); they run help, setup, doctor, go and clean, and build and start tools/cli for the other commands
-tools/cli/           The CLI in Go, built into build/golib/: new, build, run, shot, test and dist
+tools/bootstrap/     CLI scripts: golib.sh (Linux, macOS), golib.ps1 (Windows); they install Go, run help, doctor, go and clean, and build and start tools/cli for the rest
+tools/cli/           The CLI in Go, built into build/golib/: new, build, run, shot, test, dist and most of setup
 tools/ui/            The GoLib window: golib-ui.ps1, buttons that run the CLI
 tools/template/game/ The files golib new copies into games/<name>/
 framework/           The framework: Go module and package "golib"; README.md is its API guide

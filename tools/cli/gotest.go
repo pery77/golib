@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"path/filepath"
-	"slices"
 	"strings"
 )
 
@@ -24,7 +23,7 @@ func (c *cli) test(options []string) int {
 			continue
 		}
 		var env []string
-		if !slices.Contains(toolModules, module) {
+		if !isToolModule(module) {
 			// Test binaries load raylib and libffi when they start, so
 			// .tools/raylib/ goes on the library search path.
 			if _, err := c.syncRaylib(dir); err != nil {

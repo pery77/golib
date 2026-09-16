@@ -110,13 +110,19 @@ func findLibraries(platform string, modules []goModule) ([]library, error) {
 	return libraries, nil
 }
 
+// raylibFolder is what .tools/raylib/ holds for a module.
+type raylibFolder struct {
+	version   string   // the raylib-go version its libraries come from
+	libraries []string // their paths
+}
+
 // syncRaylib makes sure .tools/raylib/ holds the libraries that debug builds
 // of the Go module in dir load, from the raylib-go and ffi versions it
-// requires, and returns their paths. .tools/raylib/VERSION names both
+// requires, and says what it holds. .tools/raylib/VERSION names both
 // versions: the raylib-go version on the first line, then "ffi <version>".
-// The folder has no version in its name, so editor settings can point at it.
-// The scripts' setup fills the same folder: keep both in step.
-func (c *cli) syncRaylib(dir string) ([]string, error) {
+// The folder has no version in its name, so editor settings, such as the F5
+// debug configuration, can point at it; golib doctor reads VERSION.
+func (c *cli) syncRaylib(dir string) (raylibFolder, error) {
 	output, err := c.goOutput(dir, "list", "-m", "-json", raylibModule, ffiModule)
 	var modules []goModule
 	if err == nil {
@@ -138,17 +144,17 @@ func (c *cli) syncRaylib(dir string) ([]string, error) {
 	}
 	raylib, ffi := found[raylibModule], found[ffiModule]
 	if err != nil || raylib.Version == "" || ffi.Version == "" {
-		return nil, fmt.Errorf("cannot find %s and %s for %s (run: golib setup)", raylibModule, ffiModule, c.shown(dir))
+		return raylibFolder{}, fmt.Errorf("cannot find %s and %s for %s (run: golib setup)", raylibModule, ffiModule, c.shown(dir))
 	}
 	platform := c.goos + "/" + c.goarch
 	for _, m := range []goModule{raylib, ffi} {
 		if m.Dir == "" && (m.Path == raylibModule || libffiFiles[platform] != "") {
-			return nil, fmt.Errorf("%s %s is not downloaded yet (run: golib setup)", m.Path, m.Version)
+			return raylibFolder{}, fmt.Errorf("%s %s is not downloaded yet (run: golib setup)", m.Path, m.Version)
 		}
 	}
 	libraries, err := findLibraries(platform, []goModule{raylib, ffi})
 	if err != nil {
-		return nil, err
+		return raylibFolder{}, err
 	}
 
 	folder := c.path(".tools", "raylib")
@@ -158,29 +164,29 @@ func (c *cli) syncRaylib(dir string) ([]string, error) {
 	if data, err := os.ReadFile(versionFile); err != nil || string(data) != versions {
 		ready = false
 	}
-	var paths []string
+	synced := raylibFolder{version: raylib.Version}
 	for _, l := range libraries {
 		path := filepath.Join(folder, l.name)
-		paths = append(paths, path)
+		synced.libraries = append(synced.libraries, path)
 		if !isFile(path) {
 			ready = false
 		}
 	}
 	if ready {
-		return paths, nil
+		return synced, nil
 	}
 	if err := os.RemoveAll(folder); err != nil {
-		return nil, fmt.Errorf("cannot empty .tools/raylib/ (is a game still running?): %w", err)
+		return raylibFolder{}, fmt.Errorf("cannot empty .tools/raylib/ (is a game still running?): %w", err)
 	}
 	if err := os.MkdirAll(folder, 0o755); err != nil {
-		return nil, err
+		return raylibFolder{}, err
 	}
 	for _, l := range libraries {
 		if err := l.copyTo(folder); err != nil {
-			return nil, fmt.Errorf("cannot copy %s into .tools/raylib/: %w", l.name, err)
+			return raylibFolder{}, fmt.Errorf("cannot copy %s into .tools/raylib/: %w", l.name, err)
 		}
 	}
-	return paths, os.WriteFile(versionFile, []byte(versions), 0o644)
+	return synced, os.WriteFile(versionFile, []byte(versions), 0o644)
 }
 
 // copyFile copies the file at source to target, replacing target.

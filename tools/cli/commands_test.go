@@ -510,3 +510,66 @@ func TestWaitForGame(t *testing.T) {
 		t.Error("a missing executable: no error")
 	}
 }
+
+func TestSetup(t *testing.T) {
+	tp := newTestProject(t, "windows", "rocks")
+	writeFile(t, tp.c.path("framework", "go.mod"), "module golib\n")
+	writeFile(t, tp.c.path("tools", "cli", "go.mod"), "module cli\n")
+	if code := tp.c.setup([]string{"--warnings=2"}); code != 0 {
+		t.Fatalf("exit code %d, output:\n%s%s", code, tp.stdout.String(), tp.stderr.String())
+	}
+	want := `[ok]   framework: modules downloaded, raylib library for raylib-go v0.60.1 in .tools/raylib/
+[ok]   games/rocks: modules downloaded, raylib library for raylib-go v0.60.1 in .tools/raylib/
+
+setup: 0 failed, 2 warning(s)
+Setup complete.
+`
+	if tp.stdout.String() != want {
+		t.Errorf("output:\n%s\nwant:\n%s", tp.stdout.String(), want)
+	}
+	var downloads []string
+	for _, call := range tp.calls {
+		if slices.Equal(call.args, []string{"mod", "download"}) {
+			downloads = append(downloads, tp.c.shown(call.dir))
+		}
+	}
+	if !slices.Equal(downloads, []string{"framework", "games/rocks"}) {
+		t.Errorf("go mod download ran in %q, want the framework and the game", downloads)
+	}
+	if tools := readFolder(t, tp.c.path(".tools", "raylib")); tools["VERSION"] != "v0.60.1\nffi v0.7.0\n" {
+		t.Errorf(".tools/raylib/ holds %q", tools)
+	}
+
+	tp = newTestProject(t, "windows", "rocks", "snake")
+	tp.failing = "mod"
+	if code := tp.c.setup(nil); code != 1 {
+		t.Errorf("failing downloads: exit code %d, want 1", code)
+	}
+	want = `[fail] could not download the Go modules for games/rocks (see the errors above)
+[fail] could not download the Go modules for games/snake (see the errors above)
+
+setup: 2 failed, 0 warning(s)
+Setup incomplete. Fix the [fail] items above, then run setup again.
+`
+	if tp.stdout.String() != want {
+		t.Errorf("failing downloads, output:\n%s\nwant:\n%s", tp.stdout.String(), want)
+	}
+
+	tp = newTestProject(t, "windows", "rocks")
+	tp.modules[1].Dir = ""
+	if code := tp.c.setup(nil); code != 1 || !strings.HasPrefix(tp.stdout.String(), "[fail] games/rocks: github.com/gen2brain/raylib-go/raylib v0.60.1 is not downloaded yet") {
+		t.Errorf("raylib-go missing: exit code %d, output:\n%s", code, tp.stdout.String())
+	}
+
+	tp = newTestProject(t, "windows")
+	if code := tp.c.setup([]string{"--warnings=0"}); code != 0 || !strings.HasPrefix(tp.stdout.String(), "[info] no Go modules yet: nothing more to download\n") {
+		t.Errorf("no modules: exit code %d, output:\n%s", code, tp.stdout.String())
+	}
+
+	for _, options := range [][]string{{"--all"}, {"--warnings=-1"}, {"--warnings=x"}, {"--warnings"}} {
+		tp := newTestProject(t, "windows")
+		if code := tp.c.setup(options); code != 2 || !strings.HasPrefix(tp.stderr.String(), "golib: setup takes no options (got: ") {
+			t.Errorf("setup %q: exit code %d, stderr %q", options, code, tp.stderr.String())
+		}
+	}
+}

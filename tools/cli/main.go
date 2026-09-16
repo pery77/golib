@@ -2,9 +2,9 @@
 // tools/bootstrap/ build it into build/golib/ and start it for the commands
 // that have moved here, passing their arguments on; nobody needs to start it
 // by hand. Commands move here from the scripts one at a time (see
-// docs/roadmap.md): so far new, build, run, shot, test and dist. The scripts
-// keep help, setup, doctor, clean and go, which have to work before this
-// program can be built.
+// docs/roadmap.md): new, build, run, shot, test, dist, and setup once Go is
+// installed. The scripts keep help, the start of setup, doctor, clean and go,
+// which have to work before this program can be built.
 //
 // It prints what the scripts print: one fact per line, starting with [ok],
 // [info], [warn] or [fail], then a summary line. The exit code is 0 after
@@ -26,6 +26,7 @@ import (
 // start this program for these commands only, and list every command in
 // their help.
 var commands = map[string]func(c *cli, options []string) int{
+	"setup": (*cli).setup,
 	"new":   (*cli).newGame,
 	"build": (*cli).build,
 	"run":   (*cli).run,

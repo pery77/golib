@@ -18,14 +18,14 @@ Both shims find the project root from their own location, so they also work when
 
 ## Implementations
 
-The command logic is moving from two twin scripts into one Go program, a command at a time (see [roadmap.md](roadmap.md#decisions)):
+The command logic lives in one Go program, and two twin scripts start it (see [roadmap.md](roadmap.md#decisions)):
 
 | Part | Commands |
 | --- | --- |
-| `tools/bootstrap/golib.ps1` (Windows PowerShell 5.1 and PowerShell 7) and `tools/bootstrap/golib.sh` (POSIX sh), twins with the same commands, options, output and exit codes | `help`, `setup`, `doctor`, `go`, `clean`; they also build and start the Go program for the other commands |
-| `tools/cli/`, the Go program | `new`, `build`, `run`, `shot`, `test`, `dist` |
+| `tools/bootstrap/golib.ps1` (Windows PowerShell 5.1 and PowerShell 7) and `tools/bootstrap/golib.sh` (POSIX sh), twins with the same commands, options, output and exit codes | `help`, `setup` up to installing Go, `doctor`, `go`, `clean`; they also build and start the Go program for everything else |
+| `tools/cli/`, the Go program | `new`, `build`, `run`, `shot`, `test`, `dist`, and the rest of `setup`: downloading the Go modules and filling `.tools/raylib/` |
 
-The scripts keep what has to work without Go, or while the Go program isn't running or doesn't build: downloading and checking Go in `setup`, building and starting the Go program, `clean` (on Windows a running program can't delete its own folder), `doctor`, which never starts Go, and `go`, which stays usable to fix `tools/cli` when it doesn't compile. `setup` also still downloads the modules and fills `.tools/raylib/` itself; that part is to move into the Go program next (see [roadmap.md](roadmap.md#m5-shipping-in-progress)), and until then `Sync-Raylib`, `sync_raylib` and `syncRaylib` in `tools/cli/libraries.go` must fill the folder the same way.
+The scripts keep what has to work without Go, or while the Go program isn't running or doesn't build: checking the machine and downloading Go in `setup`, building and starting the Go program, `clean` (on Windows a running program can't delete its own folder), `doctor`, which never starts Go, and `go`, which stays usable to fix `tools/cli` when it doesn't compile. After installing Go, `setup` hands over to the Go program's `setup`, passing `--warnings=N`, the number of warnings it printed, so the summary line counts them; the scripts refuse options to `setup`, so people never pass it.
 
 Rules for everything golib prints, in the scripts and the Go program:
 

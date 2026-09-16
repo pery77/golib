@@ -8,8 +8,8 @@
 # tools/bootstrap/golib.sh is the Linux/macOS twin of this file. Both must expose the same
 # commands, options, output format and exit codes: change one, change the other.
 # Most commands live in tools/cli, a Go program that both scripts build and start (Invoke-Cli
-# here): new, build, run, shot, test and dist. This file keeps what has to work before that
-# program can be built: help, setup, doctor, go and clean.
+# here): new, build, run, shot, test, dist and the end of setup. This file keeps what has to
+# work before that program can be built: help, setup up to installing Go, doctor, go and clean.
 # Keep this file ASCII-only: Windows PowerShell 5.1 reads files without a BOM as ANSI.
 #
 # Exit codes: 0 success, 1 failure, 2 usage error.
@@ -28,9 +28,6 @@ $GoSha256 = @{
 # The raylib binding. Its version is pinned in framework/go.mod; the prebuilt raylib library
 # for each platform ships inside the module, in its libs/ folder.
 $RaylibModule = 'github.com/gen2brain/raylib-go/raylib'
-# raylib-go calls raylib through libffi. The ffi module ships libffi for Windows amd64 in its
-# assets/libffi/ folder.
-$FfiModule = 'github.com/jupiterrider/ffi'
 
 $Root = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 $ToolsDir = Join-Path $Root '.tools'
@@ -295,60 +292,6 @@ function Get-RaylibVersion {
     return ([string]$first[0]).Trim()
 }
 
-# For setup: makes sure .tools/raylib/ holds the libraries that a module's debug builds load:
-# raylib, from the module's raylib-go version, and libffi, from its ffi version (ffi ships it for
-# amd64 only). VERSION records both versions. Returns the libraries' full paths. The folder has no
-# version in its name, so editor settings can point at it. Requires Set-GoEnvironment.
-# syncRaylib in tools/cli/libraries.go does the same for the other commands: keep them in step.
-function Sync-Raylib([string]$ModuleDir) {
-    $modules = @{}
-    foreach ($line in @(& $GoExe -C $ModuleDir list -m -f '{{.Path}}|{{.Version}}|{{.Dir}}' $RaylibModule $FfiModule)) {
-        $path, $version, $dir = ([string]$line) -split '\|', 3
-        $modules[$path] = @{ Version = $version; Dir = $dir }
-    }
-    if ($LASTEXITCODE -ne 0 -or -not $modules.ContainsKey($RaylibModule) -or -not $modules.ContainsKey($FfiModule)) {
-        throw "cannot find $RaylibModule and $FfiModule for $ModuleDir (run: golib setup)"
-    }
-    $raylib = $modules[$RaylibModule]
-    $ffi = $modules[$FfiModule]
-    $lib = Join-Path $RaylibDir 'raylib.dll'
-    $libs = @($lib)
-    $ffiSource = $null
-    if ((Get-GoArch) -eq 'amd64') {
-        $ffiSource = 'assets\libffi\windows_amd64\libffi-8.dll'
-        $libs += Join-Path $RaylibDir 'libffi-8.dll'
-    }
-    $versionFile = Join-Path $RaylibDir 'VERSION'
-    $versionText = "$($raylib.Version)`nffi $($ffi.Version)`n"
-    $ready = (Test-Path -LiteralPath $versionFile -PathType Leaf) -and ([System.IO.File]::ReadAllText($versionFile) -eq $versionText)
-    foreach ($path in $libs) {
-        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { $ready = $false }
-    }
-    if ($ready) { return $libs }
-
-    if (-not $raylib.Dir) { throw "$RaylibModule $($raylib.Version) is not downloaded yet (run: golib setup)" }
-    if ($ffiSource -and -not $ffi.Dir) { throw "$FfiModule $($ffi.Version) is not downloaded yet (run: golib setup)" }
-    $pattern = @{ 'amd64' = 'raylib-*_win64_msvc16.tar.gz'; 'arm64' = 'raylib-*_winarm64_msvc16.tar.gz' }[(Get-GoArch)]
-    $archive = @(Get-ChildItem -LiteralPath (Join-Path $raylib.Dir 'libs') -Filter $pattern)
-    if ($archive.Count -eq 0) { throw "$RaylibModule $($raylib.Version) has no prebuilt library matching $pattern" }
-
-    Remove-Tree $RaylibDir
-    New-Item -ItemType Directory -Force -Path $RaylibDir | Out-Null
-    # tar.exe ships with Windows 10 (1803) and later.
-    & (Join-Path $env:SystemRoot 'System32\tar.exe') -xzf $archive[0].FullName -C $RaylibDir | Out-Host
-    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $lib -PathType Leaf)) {
-        throw "could not extract raylib.dll from $($archive[0].FullName)"
-    }
-    if ($ffiSource) {
-        $ffiLib = Join-Path $ffi.Dir $ffiSource
-        if (-not (Test-Path -LiteralPath $ffiLib -PathType Leaf)) { throw "$FfiModule $($ffi.Version) has no $ffiSource" }
-        $copy = Copy-Item -LiteralPath $ffiLib -Destination $RaylibDir -PassThru
-        $copy.IsReadOnly = $false    # Go's module cache is read-only; the copy doesn't need to be
-    }
-    [System.IO.File]::WriteAllText($versionFile, $versionText)
-    return $libs
-}
-
 # Builds tools/cli into build/golib/ when its code has changed, then runs it with the command and
 # its options, and exits with its exit code. The CLI gives the go commands it runs GoLib's
 # environment itself, so it starts with the user's.
@@ -388,34 +331,9 @@ function Invoke-Setup([string[]]$Options) {
         Write-Summary 'setup'
         exit 1
     }
-    Set-GoEnvironment
-
-    $modules = @(Get-Modules)
-    if ($modules.Count -eq 0) {
-        Write-Check info 'no Go modules yet: nothing more to download'
-    }
-    foreach ($module in $modules) {
-        $dir = Join-Path $Root $module
-        & $GoExe -C $dir mod download | Out-Host
-        if ($LASTEXITCODE -ne 0) {
-            Write-Check fail "could not download the Go modules for $module (see the errors above)"
-            continue
-        }
-        try {
-            $null = Sync-Raylib $dir
-            Write-Check ok "${module}: modules downloaded, raylib library for raylib-go $(Get-RaylibVersion) in .tools/raylib/"
-        } catch {
-            Write-Check fail "${module}: $($_.Exception.Message)"
-        }
-    }
-
-    Write-Summary 'setup'
-    if ($script:Failures -gt 0) {
-        Write-Host 'Setup incomplete. Fix the [fail] items above, then run setup again.'
-        exit 1
-    }
-    Write-Host 'Setup complete.'
-    exit 0
+    # tools/cli downloads the Go modules, fills .tools/raylib/ and prints the summary, which
+    # counts the warnings printed so far.
+    Invoke-Cli 'setup' @("--warnings=$script:Warnings")
 }
 
 function Invoke-Doctor([string[]]$Options) {
