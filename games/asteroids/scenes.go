@@ -16,21 +16,24 @@ import (
 //	  |                                          '------Esc/B----> title
 //	  '--Esc--> quit
 //
-// In every scene, F11 or Alt+Enter switches fullscreen, and F2 or the Y button
-// turns the screen effects on and off.
+// In every scene, F11 or Alt+Enter switches fullscreen, F2 or the Y button
+// turns the screen effects on and off, and F3 or the X button turns the music
+// on and off.
 
 // options are the player's settings, shared by every scene.
 type options struct {
 	effects   bool
+	music     bool
 	glow, crt *golib.Shader
 }
 
-// newOptions makes the screen effects and turns them on.
+// newOptions makes the screen effects and turns them, and the music, on.
 func newOptions() *options {
-	o := &options{glow: golib.NewShader(glowSource), crt: golib.NewShader(crtSource)}
+	o := &options{music: true, glow: golib.NewShader(glowSource), crt: golib.NewShader(crtSource)}
 	o.glow.SetUniform("strength", glowStrength)
 	o.crt.SetUniform("curvature", crtCurvature)
 	o.setEffects(true)
+	theme.SetVolume(musicVolume)
 	return o
 }
 
@@ -45,13 +48,24 @@ func (o *options) setEffects(on bool) {
 	}
 }
 
-// handleKeys reads the keys every scene shares: fullscreen and screen effects.
+// handleKeys reads the keys every scene shares: fullscreen, screen effects and
+// music.
 func (o *options) handleKeys(input *golib.Input) {
 	if input.KeyPressed(golib.KeyF11) || (altDown(input) && input.KeyPressed(golib.KeyEnter)) {
 		golib.SetFullscreen(!golib.IsFullscreen())
 	}
 	if input.KeyPressed(golib.KeyF2) || input.GamepadPressed(0, golib.GamepadY) {
 		o.setEffects(!o.effects)
+	}
+	if input.KeyPressed(golib.KeyF3) || input.GamepadPressed(0, golib.GamepadX) {
+		o.music = !o.music
+	}
+	// Both calls are safe in every update: the first Play starts the music,
+	// once golib.Run has opened the sound device.
+	if o.music {
+		theme.Play()
+	} else {
+		theme.Pause()
 	}
 }
 
@@ -100,11 +114,17 @@ func (s *titleScene) Draw(screen *golib.Screen) {
 	drawCentered(screen, "Thrust: Up, W or B     Fire: Space or A", 376, 24, textColor)
 	drawCentered(screen, "Pause: Esc or Start", 412, 24, textColor)
 	drawCentered(screen, "Press Enter or A to start", 510, 36, titleColor)
-	effects := "off"
-	if s.options.effects {
-		effects = "on"
+	settings := "Esc: quit     F11 or Alt+Enter: fullscreen     F2 or Y: effects " + onOff(s.options.effects) +
+		"     F3 or X: music " + onOff(s.options.music)
+	drawCentered(screen, settings, 640, 20, textColor)
+}
+
+// onOff turns a setting into the word the title screen shows.
+func onOff(on bool) string {
+	if on {
+		return "on"
 	}
-	drawCentered(screen, "Esc: quit     F11 or Alt+Enter: fullscreen     F2 or Y: screen effects ("+effects+")", 640, 20, textColor)
+	return "off"
 }
 
 // playScene is the game itself. Update turns the keyboard and gamepad into

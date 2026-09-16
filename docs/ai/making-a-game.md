@@ -38,7 +38,7 @@ golib run asteroids
 | [world_test.go](../../games/platformer/world_test.go) | Testing the rules by calling them directly, without a window or a keyboard |
 | [DESIGN.md](../../games/platformer/DESIGN.md) | The design brief |
 
-[games/asteroids](../../games/asteroids) is a second example, for screen effects: GLSL shaders in `shaders/`, embedded with `//go:embed` and turned on and off with `golib.SetPostProcess` (F2), and fullscreen on F11 or Alt+Enter.
+[games/asteroids](../../games/asteroids) is a second example, for screen effects: GLSL shaders in `shaders/`, embedded with `//go:embed` and turned on and off with `golib.SetPostProcess` (F2), fullscreen on F11 or Alt+Enter, and sound effects made in code with the music, kept together in [sounds.go](../../games/asteroids/sounds.go); its `assets/` folder holds the music and the `ATTRIBUTION.md` that says where it comes from.
 
 The framework's API is documented in the doc comments of `framework/*.go`: read them too. Where the framework has nothing yet, a game may call raylib directly (`github.com/gen2brain/raylib-go/raylib`). Tell the user when you do, because that code should move to framework APIs as they land.
 

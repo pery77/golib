@@ -100,7 +100,9 @@ type controls struct {
 }
 
 // world is the whole game state and its rules. It knows nothing about the
-// input or the screen, so world_test.go can play it directly.
+// input or the screen, so world_test.go can play it directly. It does play the
+// sounds of sounds.go, which stay silent when there is no sound device, as in
+// tests and golib shot.
 type world struct {
 	ship      ship
 	rocks     []rock
@@ -139,6 +141,7 @@ func (w *world) step(c controls, dt float32) {
 	w.shootRocks()
 	w.crashShip()
 	if len(w.rocks) == 0 {
+		waveSound.Play()
 		w.nextWave()
 	}
 }
@@ -226,6 +229,7 @@ func (w *world) fire() {
 		life: bulletLifetime,
 	})
 	s.cooldown = fireCooldown
+	shotSound.Play()
 }
 
 func (w *world) moveBullets(dt float32) {
@@ -292,6 +296,7 @@ func (w *world) crashShip() {
 		if distanceSquared(s.x, s.y, r.x, r.y) < reach*reach {
 			w.breakRock(i)
 			w.burst(s.x, s.y, 30)
+			crashSound.Play()
 			s.alive = false
 			w.lives--
 			if w.lives == 0 {
@@ -310,6 +315,7 @@ func (w *world) breakRock(i int) {
 	r := w.rocks[i]
 	w.rocks = append(w.rocks[:i], w.rocks[i+1:]...)
 	w.burst(r.x, r.y, 8+4*r.size)
+	rockSounds[r.size].Play()
 	if r.size > smallRock {
 		w.rocks = append(w.rocks, newRock(r.x, r.y, r.size-1), newRock(r.x, r.y, r.size-1))
 	}

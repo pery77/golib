@@ -47,7 +47,9 @@ func (c coin) bounds() golib.Rectangle {
 }
 
 // world is the whole game state and its rules. It knows nothing about the
-// keyboard or the screen, so world_test.go can play it directly.
+// keyboard or the screen, so world_test.go can play it directly. It does play
+// the sounds of sounds.go, which stay silent when there is no sound device, as
+// in tests and golib shot.
 type world struct {
 	player    player
 	platforms []golib.Rectangle
@@ -100,6 +102,7 @@ func (w *world) step(move float32, jump bool, dt float32) {
 	p.velocityX = move * moveSpeed
 	if jump && p.onGround {
 		p.velocityY = -jumpSpeed
+		jumpSound.Play()
 	}
 	p.velocityY = min(p.velocityY+gravity*dt, maxFallSpeed)
 
@@ -132,12 +135,18 @@ func (w *world) step(move float32, jump bool, dt float32) {
 
 	if p.y > fallLimit {
 		*p = player{x: spawnX, y: spawnY}
+		fallSound.Play()
 	}
 
 	for i := range w.coins {
 		if !w.coins[i].collected && p.bounds().Overlaps(w.coins[i].bounds()) {
 			w.coins[i].collected = true
+			coinSound.Play()
 		}
 	}
+	// Winning happens once: the next step returns above, with w.won already set.
 	w.won = w.coinsCollected() == len(w.coins)
+	if w.won {
+		winSound.Play()
+	}
 }

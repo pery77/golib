@@ -11,6 +11,7 @@
 //     the mouse and a gamepad, and every scene draws what it shows.
 //   - world.go holds the rules as plain Go, with no input or drawing, so that
 //     world_test.go can test them.
+//   - sounds.go holds the sound effects, which GoLib makes in code.
 //   - DESIGN.md says what the game is, its controls and where its numbers live.
 package main
 

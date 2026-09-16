@@ -1,7 +1,7 @@
 # Asteroids
 
 ## Pitch
-Fly a small ship through a field of drifting rocks and shoot them to pieces before they hit you. A vector-arcade classic, with a glow and an old CRT look. It is also GoLib's test game for post-processing shaders and fullscreen.
+Fly a small ship through a field of drifting rocks and shoot them to pieces before they hit you. A vector-arcade classic, with a glow and an old CRT look. It is also GoLib's test game for post-processing shaders, fullscreen, sound effects and music.
 
 ## Core loop
 Turn towards a rock, shoot it, dodge the two smaller pieces, and keep moving: the edges wrap around, so danger comes from every side.
@@ -18,6 +18,7 @@ Turn towards a rock, shoot it, dodge the two smaller pieces, and keep moving: th
 | Esc | Quit, on the title; back to the title, after game over |
 | F11 or Alt+Enter | Fullscreen on and off, in every scene |
 | F2 or Y | Screen effects (glow and CRT) on and off, in every scene |
+| F3 or X | Music on and off, in every scene |
 
 Gamepad controls read gamepad 0, the first one connected.
 
@@ -36,11 +37,17 @@ Each screen is a scene in `scenes.go`:
 - **Pause:** the field, frozen, under a message.
 - **Game over:** the final score while the rocks keep drifting.
 
+## Sound and music
+GoLib makes every sound effect in code, so the game ships no sound files. The recipes are in `sounds.go`: the gun's falling zap, one burst of noise per rock size (the bigger the rock, the lower and longer it breaks), the ship's explosion, and a rising fanfare when a wave is cleared. Change the numbers there to change how the game sounds; `golib.SoundSpec` explains what each one does.
+
+The music is `assets/4_rndd!.xm`, a tracker module streamed by `golib.NewMusic` and declared in `sounds.go` as `theme`. It loops from the title through the whole game, sits under the sound effects at `musicVolume`, and F3 or X turns it off. `assets/ATTRIBUTION.md` records where it comes from and under which license.
+
 ## Tuning
 All the numbers are at the top of `world.go`: ship handling (`turnSpeed`, `thrustPower`, `maxShipSpeed`, `shipDrag`), shooting (`bulletSpeed`, `bulletLifetime`, `fireCooldown`, `maxBullets`), lives and respawning, and rocks (`firstWaveRocks`, speeds, sizes and points). The look is in `main.go`: colors, `lineWidth`, and the effect settings `glowStrength` and `crtCurvature`, which reach `shaders/glow.fs` and `shaders/crt.fs` as uniforms.
 
 ## Later
-- Sounds: shots, explosions, thrust, and a heartbeat that speeds up (when GoLib has audio).
+- A thrust rumble and a heartbeat that speeds up as a wave thins out: both need sounds that loop, which GoLib doesn't have yet.
+- Music that changes with the wave, or fades out on game over.
 - A flying saucer that shoots back.
 - Hyperspace: jump to a random spot, at a risk.
 - A high score that lasts between runs.
@@ -48,3 +55,5 @@ All the numbers are at the top of `world.go`: ship handling (`turnSpeed`, `thrus
 ## Changelog
 - 2026-09-15: created with `golib new`: a square that moves around the screen.
 - 2026-09-15: the game: ship, rocks that split, bullets, sparks, lives, waves, score; title, pause and game over scenes; keyboard and gamepad; glow and CRT screen effects (F2 or Y); fullscreen (F11 or Alt+Enter).
+- 2026-09-16: sound effects made in code (`sounds.go`): the gun, rocks breaking by size, the ship exploding and each new wave.
+- 2026-09-16: music, a tracker module in `assets/`, streamed with `golib.NewMusic` and turned on and off with F3 or X.

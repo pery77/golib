@@ -37,13 +37,16 @@ The title and each play get their own random clouds in the sky.
 
 There is no game over screen, because there is no way to lose.
 
+## Sounds
+GoLib makes every sound in code, so the game ships no sound files. `sounds.go` holds them, one line each, from GoLib's ready-made recipes: a jump, a coin, a fall back to the start and a fanfare for winning.
+
 ## Tuning
-All in `world.go`: `moveSpeed`, `jumpSpeed`, `gravity` and `maxFallSpeed` at the top, `cloudCount` below them, and the level layout in `newWorld`. Colors are in `main.go`.
+All in `world.go`: `moveSpeed`, `jumpSpeed`, `gravity` and `maxFallSpeed` at the top, `cloudCount` below them, and the level layout in `newWorld`. Colors are in `main.go`, sounds in `sounds.go`.
 
 ## Later
 Follows the framework, one feature at a time:
 - Sprites and animations drawn in Aseprite instead of rectangles.
-- Jump and coin sounds, and music.
+- Music, when GoLib loads audio files.
 - The level as a Tiled map.
 
 ## Changelog
@@ -52,3 +55,4 @@ Follows the framework, one feature at a time:
 - 2026-09-15: title, pause and won scenes, switched with `golib.SwitchScene`. Esc now pauses, and quits from the title.
 - 2026-09-15: Play and Quit buttons on the title that work with the mouse, and random clouds with `golib.RandomFloat`.
 - 2026-09-15: gamepad controls everywhere, and a title menu that also works with the arrows, the d-pad and the mouse wheel.
+- 2026-09-16: sounds for jumping, collecting a coin, falling into the gap and winning, made in code by GoLib (`sounds.go`).

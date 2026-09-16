@@ -1,9 +1,10 @@
 // Asteroids is a GoLib game: fly a ship through a field of rocks and shoot
 // them to pieces before they hit you.
 //
-// Besides the usual layout, it shows two framework features: post-processing
-// shaders (shaders/glow.fs and shaders/crt.fs, turned on in scenes.go) and
-// fullscreen. Read it in this order:
+// Besides the usual layout, it shows four framework features: post-processing
+// shaders (shaders/glow.fs and shaders/crt.fs, turned on in scenes.go),
+// fullscreen, sound effects made in code and music streamed from the assets
+// folder (both in sounds.go). Read it in this order:
 //
 //   - main.go (this file) starts the game with the title scene, and holds the
 //     colors and the screen effect settings.
@@ -11,6 +12,8 @@
 //     scene shares, and the drawing.
 //   - world.go holds the rules as plain Go, with no input or drawing, so that
 //     world_test.go can test them.
+//   - sounds.go holds the sound effects, made by GoLib's synthesizer, and the
+//     music, which is the only file in assets/.
 //   - DESIGN.md says what the game is, its controls and where its numbers live.
 package main
 
@@ -33,7 +36,7 @@ var (
 // Screen effect settings, sent to the shaders as uniforms.
 const (
 	glowStrength = 2.4 // how bright the glow around lines is
-	crtCurvature = 0.3 // how much the picture bulges, like an old tube; 0 is flat
+	crtCurvature = 0.2 // how much the picture bulges, like an old tube; 0 is flat
 )
 
 // The game's colors, in one place so the look is easy to change.
