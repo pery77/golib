@@ -67,6 +67,13 @@
 // shaders made with [NewShader] over the whole picture, for effects such as
 // scanlines or a glow.
 //
+// # Sprites
+//
+// [NewSprite] reads a picture from the game's assets folder: a PNG image, or
+// an Aseprite file with its frames and the animations its tags describe.
+// [NewSpriteSheet] cuts a PNG image into a grid of frames. [Screen.DrawSprite]
+// draws a frame, and an [Animation] says which frame to show as time passes.
+//
 // # Sound and music
 //
 // [NewSound] makes a sound effect from a [SoundSpec], so games need no sound
@@ -171,6 +178,11 @@ func Run(game Game, config Config) (err error) {
 	if game == nil {
 		return errors.New("golib.Run: game is nil: pass a value that implements golib.Game")
 	}
+	// A mistake made before Run, such as asking a sprite in a package
+	// variable for an animation it doesn't have, stops the game now.
+	if err := takeError(); err != nil {
+		return err
+	}
 	config, err = config.resolve()
 	if err != nil {
 		return err
@@ -235,7 +247,9 @@ func runWindow(game Game, config Config) error {
 		if err := audio.updateMusic(); err != nil {
 			return err
 		}
-		render.drawScene(scene, screen)
+		if err := render.drawScene(scene, screen); err != nil {
+			return err
+		}
 		if err := render.present(nil, fit, float32(updates)*updateStep); err != nil {
 			return err
 		}
@@ -251,6 +265,9 @@ func runUpdates(scene Game, input *Input, fill func(*Input), updates int) (Game,
 	for ; updates > 0; updates-- {
 		fill(input)
 		scene.Update(input, updateStep)
+		if err := takeError(); err != nil {
+			return scene, false, err
+		}
 		if quitRequested.Load() {
 			return scene, true, nil
 		}

@@ -320,7 +320,9 @@ func runShots(game Game, config Config, plan *shotPlan) error {
 		if quit {
 			return fmt.Errorf("golib.Run: the game called golib.Quit in update %d, so frame %d can't be captured: take screenshots of earlier frames", frame, plan.frames[next])
 		}
-		render.drawScene(scene, screen)
+		if err := render.drawScene(scene, screen); err != nil {
+			return err
+		}
 		if frame == plan.frames[next] {
 			// The screenshot shows the picture after post-processing, at the
 			// screen's size.

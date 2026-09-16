@@ -44,12 +44,12 @@ Known gaps, written down as the [definition of done](contributing.md#definition-
 - `golib shot` runs a game in a hidden window for a number of frames and saves screenshots an agent can inspect, and `--input` plays keys, mouse buttons and mouse moves in chosen updates, so shots reach every scene.
 - Deterministic runs, so results are reproducible: the fixed timestep, with exactly one update per frame in shots, and random numbers that start from the same seed in every shot.
 
-## M4: Content (postponed)
+## M4: Content (in progress)
 
-Postponed on 2026-09-15, until the owner picks it up again. Loading what Aseprite, Tiled and audio tools make, through `golib.ReadAsset`:
+Postponed on 2026-09-15, resumed on 2026-09-17. Loading what Aseprite, Tiled and audio tools make, through `golib.ReadAsset`:
 
-- Images from PNG files, including sprite sheets cut into a grid of frames.
-- Sprites and animations from Aseprite's own `.aseprite` files, with their tags as animations.
+- Done on 2026-09-17: sprites. `golib.NewSprite` reads a PNG image as one frame, or an Aseprite file (`.aseprite`, `.ase`) with its frames, and `golib.NewSpriteSheet` cuts a PNG image into a grid of frames. `Screen.DrawSprite` draws a frame, flipped, scaled, rotated around an origin or tinted, without smoothing, and `golib.Animation` says which frame shows after a time, looping or once; Aseprite tags become animations, with their direction, repeat count and frame durations. Aseprite files are combined as Aseprite 1.3 combines them: visible layers, opacity, all 19 blend modes (with Aseprite's own 8-bit math), groups, linked cels, z-indexes, and indexed and grayscale sprites. `framework/testdata/aseprite/make.lua` has Aseprite 1.3.18 make test files and draw each frame, and the tests match those pictures pixel for pixel; so did the 492 frames of 16 files from a texture pack. Frames of a sprite go into one texture. A missing file, a frame or animation a sprite doesn't have, or any other mistake with an asset now stops `Run` with an error, including mistakes made before `Run` started.
+- Not covered: tilemap layers and slices in Aseprite files, parts of a PNG image that aren't on a grid, and groups that Aseprite combines on their own first, which no test file has yet (Aseprite 1.3.18 doesn't write them by default).
 - 2D maps from Tiled's TMX files and TSX tilesets: tile layers, tilesets and object layers.
 - Sound effects loaded from files, for games that want more than the ones M2 makes in code. Music landed in M2.
 - Fonts.

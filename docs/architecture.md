@@ -2,7 +2,7 @@
 
 How GoLib keeps the framework apart from the games made with it, and where game content comes from.
 
-> **Status:** the framework and game split exists since M1, with `framework/` and the example game, `games/platformer`. Loading content from Tiled and Aseprite is planned for M4, which is postponed, and 3D models from Blender for M6, after it (see [roadmap.md](roadmap.md)).
+> **Status:** the framework and game split exists since M1, with `framework/` and the example game, `games/platformer`. Aseprite files and PNG images load since M4; Tiled maps are next, in M4, and 3D models from Blender come in M6, after it (see [roadmap.md](roadmap.md)).
 
 ## Framework and games
 
@@ -89,8 +89,8 @@ GoLib has no visual editor, scene designer, level editor or asset GUI, and won't
 | Content | Made with | What the game loads | Planned |
 | --- | --- | --- | --- |
 | 2D maps and levels | [Tiled](https://www.mapeditor.org) | TMX maps and TSX tilesets, Tiled's default formats | M4 |
-| Sprites and animations | [Aseprite](https://www.aseprite.org) | `.aseprite` files, with their tags as animations | M4 |
-| Images and sprite sheets | Any image tool | PNG; a sprite sheet is cut into a grid of frames of one size | M4 |
+| Sprites and animations | [Aseprite](https://www.aseprite.org) | `.aseprite` and `.ase` files, with their layers combined as Aseprite shows them and their tags as animations | Done (M4): `golib.NewSprite` |
+| Images and sprite sheets | Any image tool | PNG; a sprite sheet is cut into a grid of frames of one size | Done (M4): `golib.NewSprite`, `golib.NewSpriteSheet` |
 | 3D models | [Blender](https://www.blender.org) | glTF (`.glb`) exported from Blender | M6, with 3D support |
 | Music | Any music tool, or a tracker such as [MilkyTracker](https://milkytracker.org) | `.ogg`, `.mp3`, `.wav`, `.qoa`, and the tracker modules `.xm` and `.mod` | Done (M2): `golib.NewMusic` |
 | Sound effects | Any audio tool | `.wav`, `.ogg` | M4. Until then, GoLib makes sound effects in code: `golib.NewSound` |

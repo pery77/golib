@@ -12,7 +12,7 @@ The promise: someone downloads the template, runs a couple of commands, and buil
 
 Keep this section true: update it in the same change that lands or removes a feature. Never describe planned work as if it existed.
 
-Last updated: 2026-09-17 (milestone M5, Shipping, in progress; M4, Content, postponed).
+Last updated: 2026-09-17 (milestones M4, Content, and M5, Shipping, in progress).
 
 | Area | State |
 | --- | --- |
@@ -42,10 +42,11 @@ Last updated: 2026-09-17 (milestone M5, Shipping, in progress; M4, Content, post
 | Reading files from the game's `assets/` folder (`golib.ReadAsset`), embedded in dist builds | Done (M2) |
 | `golib new <name>`: a new game, ready to run, from `tools/template/game/` | Done (M2) |
 | API guide for agents, `framework/README.md`: every exported name by task, checked against the code by `golib test` | Done (M2) |
-| Content: textures, Aseprite sprites, Tiled maps, fonts, sound effects loaded from files | Postponed (M4) |
+| Sprites from PNG images, PNG sprite sheets and Aseprite files, with animations: `golib.NewSprite`, `golib.NewSpriteSheet`, `Screen.DrawSprite`, `golib.Animation` | Done (M4) |
+| Content: Tiled maps, fonts, sound effects loaded from files | In progress (M4) |
 | 3D: glTF models from Blender, a 3D camera, basic lighting | Planned (M6, after M4); nothing built |
 
-**The framework is still small.** It opens a window, runs a fixed-step game loop, reads the keyboard, the mouse and gamepads, draws rectangles, circles, lines, triangles and text, scales the screen to any window or fullscreen, runs post-processing shaders, makes random numbers, makes and plays sound effects, streams music, switches between scenes, reads files from the game's `assets/` folder, quits when the game asks, and takes screenshots for `golib shot`. [framework/README.md](framework/README.md) is its API guide: every exported name, grouped by task, with the rules the names don't tell you and what is still missing. Read it before writing game code; the doc comments in `framework/*.go` have the details. `games/platformer` is the reference for using it: read it before writing a game. `games/asteroids` shows post-processing shaders, fullscreen, sound and music. There are no textures, sprites, maps or fonts yet (M4, postponed): sound effects are made in code, and music is a file in the game's `assets/` folder. There is no 3D either (M6, after M4). If someone asks for a game that needs them, say what is missing and point to [docs/roadmap.md](docs/roadmap.md). Do not improvise a stand-alone engine to fill the gap.
+**The framework is still small.** It opens a window, runs a fixed-step game loop, reads the keyboard, the mouse and gamepads, draws rectangles, circles, lines, triangles, text and sprites from PNG and Aseprite files with their animations, scales the screen to any window or fullscreen, runs post-processing shaders, makes random numbers, makes and plays sound effects, streams music, switches between scenes, reads files from the game's `assets/` folder, quits when the game asks, and takes screenshots for `golib shot`. [framework/README.md](framework/README.md) is its API guide: every exported name, grouped by task, with the rules the names don't tell you and what is still missing. Read it before writing game code; the doc comments in `framework/*.go` have the details. `games/platformer` is the reference for using it: read it before writing a game. `games/asteroids` shows post-processing shaders, fullscreen, sound and music. There are no maps or fonts yet, nor sound effects from files (M4, in progress): sound effects are made in code, and music and sprites are files in the game's `assets/` folder. There is no 3D either (M6, after M4). If someone asks for a game that needs them, say what is missing and point to [docs/roadmap.md](docs/roadmap.md). Do not improvise a stand-alone engine to fill the gap.
 
 ## Golden rules
 

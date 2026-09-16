@@ -2,7 +2,7 @@
 
 For AI agents. Follow it when a user asks you to create a game, or to change the game in this project.
 
-> **Status:** the framework is still small (M2, Framework basics, is done): a window, a fixed-step game loop, keyboard, mouse and gamepad input, random numbers, rectangles, circles, lines, triangles and text, fullscreen, post-processing shaders, sound effects made in code, music from the game's `assets/` folder, reading files from `assets/`, scenes with `golib.SwitchScene`, quitting with `golib.Quit`, screenshots through `golib shot` and zips to share through `golib dist`. Sprites, maps, fonts and sound files are postponed; check the "Project status" table in [AGENTS.md](../../AGENTS.md), and the end of [framework/README.md](../../framework/README.md) for what else is missing. If the game needs something that doesn't exist yet, tell the user. Don't build a private engine to fill the gap.
+> **Status:** the framework is still small (M2, Framework basics, is done): a window, a fixed-step game loop, keyboard, mouse and gamepad input, random numbers, rectangles, circles, lines, triangles and text, sprites and animations from PNG and Aseprite files, fullscreen, post-processing shaders, sound effects made in code, music from the game's `assets/` folder, reading files from `assets/`, scenes with `golib.SwitchScene`, quitting with `golib.Quit`, screenshots through `golib shot` and zips to share through `golib dist`. Maps, fonts and sound files are in progress (M4); check the "Project status" table in [AGENTS.md](../../AGENTS.md), and the end of [framework/README.md](../../framework/README.md) for what else is missing. If the game needs something that doesn't exist yet, tell the user. Don't build a private engine to fill the gap.
 
 ## Goal
 
@@ -54,7 +54,7 @@ Before writing code, read [framework/README.md](../../framework/README.md), the 
 | Window | 1280x720, resizable; F11 or Alt+Enter for fullscreen |
 | Timing | 60 FPS target; movement scaled by frame time |
 | Input | Keyboard (arrow keys and WASD) and gamepad 0 (d-pad or left stick, A to act, Start to pause) together; mouse when the genre needs it |
-| Art | Simple shapes and a small, coherent color palette drawn in code. No external files unless the user provides them |
+| Art | Simple shapes and a small, coherent color palette drawn in code, or sprites when the user provides art (PNG or Aseprite files). No external files unless the user provides them |
 | Audio | Sound effects made in code with `golib.NewSound`, for every action that needs feedback; music only from a file the user provides, with `golib.NewMusic`. The game must stay fully playable muted |
 | Text | English, readable at a glance; controls shown on the title screen |
 | Scope | One polished core loop rather than many half-finished features |
@@ -130,7 +130,7 @@ GoLib has no editors. Content comes from established tools, and the game loads t
 | 3D models | Blender |
 | Music | A file the user provides: a tracker module (XM, MOD) or OGG, MP3, WAV or QOA |
 
-- Files the user provides go in the game's `assets/` folder. Read them with `golib.ReadAsset("sprites/player.png")`, with paths relative to that folder.
+- Files the user provides go in the game's `assets/` folder, with paths relative to that folder: load pictures with `golib.NewSprite("sprites/player.aseprite")` or `golib.NewSpriteSheet("sprites/player.png", 32, 32)`, music with `golib.NewMusic`, and other files with `golib.ReadAsset`. Keep Aseprite files as `.aseprite`: the game reads them as they are, with their tags as animations.
 - Source files the game doesn't load, such as a `.blend` file next to the `.glb` exported from it, go in the game's `sources/` folder, with the same paths as in `assets/`. Everything in `assets/` ships in the dist build; `sources/` doesn't.
 - A game with an `assets/` folder also needs `assets.go` next to `main.go`, so `golib dist` embeds the folder. Copy it exactly from the `golib.EmbedAssets` documentation in `framework/assets.go`. `golib dist` stops and says so when it is missing.
 - When a game has levels and the framework loads Tiled maps, write the levels as Tiled maps instead of arrays in code, so the user can open and change them in Tiled.

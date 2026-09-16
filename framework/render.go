@@ -36,11 +36,13 @@ func (r *renderer) loadTarget() rl.RenderTexture2D {
 	return target
 }
 
-// drawScene draws scene into the scene texture.
-func (r *renderer) drawScene(scene Game, screen *Screen) {
+// drawScene draws scene into the scene texture, and returns the first mistake
+// found while it drew, or while it updated before.
+func (r *renderer) drawScene(scene Game, screen *Screen) error {
 	rl.BeginTextureMode(r.scene)
 	scene.Draw(screen)
 	rl.EndTextureMode()
+	return takeError()
 }
 
 // present draws the scene texture, through the post-processing shaders, into
@@ -126,8 +128,10 @@ func (r *renderer) pass(i int) rl.RenderTexture2D {
 	return r.passes[i]
 }
 
-// close frees the textures and the shaders the renderer loaded.
+// close frees the textures and the shaders the renderer loaded, and the
+// sprites the game drew.
 func (r *renderer) close() {
+	loadedSprites.unloadAll()
 	rl.UnloadRenderTexture(r.scene)
 	for _, pass := range r.passes {
 		rl.UnloadRenderTexture(pass)

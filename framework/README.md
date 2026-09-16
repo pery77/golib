@@ -9,6 +9,7 @@ For AI agents writing game code with GoLib, and for anyone who wants the whole f
 | Start the game | `golib.Run(firstScene, golib.Config{...})` in `main` | [Game, Run and Config](#game-run-and-config) |
 | Change the game 60 times per second | `Update(input *golib.Input, dt float32)` | [Game, Run and Config](#game-run-and-config) |
 | Draw it | `Draw(screen *golib.Screen)` | [Drawing](#drawing) |
+| Draw pictures and animations | `golib.NewSprite`, `golib.NewSpriteSheet`, `screen.DrawSprite`, `golib.Animation` | [Sprites and animations](#sprites-and-animations) |
 | Read keys, mouse and gamepads | `input.KeyDown`, `input.KeyPressed`, `input.MousePosition`, `input.GamepadDown` | [Input](#input) |
 | Check collisions | `golib.Rectangle` and its `Overlaps` | [Rectangles and collisions](#rectangles-and-collisions) |
 | Move between title, play, pause and game over | `golib.SwitchScene` | [Scenes](#scenes) |
@@ -70,11 +71,11 @@ func main() {
 4. **Pressed happens once, Down lasts.** `KeyPressed`, `MousePressed` and `GamepadPressed` are true in exactly one update per press: use them for jumping, firing and menus. `KeyDown`, `MouseDown` and `GamepadDown` stay true while held: use them for walking and thrust.
 5. **Use `Input` only in `Update`, and `Screen` only in `Draw`.** Don't keep them in the game's state.
 6. **Draw in screen pixels.** The screen is `Config.Width` by `Config.Height` pixels, with 0, 0 at the top-left corner and y growing downwards, whatever the window's size. `Run` scales it to the window, with black bars where the shapes differ, and reports the mouse in the same pixels.
-7. **Make sounds, music and shaders once, and keep them.** Create them as package variables or in `main`, never in `Update`, in `Draw` or in a scene that is made again for every new game: each one loads the first time it is used and stays loaded until `Run` returns.
+7. **Make sprites, sounds, music and shaders once, and keep them.** Create them as package variables or in `main`, never in `Update`, in `Draw` or in a scene that is made again for every new game: each one loads the first time it is used and stays loaded until `Run` returns.
 8. **Random numbers come from `RandomInt` and `RandomFloat`**, never from `math/rand`: `golib shot` starts them from the same seed, so its screenshots repeat.
 9. **No key quits on its own, not even Esc.** Call `Quit` when the game should end; the game decides what Esc does.
 10. **`SwitchScene` and `Quit` don't stop the current update.** The code after them still runs, so `return` right after unless that is what you want.
-11. **Mistakes stop the game with a message.** `Run` returns an error for a nil scene, a shader that doesn't compile, a bad `SetUniform` or music that can't be read. `main` prints it with `log.Fatal`; read it, it says what to fix.
+11. **Mistakes stop the game with a message.** `Run` returns an error for a nil scene, a shader that doesn't compile, a bad `SetUniform`, a sprite or music file that is missing or can't be read, or a frame or animation a sprite doesn't have. `main` prints it with `log.Fatal`; read it, it says what to fix.
 12. **Sound is silent in tests and in `golib shot`.** `Play` is safe to call from the rules anyway, so they stay testable. You can't hear a game: tell the user what to listen for.
 
 ## Game, Run and Config
@@ -211,7 +212,7 @@ Gamepads are numbered 0 to 3, in the order they were connected; a one-player gam
 | `Screen.Width`, `Screen.Height` | `Width() float32`, `Height() float32`: the screen's size, from `Config`. |
 
 - Positions and sizes are `float32`. Untyped constants convert by themselves; other numbers need `float32(n)`.
-- Shapes are filled. For an outline, draw lines. For a rotated shape, work out its corners with `math.Sin` and `math.Cos` and draw triangles or lines, as `games/asteroids/scenes.go` does for the ship and the rocks.
+- Shapes are filled. For an outline, draw lines. For a rotated shape, work out its corners with `math.Sin` and `math.Cos` and draw triangles or lines, as `games/asteroids/scenes.go` does for the ship and the rocks. Pictures are sprites: see [Sprites and animations](#sprites-and-animations).
 - There is no camera. To scroll, subtract the camera's position from everything you draw.
 - There is one font, raylib's built-in pixel font, which is 10 pixels high: sizes that are multiples of 10 keep its pixels even.
 
@@ -230,6 +231,94 @@ func drawCentered(screen *golib.Screen, text string, y, size float32, color goli
 The named colors are raylib's palette: `LightGray` `Gray` `DarkGray` `Yellow` `Gold` `Orange` `Pink` `Red` `Maroon` `Green` `Lime` `DarkGreen` `SkyBlue` `Blue` `DarkBlue` `Purple` `Violet` `DarkPurple` `Beige` `Brown` `DarkBrown` `White` `Black` `Magenta`, `RayWhite` (the off-white raylib uses for backgrounds) and `Blank` (fully transparent).
 
 Keep a game's colors together as named variables, as `games/platformer/main.go` does, so its look changes in one place.
+
+## Sprites and animations
+
+A sprite is a picture from the game's assets folder, made of frames of one size: a PNG image, a PNG sprite sheet on a grid, or an Aseprite file.
+
+| Name | What it does |
+| --- | --- |
+| `Sprite` | A picture in frames, numbered from 0. |
+| `NewSprite` | `NewSprite(name string) *Sprite`: a `.png` file as one frame, or an `.aseprite` or `.ase` file with Aseprite's frames and animations. `name` is relative to the assets folder, as in `ReadAsset`. |
+| `NewSpriteSheet` | `NewSpriteSheet(name string, frameWidth, frameHeight int) *Sprite`: a `.png` file cut into frames of that size, numbered left to right, then top to bottom. The image must be a whole number of frames wide and high. |
+| `Screen.DrawSprite` | `DrawSprite(sprite *Sprite, frame int, x, y float32, options ...DrawOptions)`: draws a frame with its top-left corner at x, y, at its own size. Pass one `DrawOptions` to change that. |
+| `Sprite.Width`, `Sprite.Height` | `Width() float32`, `Height() float32`: one frame's size, in pixels. |
+| `Sprite.Frames` | `Frames() int`: how many frames it has. |
+| `Sprite.Animation` | `Animation(name string) Animation`: the animation of the Aseprite tag named `name`. Every sprite also has the animation named `""`: all its frames in order, as long as the Aseprite file says, or 0.1 seconds each. |
+
+| `DrawOptions` field | Default | Meaning |
+| --- | --- | --- |
+| `DrawOptions.Scale` | 1 | Size, as a multiple of the frame's own. |
+| `DrawOptions.FlipX` | `false` | Mirror left to right: a character facing the other way. |
+| `DrawOptions.FlipY` | `false` | Mirror top to bottom. |
+| `DrawOptions.Rotation` | 0 | Degrees, clockwise, around the origin. |
+| `DrawOptions.OriginX`, `DrawOptions.OriginY` | 0, 0 | The point of the frame, in its own pixels from its top-left corner, that goes at x, y and that `Rotation` turns around. The middle of a 32 by 32 frame is 16, 16. |
+| `DrawOptions.Tint` | `White` | Multiplies the frame's colors; its `A` makes the frame see-through: `golib.Color{R: 255, G: 255, B: 255, A: 128}` is half. |
+
+An `Animation` is a list of frames, each shown for a while. It keeps no time of its own: keep the seconds it has played in the game's state, add `dt` in `Update`, and ask which frame to draw.
+
+| Name | What it does |
+| --- | --- |
+| `Animation` | `golib.Animation{Frames: []int{8, 9, 10, 11}, FrameTime: 0.1}` |
+| `Animation.Frames` | Frame numbers, in the order they show. |
+| `Animation.FrameTime` | Seconds each frame shows. Default: 0.1. |
+| `Animation.Durations` | Seconds for each frame, one value per frame, when they differ; `FrameTime` is then ignored. Aseprite animations set them. |
+| `Animation.Once` | Play once and stay on the last frame, instead of looping. |
+| `Animation.Frame` | `Frame(time float32) int`: the frame to show after the animation has played for `time` seconds. |
+| `Animation.Duration` | `Duration() float32`: seconds to play once. |
+| `Animation.Finished` | `Finished(time float32) bool`: all frames have shown once, such as an attack that should end. |
+
+```go
+var (
+	hero = golib.NewSpriteSheet("sprites/hero.png", 32, 32) // games/<game>/assets/sprites/hero.png
+	idle = golib.Animation{Frames: []int{0, 1}, FrameTime: 0.4}
+	run  = golib.Animation{Frames: []int{8, 9, 10, 11}, FrameTime: 0.1}
+)
+
+type player struct {
+	x, y       float32
+	moving     bool
+	facingLeft bool
+	animTime   float32 // seconds the current animation has played
+}
+
+func (p *player) setMoving(moving bool) {
+	if moving != p.moving {
+		p.moving, p.animTime = moving, 0 // a new animation starts from its first frame
+	}
+}
+
+func (s *playScene) Update(input *golib.Input, dt float32) {
+	// ... move s.player, then:
+	s.player.animTime += dt
+}
+
+func (s *playScene) Draw(screen *golib.Screen) {
+	p := s.player
+	animation := idle
+	if p.moving {
+		animation = run
+	}
+	screen.DrawSprite(hero, animation.Frame(p.animTime), p.x, p.y, golib.DrawOptions{FlipX: p.facingLeft})
+}
+```
+
+With an Aseprite file, the animations come from its tags:
+
+```go
+var (
+	slime = golib.NewSprite("sprites/slime.aseprite")
+	hop   = slime.Animation("hop") // the tag named hop
+)
+```
+
+- **Aseprite counts frames from 1 in its timeline; GoLib counts from 0.** Frame 1 in Aseprite is frame 0 here. Tags take care of that for you.
+- Aseprite files are read as Aseprite shows them: visible layers only, with their opacity and blend mode, groups, linked cels and z-indexes. Hidden and reference layers aren't drawn. A tag plays forward, in reverse or in ping-pong, as many times as its Repeat field says (an empty field loops forever, and `Once` is then false); a repeated tag name uses the first tag. Slices and user data are ignored. A visible tilemap layer stops `Run` with an error.
+- Keep the `.aseprite` file in the assets folder: the game reads it as it is, so there is no export step to forget.
+- For a PNG sheet with no animation data, write the animations in code, as above. Only frames on a grid can be drawn; there is no way yet to draw a part of an image of another size.
+- Pixels stay sharp when a sprite is scaled: sprites are drawn without smoothing. For pixel art, also set `Config.PixelArt` with a small screen.
+- `Width`, `Height`, `Frames` and `Animation` read the file, so they work in tests and before `Run`.
+- Only use art the user provides, and write where it came from, and its license, in `assets/ATTRIBUTION.md`, as `games/platformer` does.
 
 ## Rectangles and collisions
 
@@ -503,7 +592,7 @@ func main() {
 }
 ```
 
-Today a game can read its own data files this way, such as levels in text or JSON, and music through `NewMusic`. Images, maps and fonts can't be loaded yet.
+Games read their own data files this way, such as levels in text or JSON; `NewSprite`, `NewSpriteSheet` and `NewMusic` read the assets folder the same way. Maps and fonts can't be loaded yet.
 
 ## Quitting
 
@@ -531,7 +620,7 @@ func TestJumpOnlyFromTheGround(t *testing.T) {
 }
 ```
 
-- `Rectangle`, the random numbers and `ReadAsset` work in tests; `golib test` runs them in the game's folder.
+- `Rectangle`, the random numbers, `ReadAsset`, `Animation` and a sprite's `Width`, `Height`, `Frames` and `Animation` work in tests; `golib test` runs them in the game's folder.
 - `Sound.Play` and `Music.Play` do nothing in tests.
 - `Run` and `Screen` need a window: check drawing with `golib shot` instead.
 
@@ -552,10 +641,10 @@ import rl "github.com/gen2brain/raylib-go/raylib"
 
 | Missing | Status | Meanwhile |
 | --- | --- | --- |
-| Images, sprites and animations (Aseprite) | M4, postponed | Shapes drawn in code |
-| Maps (Tiled) | M4, postponed | Levels in code, or in a text file read with `ReadAsset` |
-| Fonts | M4, postponed | The built-in font of `DrawText` |
-| Sound effects from files | M4, postponed | `NewSound` |
+| Parts of an image that aren't on a grid, Aseprite slices and tilemap layers | Not on the roadmap yet | Save each part as its own PNG file, or put the parts on a grid |
+| Maps (Tiled) | M4, in progress | Levels in code, or in a text file read with `ReadAsset` |
+| Fonts | M4, in progress | The built-in font of `DrawText` |
+| Sound effects from files | M4, in progress | `NewSound` |
 | Looping sounds, stopping a sound | Not on the roadmap yet | Short sounds, played again |
 | Camera, vectors, rotation, physics | Not on the roadmap yet | `float32` math in the game: subtract a camera position, rotate with `math.Sin` and `math.Cos` |
 | Trigger pressure, vibration | Not on the roadmap yet | Triggers read as buttons |
