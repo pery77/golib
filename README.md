@@ -2,7 +2,7 @@
 
 Make games in **Go**, powered by **[raylib](https://www.raylib.com)**, designed so an AI agent can turn a single prompt into a playable game.
 
-> **Status: early development.** GoLib installs its own Go toolchain, runs games with keyboard, mouse and gamepad input, shapes, text, random numbers, scenes, fullscreen, post-processing shaders, sound effects made in code and music, and builds them into a single file to share, and `golib new` starts a new game; sprites and maps come later: see the [roadmap](docs/roadmap.md).
+> **Status: early development.** GoLib installs its own Go toolchain, runs games with keyboard, mouse and gamepad input, shapes, text, random numbers, scenes, fullscreen, post-processing shaders, sound effects made in code and music, and builds them into a zip to share, and `golib new` starts a new game; sprites and maps come later: see the [roadmap](docs/roadmap.md).
 
 ## Quick start
 
@@ -62,7 +62,7 @@ Loading Tiled maps and Aseprite sprites is planned for M4, which is postponed fo
 | `golib new <name>` | Creates a new game in `games/<name>/`, ready to run. |
 | `golib run [game]` | Builds a game and runs it. |
 | `golib build [game]` | Builds a game into `build/`, for development. |
-| `golib dist [game]` | Builds a game as a single file to share, with everything inside and, on Windows, its icon and version details. |
+| `golib dist [game]` | Builds a game to share: a folder with everything it needs, zipped, with the licenses that go with it and, on Windows, its icon and version details. |
 | `golib shot [game] [frame...]` | Saves screenshots of a game at the given frames, without opening a visible window. |
 | `golib test` | Checks and tests the framework, every game and GoLib's own Go program. |
 | `golib go <args>` | Runs the project's own Go, for example `golib go version`. |
@@ -101,4 +101,4 @@ GoLib is released under the [zlib license](LICENSE), the same as raylib: use it 
 
 The games you make in `games/` are yours: license them as you like.
 
-A dist build also contains Go, purego, raylib-go, ffi, raylib and libffi. The licenses of Go, purego, ffi and libffi ask for their notices to go with the game, and `golib dist` doesn't add them yet: include them yourself when you publish a game (see the [roadmap](docs/roadmap.md)).
+A dist build also contains Go, purego, raylib-go, ffi, raylib and libffi. The licenses of Go, purego, ffi and libffi ask for their notices to go with the game, so `golib dist` puts their licenses in `THIRD-PARTY-LICENSES.txt`, next to the game, with a copy of the game's `assets/ATTRIBUTION.md`: keep that file with the game. It doesn't cover yet the libraries built into raylib that are under the MIT license, such as cgltf and qoi: until it does, add their notices yourself when you publish a game (see the [roadmap](docs/roadmap.md#m5-shipping-in-progress)).

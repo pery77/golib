@@ -63,7 +63,7 @@ Commands:
   doctor                  Diagnose the environment without changing anything
   new <name>              Create games/<name>/, a small game ready to run, from tools/template/game/
   build [game]            Debug build of games/<game> into build/<game>/
-  dist [game]             Build games/<game> as a single file to share, in build/<game>/dist/
+  dist [game]             Build games/<game> to share: a folder and its zip in build/<game>/dist/
   run [game]              Build games/<game>, then run it from its folder
   shot [game] [frame...]  Run games/<game> in a hidden window and save screenshots of the given
                           frames into build/<game>/shots/ (default: frame 60, one second in).

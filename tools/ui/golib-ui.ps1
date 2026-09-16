@@ -25,12 +25,12 @@ $Actions = @(
     @{ Group = 'Play'; Label = 'Run'; Command = 'run {game}'; Tip = 'Build the game and play it' }
     @{ Group = 'Play'; Label = 'Screenshots'; Command = 'shot {game} {frames} {input}'; Tip = 'Run the game in a hidden window, playing the input in the box, and save screenshots of the frames in the box (60 frames are one second)' }
     @{ Group = 'Build'; Label = 'Debug build'; Command = 'build {game}'; Tip = 'Build into build\<game>\, next to the raylib libraries. Started from Explorer, it reads games\<game>\assets\, and shows errors in a message box because its console window closes when the game ends' }
-    @{ Group = 'Build'; Label = 'Dist build'; Command = 'dist {game}'; Tip = 'Build a single file to share, with everything inside, into build\<game>\dist\. It takes its icon from icon.png and its title, version and author from game.json, in the game''s folder' }
+    @{ Group = 'Build'; Label = 'Dist build'; Command = 'dist {game}'; Tip = 'Build the game to share into build\<game>\dist\: a folder with the executable, the libraries it loads and THIRD-PARTY-LICENSES.txt, and a zip of it. It takes its icon from icon.png and its title, version and author from game.json, in the game''s folder' }
     @{ Group = 'Check'; Label = 'Test'; Command = 'test'; Tip = 'Vet and test the framework, every game and GoLib''s own Go program' }
     @{ Group = 'Check'; Label = 'Doctor'; Command = 'doctor'; Tip = 'Diagnose the environment without changing anything' }
     @{ Group = 'Open'; Label = 'Game folder'; Folder = 'games\{game}'; Tip = 'Open the game''s folder: its code, DESIGN.md and assets' }
     @{ Group = 'Open'; Label = 'Screenshots folder'; Folder = 'build\{game}\shots'; Tip = 'Open the screenshots from the latest Screenshots' }
-    @{ Group = 'Open'; Label = 'Dist folder'; Folder = 'build\{game}\dist'; Tip = 'Open the file to share from the latest Dist build' }
+    @{ Group = 'Open'; Label = 'Dist folder'; Folder = 'build\{game}\dist'; Tip = 'Open the zip to share, and its folder, from the latest Dist build' }
     @{ Group = 'Tools'; Label = 'New game'; Command = 'new {name}'; Prompt = 'Name of the new game: lowercase letters, digits, - and _, such as asteroids'; Tip = 'Create games\<name>\, a small game ready to run' }
     @{ Group = 'Tools'; Label = 'Setup'; Command = 'setup'; Tip = 'Install Go, the Go modules and raylib into .tools\ (safe to run again)' }
     @{ Group = 'Tools'; Label = 'Clean'; Command = 'clean'; Tip = 'Delete the build outputs in build\' }

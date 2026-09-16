@@ -391,7 +391,7 @@ func (s *playScene) Update(input *golib.Input, dt float32) {
 
 - Formats: `.ogg`, `.mp3`, `.wav`, `.qoa`, and the tracker modules `.xm` and `.mod`, which are a few dozen kilobytes. Not `.it`. The first `Play` stops `Run` with an error if the file is missing or in another format. `golib shot` and tests play nothing, so they don't notice: start the game with `golib run` to check.
 - A game with music has an `assets/` folder, so it needs `assets.go` (see [Files](#files-the-assets-folder)).
-- Only use music the user provides, and write where it came from, and its license, in `assets/ATTRIBUTION.md`, as `games/asteroids` does.
+- Only use music the user provides, and write where it came from, and its license, in `assets/ATTRIBUTION.md`, as `games/asteroids` does. `golib dist` copies that file into the `THIRD-PARTY-LICENSES.txt` it puts next to the game.
 - There are no crossfades or playlists: `Stop` one `Music` and `Play` another.
 
 ## Window, fullscreen and screen effects

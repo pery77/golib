@@ -38,9 +38,9 @@ func ReadAsset(name string) ([]byte, error) {
 }
 
 // EmbedAssets makes ReadAsset read from files, the game's assets folder
-// embedded in the executable, instead of from disk. A golib dist build ships
-// as a single file, so every game with an assets folder embeds it from a file
-// named assets.go, next to main.go, with exactly this content:
+// embedded in the executable, instead of from disk. A golib dist build carries
+// the assets inside its executable, so every game with an assets folder embeds
+// it from a file named assets.go, next to main.go, with exactly this content:
 //
 //	//go:build golib_dist
 //

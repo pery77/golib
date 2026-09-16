@@ -91,8 +91,8 @@
 //
 // A game keeps the files it loads in its assets folder and reads them with
 // [ReadAsset]. Debug builds (golib build, run, shot and test) read them from
-// disk. golib dist builds ship as a single executable, so they read a copy
-// embedded with [EmbedAssets].
+// disk. golib dist builds carry the assets inside the executable, so they
+// read a copy embedded with [EmbedAssets].
 //
 // raylib stays reachable: import github.com/gen2brain/raylib-go/raylib for
 // anything GoLib doesn't cover.

@@ -65,7 +65,7 @@
     },
     {
       "label": "GoLib: dist",
-      "detail": "Build the game in games/ as a single file to share, in build/<game>/dist/ (needs exactly one game)",
+      "detail": "Build the game in games/ to share: a folder and its zip in build/<game>/dist/ (needs exactly one game)",
       "type": "process",
       "command": "sh",
       "args": ["./golib", "dist"],

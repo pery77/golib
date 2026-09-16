@@ -2,7 +2,7 @@
 
 For AI agents. Follow it when a user asks you to create a game, or to change the game in this project.
 
-> **Status:** the framework is still small (M2, Framework basics, is done): a window, a fixed-step game loop, keyboard, mouse and gamepad input, random numbers, rectangles, circles, lines, triangles and text, fullscreen, post-processing shaders, sound effects made in code, music from the game's `assets/` folder, reading files from `assets/`, scenes with `golib.SwitchScene`, quitting with `golib.Quit`, screenshots through `golib shot` and single-file builds through `golib dist`. Sprites, maps, fonts and sound files are postponed; check the "Project status" table in [AGENTS.md](../../AGENTS.md), and the end of [framework/README.md](../../framework/README.md) for what else is missing. If the game needs something that doesn't exist yet, tell the user. Don't build a private engine to fill the gap.
+> **Status:** the framework is still small (M2, Framework basics, is done): a window, a fixed-step game loop, keyboard, mouse and gamepad input, random numbers, rectangles, circles, lines, triangles and text, fullscreen, post-processing shaders, sound effects made in code, music from the game's `assets/` folder, reading files from `assets/`, scenes with `golib.SwitchScene`, quitting with `golib.Quit`, screenshots through `golib shot` and zips to share through `golib dist`. Sprites, maps, fonts and sound files are postponed; check the "Project status" table in [AGENTS.md](../../AGENTS.md), and the end of [framework/README.md](../../framework/README.md) for what else is missing. If the game needs something that doesn't exist yet, tell the user. Don't build a private engine to fill the gap.
 
 ## Goal
 
@@ -154,9 +154,11 @@ GoLib has no editors. Content comes from established tools, and the game loads t
 
 ## Sharing the game
 
-`golib dist <name>` builds `build/<name>/dist/<name>.exe` (no `.exe` on Linux and macOS): a single file with raylib and the game's assets inside, ready to share, for example on itch.io. Debug builds from `golib run` and `golib build` need the library files next to them, so don't hand those out. When the user wants to share the game, run `golib dist` and tell them where the file is. If they are going to publish it, also tell them that the file contains third-party code whose licenses ask for notices that `golib dist` doesn't add yet (see the License section of [README.md](../../README.md#license)).
+`golib dist <name>` builds the game for players into `build/<name>/dist/`: a folder, `<name>/`, with the executable (its assets inside), the raylib libraries it loads and `THIRD-PARTY-LICENSES.txt`, and a zip of that folder, such as `<name>-1.0.0-windows-amd64.zip`, ready to share, for example on itch.io. Players unzip it and start the executable, which needs the files next to it. Debug builds from `golib run` and `golib build` aren't meant for players, so don't hand those out. When the user wants to share the game, run `golib dist` and tell them where the zip is.
 
-On Windows, the file also carries what players see in Explorer, the title bar and the taskbar:
+`THIRD-PARTY-LICENSES.txt` holds the licenses that ask to go with the game, and copies the game's `assets/ATTRIBUTION.md`, so write down the source and license of every file in `assets/` that wasn't made for the game there. It doesn't yet cover all of raylib's bundled libraries: if the user is going to publish the game, point them to the License section of [README.md](../../README.md#license).
+
+On Windows, the executable also carries what players see in Explorer, the title bar and the taskbar:
 
 - `game.json`, which `golib new` writes, holds the title, version and author. Keep `title` the same as `Config.Title`, fill in `author` when the user says who they are, and raise `version` (major.minor.patch) each time the user shares a new build. [docs/tooling.md](../tooling.md#icon-and-version-information-windows) lists every field.
 - `icon.png`, next to it, is the icon: a square PNG, ideally 256 by 256 pixels, transparent around the shape. Ask the user for one, for example drawn in Aseprite, when they want to share the game; never download one. Without it, Windows shows its default icon.
