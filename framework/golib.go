@@ -91,8 +91,8 @@
 // files: [Laser], [Explosion], [Pickup], [Jump], [Hurt] and [PowerUp] are
 // ready-made recipes to start from. [NewSoundFile] plays a sound effect from a
 // file in the game's assets folder, [NewMusic] streams music from one, and
-// [SetVolume] sets how loud everything is. golib shot
-// runs without a sound device, so screenshots stay silent.
+// [SetVolume] sets how loud everything is. golib shot runs without a sound
+// device, so screenshots stay silent.
 //
 // # Quitting
 //
@@ -136,7 +136,8 @@ const (
 // default shown in their comment.
 //
 // Width and Height are the size of the screen the game draws on, which never
-// changes. The window opens at that size, and the player can resize it or go
+// changes. The window opens at that size, or with PixelArt at the largest
+// whole multiple of it that fits the monitor, and the player can resize it or go
 // fullscreen: Run scales the screen to fit, with black bars where the shapes
 // differ, and reports mouse positions in screen pixels.
 type Config struct {
@@ -146,8 +147,9 @@ type Config struct {
 	Fullscreen bool   // Start in fullscreen (see SetFullscreen). Default: in a window.
 
 	// PixelArt scales the screen by whole numbers only, without smoothing,
-	// so every pixel stays square and sharp. Use it with a small screen, such
-	// as 320 by 180. Default: smooth scaling to any size.
+	// so every pixel stays square and sharp, and opens the window as many
+	// times larger than the screen as fits the monitor. Use it with a small
+	// screen, such as 320 by 180. Default: smooth scaling to any size.
 	PixelArt bool
 }
 
@@ -312,6 +314,9 @@ func openWindow(config Config, hidden bool) error {
 	rl.SetExitKey(rl.KeyNull)
 	if !hidden {
 		rl.SetWindowMinSize(max(config.Width/4, 1), max(config.Height/4, 1))
+		if config.PixelArt {
+			enlargeWindow(config.Width, config.Height)
+		}
 	}
 	return nil
 }

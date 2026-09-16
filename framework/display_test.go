@@ -69,3 +69,22 @@ func TestSetFullscreen(t *testing.T) {
 		t.Error("IsFullscreen() = true after SetFullscreen(false)")
 	}
 }
+
+func TestWindowScale(t *testing.T) {
+	tests := []struct {
+		screenWidth, screenHeight, monitorWidth, monitorHeight, want int
+	}{
+		{320, 180, 1920, 1080, 4},  // 1280 by 720
+		{320, 180, 2560, 1440, 6},  // 1920 by 1080
+		{320, 240, 1920, 1080, 3},  // the height decides
+		{1280, 720, 1920, 1080, 1}, // already large
+		{1920, 1080, 1366, 768, 1}, // larger than the monitor
+		{320, 180, 0, 0, 1},        // no monitor
+		{0, 180, 1920, 1080, 1},    // no screen
+	}
+	for _, tt := range tests {
+		if got := windowScale(tt.screenWidth, tt.screenHeight, tt.monitorWidth, tt.monitorHeight); got != tt.want {
+			t.Errorf("windowScale(%d, %d, %d, %d) = %d, want %d", tt.screenWidth, tt.screenHeight, tt.monitorWidth, tt.monitorHeight, got, tt.want)
+		}
+	}
+}

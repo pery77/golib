@@ -94,3 +94,29 @@ func toScreen(x, y float32, fit rl.Rectangle, screenWidth, screenHeight float32)
 	}
 	return (x - fit.X) * screenWidth / fit.Width, (y - fit.Y) * screenHeight / fit.Height
 }
+
+// enlargeWindow makes the window of a pixel art game a whole number of times
+// the size of its screen, as large as fits in most of the monitor, and
+// centers it there. A small screen, such as 320 by 180, would otherwise open
+// a tiny window.
+func enlargeWindow(screenWidth, screenHeight int) {
+	monitor := rl.GetCurrentMonitor()
+	monitorWidth, monitorHeight := rl.GetMonitorWidth(monitor), rl.GetMonitorHeight(monitor)
+	scale := windowScale(screenWidth, screenHeight, monitorWidth, monitorHeight)
+	if scale <= 1 {
+		return
+	}
+	width, height := screenWidth*scale, screenHeight*scale
+	corner := rl.GetMonitorPosition(monitor)
+	rl.SetWindowSize(width, height)
+	rl.SetWindowPosition(int(corner.X)+(monitorWidth-width)/2, int(corner.Y)+(monitorHeight-height)/2)
+}
+
+// windowScale returns how many times a screen fits in four fifths of a
+// monitor, as a whole number, and at least 1.
+func windowScale(screenWidth, screenHeight, monitorWidth, monitorHeight int) int {
+	if screenWidth <= 0 || screenHeight <= 0 {
+		return 1
+	}
+	return max(1, min(monitorWidth*4/5/screenWidth, monitorHeight*4/5/screenHeight))
+}
