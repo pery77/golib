@@ -42,8 +42,9 @@ Last updated: 2026-09-16 (milestone M5, Shipping, in progress; M4, Content, post
 | `golib new <name>`: a new game, ready to run, from `tools/template/game/` | Done (M2) |
 | API guide for agents, `framework/README.md`: every exported name by task, checked against the code by `golib test` | Done (M2) |
 | Content: textures, Aseprite sprites, Tiled maps, fonts, sound effects loaded from files | Postponed (M4) |
+| 3D: glTF models from Blender, a 3D camera, basic lighting | Planned (M6, after M4); nothing built |
 
-**The framework is still small.** It opens a window, runs a fixed-step game loop, reads the keyboard, the mouse and gamepads, draws rectangles, circles, lines, triangles and text, scales the screen to any window or fullscreen, runs post-processing shaders, makes random numbers, makes and plays sound effects, streams music, switches between scenes, reads files from the game's `assets/` folder, quits when the game asks, and takes screenshots for `golib shot`. [framework/README.md](framework/README.md) is its API guide: every exported name, grouped by task, with the rules the names don't tell you and what is still missing. Read it before writing game code; the doc comments in `framework/*.go` have the details. `games/platformer` is the reference for using it: read it before writing a game. `games/asteroids` shows post-processing shaders, fullscreen, sound and music. There are no textures, sprites, maps or fonts yet (M4, postponed): sound effects are made in code, and music is a file in the game's `assets/` folder. If someone asks for a game that needs them, say what is missing and point to [docs/roadmap.md](docs/roadmap.md). Do not improvise a stand-alone engine to fill the gap.
+**The framework is still small.** It opens a window, runs a fixed-step game loop, reads the keyboard, the mouse and gamepads, draws rectangles, circles, lines, triangles and text, scales the screen to any window or fullscreen, runs post-processing shaders, makes random numbers, makes and plays sound effects, streams music, switches between scenes, reads files from the game's `assets/` folder, quits when the game asks, and takes screenshots for `golib shot`. [framework/README.md](framework/README.md) is its API guide: every exported name, grouped by task, with the rules the names don't tell you and what is still missing. Read it before writing game code; the doc comments in `framework/*.go` have the details. `games/platformer` is the reference for using it: read it before writing a game. `games/asteroids` shows post-processing shaders, fullscreen, sound and music. There are no textures, sprites, maps or fonts yet (M4, postponed): sound effects are made in code, and music is a file in the game's `assets/` folder. There is no 3D either (M6, after M4). If someone asks for a game that needs them, say what is missing and point to [docs/roadmap.md](docs/roadmap.md). Do not improvise a stand-alone engine to fill the gap.
 
 ## Golden rules
 
@@ -94,6 +95,7 @@ In PowerShell, quote arguments that start with `-` and contain a dot, such as `'
 AGENTS.md            Canonical instructions for AI agents (this file)
 CLAUDE.md            Claude Code entry point; imports this file
 README.md            Human quick start
+LICENSE              zlib license; games made in games/ are their authors'
 golib, golib.cmd     CLI entry points for POSIX shells and Windows; thin shims, no logic
 golib-ui.cmd         Double-click to open the GoLib window (Windows); a thin shim too
 tools/bootstrap/     CLI implementations: golib.sh (Linux, macOS), golib.ps1 (Windows)
@@ -128,7 +130,7 @@ The test game developed alongside the framework is still a game: it follows the 
 | --- | --- |
 | [docs/vision.md](docs/vision.md) | Judging whether an idea fits GoLib |
 | [docs/roadmap.md](docs/roadmap.md) | Checking what's planned, or planning work |
-| [docs/architecture.md](docs/architecture.md) | Deciding whether code belongs in the framework or in a game, or how maps, sprites and models get into a game |
+| [docs/architecture.md](docs/architecture.md) | Deciding whether code belongs in the framework or in a game, how maps, sprites and models get into a game, or how a game moves to a newer GoLib |
 | [docs/tooling.md](docs/tooling.md) | Changing the CLI, the VS Code config, line endings or `.tools/` |
 | [docs/contributing.md](docs/contributing.md) | Changing GoLib itself: definition of done, API design for agents, commits |
 | [docs/ai/making-a-game.md](docs/ai/making-a-game.md) | Building or iterating on a game |

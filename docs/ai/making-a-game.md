@@ -131,6 +131,7 @@ GoLib has no editors. Content comes from established tools, and the game loads t
 | Music | A file the user provides: a tracker module (XM, MOD) or OGG, MP3, WAV or QOA |
 
 - Files the user provides go in the game's `assets/` folder. Read them with `golib.ReadAsset("sprites/player.png")`, with paths relative to that folder.
+- Source files the game doesn't load, such as a `.blend` file next to the `.glb` exported from it, go in the game's `sources/` folder, with the same paths as in `assets/`. Everything in `assets/` ships in the dist build; `sources/` doesn't.
 - A game with an `assets/` folder also needs `assets.go` next to `main.go`, so `golib dist` embeds the folder. Copy it exactly from the `golib.EmbedAssets` documentation in `framework/assets.go`. `golib dist` stops and says so when it is missing.
 - When a game has levels and the framework loads Tiled maps, write the levels as Tiled maps instead of arrays in code, so the user can open and change them in Tiled.
 - Never build a level editor, sprite editor or other content tool, inside the game or next to it.
@@ -153,7 +154,7 @@ GoLib has no editors. Content comes from established tools, and the game loads t
 
 ## Sharing the game
 
-`golib dist <name>` builds `build/<name>/dist/<name>.exe` (no `.exe` on Linux and macOS): a single file with raylib and the game's assets inside, ready to share, for example on itch.io. Debug builds from `golib run` and `golib build` need the library files next to them, so don't hand those out. When the user wants to share the game, run `golib dist` and tell them where the file is.
+`golib dist <name>` builds `build/<name>/dist/<name>.exe` (no `.exe` on Linux and macOS): a single file with raylib and the game's assets inside, ready to share, for example on itch.io. Debug builds from `golib run` and `golib build` need the library files next to them, so don't hand those out. When the user wants to share the game, run `golib dist` and tell them where the file is. If they are going to publish it, also tell them that the file contains third-party code whose licenses ask for notices that `golib dist` doesn't add yet (see the License section of [README.md](../../README.md#license)).
 
 On Windows, the file also carries what players see in Explorer, the title bar and the taskbar:
 

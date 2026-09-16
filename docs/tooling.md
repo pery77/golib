@@ -20,6 +20,8 @@ Both shims find the project root from their own location, so they also work when
 
 `tools/bootstrap/golib.ps1` (Windows PowerShell 5.1 and PowerShell 7) and `tools/bootstrap/golib.sh` (POSIX sh) are twins: same commands, options, output format and exit codes.
 
+This is going to change: the command logic will move into one Go program, one command at a time, and the scripts will keep only what has to work without it (see [roadmap.md](roadmap.md#decisions)). Until a command has moved, the rules below still apply to it.
+
 Rules for both:
 
 - Change both in the same commit, and test both.
@@ -141,7 +143,7 @@ func init() { golib.EmbedAssets(assets) }
 
 Debug builds leave that file out, so they never embed assets. Before building, `dist` checks with `go list` that a game with an `assets/` folder embeds `assets` or `all:assets`, and stops with a `[fail]` line otherwise: without it the executable would build and then fail on the player's machine. `dist` builds for the machine it runs on; there is no cross-compiling yet.
 
-When a dist build starts, raylib-go and ffi write their libraries to the user's cache folder, in folders they name: `%LOCALAPPDATA%\github.com\gen2brain\raylib-go\<raylib version>\` and `%LOCALAPPDATA%\github.com\jupiterrider\ffi\libffi\<libffi version>\` on Windows, under `~/.cache/` on Linux and `~/Library/Caches/` on macOS. They write each file only when it is missing and never check it afterwards, so a damaged copy stops the game from starting until that folder is deleted. On Linux, players also need `libX11.so.6`, `libGL.so.1` and `libffi.so.8`.
+When a dist build starts, raylib-go and ffi write their libraries to the user's cache folder, in folders they name: `%LOCALAPPDATA%\github.com\gen2brain\raylib-go\<raylib version>\` and `%LOCALAPPDATA%\github.com\jupiterrider\ffi\libffi\<libffi version>\` on Windows, under `~/.cache/` on Linux and `~/Library/Caches/` on macOS. They write each file only when it is missing and never check it afterwards, so a damaged copy stops the game from starting until that folder is deleted. The libraries load before `golib.Run` starts, so the player sees no message. This is why `dist` is going to put the libraries next to the executable instead (see [roadmap.md](roadmap.md#decisions)). On Linux, players also need `libX11.so.6`, `libGL.so.1` and `libffi.so.8`.
 
 ### Icon and version information (Windows)
 

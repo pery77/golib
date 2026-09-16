@@ -48,10 +48,10 @@ The framework is still small (shapes, text, keyboard, mouse, gamepad, scenes, sc
 
 ## How games are made
 
-- **Your game and the framework are separate.** The framework lives in `framework/` and each game in its own folder under `games/`. You make a game without touching the framework.
+- **Your game and the framework are separate.** The framework lives in `framework/` and each game in its own folder under `games/`. You make a game without touching the framework, and a game moves to a newer GoLib by copying its folder into the newer template (see [Distribution](docs/architecture.md#distribution)).
 - **No built-in editors.** Maps are made in [Tiled](https://www.mapeditor.org), sprites in [Aseprite](https://www.aseprite.org) and 3D models in [Blender](https://www.blender.org); GoLib loads their files. You only need these tools to edit content: games build and run without them.
 
-Loading files from these tools is planned for M4, which is postponed for now: see the [architecture](docs/architecture.md).
+Loading Tiled maps and Aseprite sprites is planned for M4, which is postponed for now, and Blender models come with 3D in M6, after it: see the [architecture](docs/architecture.md).
 
 ## Commands
 
@@ -83,6 +83,7 @@ Type `.\golib` on Windows (PowerShell or cmd) and `./golib` in bash or zsh. `[ga
 | `AGENTS.md`, `CLAUDE.md` | Instructions for AI agents |
 | `docs/` | Vision, roadmap, internals and AI playbooks |
 | `.vscode/`, `.claude/` | Editor and Claude Code configuration |
+| `LICENSE` | GoLib's license: zlib |
 
 ## Learn more
 
@@ -93,3 +94,11 @@ Type `.\golib` on Windows (PowerShell or cmd) and `./golib` in bash or zsh. `[ga
 - [Contributing to GoLib](docs/contributing.md)
 - [How agents make games](docs/ai/making-a-game.md)
 - [The framework's API, by task](framework/README.md)
+
+## License
+
+GoLib is released under the [zlib license](LICENSE), the same as raylib: use it for anything, commercial games included, with no need to credit GoLib inside your game. It covers the framework, the tools, the docs and the example games, except files with terms of their own, such as the music in `games/asteroids/assets/` (see its `ATTRIBUTION.md`).
+
+The games you make in `games/` are yours: license them as you like.
+
+A dist build also contains Go, purego, raylib-go, ffi, raylib and libffi. The licenses of Go, purego, ffi and libffi ask for their notices to go with the game, and `golib dist` doesn't add them yet: include them yourself when you publish a game (see the [roadmap](docs/roadmap.md)).

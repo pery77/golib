@@ -13,7 +13,7 @@ Download the template, run a couple of commands, describe a game to an AI agent,
 ## Principles
 
 1. **Zero install.** A fresh machine with nothing but its operating system works. `golib setup` downloads toolchains into the project's `.tools/` folder, at pinned versions with verified checksums. No global installs, PATH edits, environment variables or admin rights. Where an operating system genuinely requires a system package, `golib doctor` detects it and prints the exact command that fixes it.
-2. **Transparent.** Every tool is a short script anyone can read. Downloads go to a visible folder, commands say what they do, and deleting `.tools/` resets everything.
+2. **Transparent.** Every tool is small, readable code: short scripts to get started, plain Go for the rest. Downloads go to a visible folder, commands say what they do, and deleting `.tools/` resets everything.
 3. **AI-first documentation.** Docs ship with the template and are part of the product. They state what exists and what doesn't, include complete examples, and change in the same commit as the code they describe.
 4. **One obvious way.** A small API with predictable names beats a flexible one. An agent should be able to guess the right call, and be right.
 5. **Fast feedback, for humans and agents.** Edit, run, see, in seconds. Agents must be able to check their own work as well: build output, tests, and screenshots taken without a human at the keyboard.

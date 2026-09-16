@@ -560,6 +560,6 @@ import rl "github.com/gen2brain/raylib-go/raylib"
 | Camera, vectors, rotation, physics | Not on the roadmap yet | `float32` math in the game: subtract a camera position, rotate with `math.Sin` and `math.Cos` |
 | Trigger pressure, vibration | Not on the roadmap yet | Triggers read as buttons |
 | Saving high scores or settings | Not on the roadmap yet | Keep them while the game runs |
-| 3D | Open question | None |
+| 3D | M6, after M4 | None |
 
 When a game needs one of these, say so to the user and point to [docs/roadmap.md](../docs/roadmap.md), as [AGENTS.md](../AGENTS.md) asks, instead of building an engine to fill the gap.

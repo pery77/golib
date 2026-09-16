@@ -2,7 +2,7 @@
 
 How GoLib keeps the framework apart from the games made with it, and where game content comes from.
 
-> **Status:** the framework and game split exists since M1, with `framework/` and the example game, `games/platformer`. Loading content from Tiled, Aseprite and Blender is planned for M4, which is postponed (see [roadmap.md](roadmap.md)).
+> **Status:** the framework and game split exists since M1, with `framework/` and the example game, `games/platformer`. Loading content from Tiled and Aseprite is planned for M4, which is postponed, and 3D models from Blender for M6, after it (see [roadmap.md](roadmap.md)).
 
 ## Framework and games
 
@@ -38,6 +38,7 @@ games/
     icon.png        The game's icon, a square PNG, for the file golib dist builds (optional)
     assets/         Content: maps, sprites, models, sounds, fonts; read with golib.ReadAsset
     assets.go       Embeds assets/ in golib dist builds; needed only when assets/ exists
+    sources/        Files the game doesn't load, such as .blend or .psd; committed, not shipped (optional)
     shaders/        GLSL post-processing shaders, embedded in the game's code with //go:embed (optional)
 ```
 
@@ -59,7 +60,18 @@ require golib v0.0.0
 replace golib => ../../framework
 ```
 
-`golib go -C games/<name> mod tidy` then adds the framework's own requirements (raylib-go and its dependencies) as indirect ones. Whether games should later depend on a published framework version instead is an open question in [roadmap.md](roadmap.md).
+`golib go -C games/<name> mod tidy` then adds the framework's own requirements (raylib-go and its dependencies) as indirect ones.
+
+### Distribution
+
+GoLib ships as the whole template: the framework's source, the CLI, the docs that describe them and the example games, versioned together. The framework isn't published as a Go module of its own, so `golib` is never downloaded and its module path needs no domain; the reasons are in [roadmap.md](roadmap.md#decisions). No versions have been released yet.
+
+Because a game depends only on `../../framework`, it moves to a newer GoLib as a folder:
+
+1. Run `golib setup` in the newer template.
+2. Copy `games/<name>/` into its `games/` folder.
+3. Run `golib go -C games/<name> mod tidy`, which brings the game's indirect requirements up to the new framework's.
+4. Run `golib test` and `golib run <name>`, and fix whatever the new framework changed.
 
 ### Developing the framework with a test game
 
@@ -76,9 +88,10 @@ GoLib has no visual editor, scene designer, level editor or asset GUI, and won't
 
 | Content | Made with | What the game loads | Planned |
 | --- | --- | --- | --- |
-| 2D maps and levels | [Tiled](https://www.mapeditor.org) | Tiled maps and tilesets | M4 |
-| Sprites and animations | [Aseprite](https://www.aseprite.org) | Aseprite sprites, with their animation tags | M4 |
-| 3D models | [Blender](https://www.blender.org) | glTF (`.glb`) exported from Blender | With 3D support |
+| 2D maps and levels | [Tiled](https://www.mapeditor.org) | TMX maps and TSX tilesets, Tiled's default formats | M4 |
+| Sprites and animations | [Aseprite](https://www.aseprite.org) | `.aseprite` files, with their tags as animations | M4 |
+| Images and sprite sheets | Any image tool | PNG; a sprite sheet is cut into a grid of frames of one size | M4 |
+| 3D models | [Blender](https://www.blender.org) | glTF (`.glb`) exported from Blender | M6, with 3D support |
 | Music | Any music tool, or a tracker such as [MilkyTracker](https://milkytracker.org) | `.ogg`, `.mp3`, `.wav`, `.qoa`, and the tracker modules `.xm` and `.mod` | Done (M2): `golib.NewMusic` |
 | Sound effects | Any audio tool | `.wav`, `.ogg` | M4. Until then, GoLib makes sound effects in code: `golib.NewSound` |
 | Fonts | Existing fonts whose license allows it | `.ttf` | M4 |
@@ -86,15 +99,15 @@ GoLib has no visual editor, scene designer, level editor or asset GUI, and won't
 Why:
 
 - **Proven and documented.** These tools are mature and their file formats are documented. GoLib doesn't have to build, maintain or teach an editor.
-- **Good for agents too.** Tiled maps are plain XML or JSON: an agent can write a level as easily as code, and a human can open it in Tiled to adjust it.
+- **Good for agents too.** Tiled maps are plain XML: an agent can write a level as easily as code, and a human can open it in Tiled to adjust it.
 - **Clear split.** Tools decide what content looks like; game code decides what it means.
 
 ### Rules
 
 1. **The tools are for editing, not for building.** A game builds and runs on a machine that has none of them, so the zero-install promise holds. Builds never call these tools, which means every file a game loads is committed in its folder.
-2. **Load what the tool saves.** Prefer the tool's own file format, so saving in the tool and running the game is all it takes, with no export step to forget. Export only when the tool's format can't be loaded at runtime (Blender's `.blend`), and then commit the source file too.
+2. **Load what the tool saves.** Prefer the tool's own file format, so saving in the tool and running the game is all it takes, with no export step to forget. Export only when the tool's format can't be loaded at runtime (Blender's `.blend`), and then commit the source file too, in `sources/`. One format for each kind of content: GoLib doesn't read Tiled's JSON maps or Aseprite's JSON sprite sheets.
 3. **No editors inside games either.** Don't build an in-game level editor, sprite editor or any other tool for making content. If a game has levels, they are Tiled maps.
-4. **No dependencies for formats.** Tiled and Aseprite files are parsed with the Go standard library (`encoding/xml`, `encoding/json`, `compress/zlib`). 3D models and audio go through raylib.
-5. **Everything in `assets/` ships.** `golib dist` embeds the whole folder in the executable, so keep only files the game loads there.
+4. **No dependencies for formats.** Tiled and Aseprite files are parsed with the Go standard library (`encoding/xml`, `encoding/base64`, `compress/zlib`, `compress/gzip`). The standard library has no Zstandard, so a Tiled map compressed with it will fail with a message that says to pick another compression in Tiled. 3D models and audio go through raylib.
+5. **Everything in `assets/` ships.** `golib dist` embeds the whole folder in the executable, so keep only files the game loads there. Source files the game doesn't load go in `sources/`, with the same paths: `sources/models/ship.blend` for `assets/models/ship.glb`. They are committed, but not shipped.
 
-Exact formats (TMX or JSON for Tiled; `.aseprite` files only, or exported sprite sheets as well) are open questions in [roadmap.md](roadmap.md).
+The formats were chosen on 2026-09-16; the reasons are in [roadmap.md](roadmap.md#decisions).
