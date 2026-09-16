@@ -76,7 +76,8 @@ GoLib has no visual editor, scene designer, level editor or asset GUI, and won't
 | 2D maps and levels | [Tiled](https://www.mapeditor.org) | Tiled maps and tilesets | M4 |
 | Sprites and animations | [Aseprite](https://www.aseprite.org) | Aseprite sprites, with their animation tags | M4 |
 | 3D models | [Blender](https://www.blender.org) | glTF (`.glb`) exported from Blender | With 3D support |
-| Sound effects and music | Any audio tool | `.wav`, `.ogg` | M4 |
+| Music | Any music tool, or a tracker such as [MilkyTracker](https://milkytracker.org) | `.ogg`, `.mp3`, `.wav`, `.qoa`, and the tracker modules `.xm` and `.mod` | Done (M2): `golib.NewMusic` |
+| Sound effects | Any audio tool | `.wav`, `.ogg` | M4. Until then, GoLib makes sound effects in code: `golib.NewSound` |
 | Fonts | Existing fonts whose license allows it | `.ttf` | M4 |
 
 Why:

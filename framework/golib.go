@@ -66,6 +66,14 @@
 // shaders made with [NewShader] over the whole picture, for effects such as
 // scanlines or a glow.
 //
+// # Sound and music
+//
+// [NewSound] makes a sound effect from a [SoundSpec], so games need no sound
+// files: [Laser], [Explosion], [Pickup], [Jump], [Hurt] and [PowerUp] are
+// ready-made recipes to start from. [NewMusic] streams music from a file in the
+// game's assets folder, and [SetVolume] sets how loud everything is. golib shot
+// runs without a sound device, so screenshots stay silent.
+//
 // # Quitting
 //
 // The game ends when the player closes the window or the game calls [Quit].
@@ -143,11 +151,11 @@ type Game interface {
 // a hidden window, saves them as PNG files and returns.
 //
 // Run returns an error if game is nil, config is invalid, the window can't be
-// opened or a screenshot can't be saved. When the console can't show that
-// error, Run also shows it, or a panic in the game, in a message box: a golib
-// dist build on Windows has no console, and a debug build started from
-// Explorer has a console window of its own, which closes as soon as the game
-// ends.
+// opened, a file can't be read or a screenshot can't be saved. When the
+// console can't show that error, Run also shows it, or a panic in the game, in
+// a message box: a golib dist build on Windows has no console, and a debug
+// build started from Explorer has a console window of its own, which closes
+// as soon as the game ends.
 func Run(game Game, config Config) (err error) {
 	if distBuild || ownConsole() {
 		title := config.Title
@@ -185,6 +193,8 @@ func runWindow(game Game, config Config) error {
 	}
 	defer rl.CloseWindow()
 	rl.SetTargetFPS(targetFPS)
+	audio.open()
+	defer audio.close()
 	render := newRenderer(config)
 	defer render.close()
 
@@ -221,6 +231,9 @@ func runWindow(game Game, config Config) error {
 		updates += frameUpdates
 		last = now
 
+		if err := audio.updateMusic(); err != nil {
+			return err
+		}
 		render.drawScene(scene, screen)
 		if err := render.present(nil, fit, float32(updates)*updateStep); err != nil {
 			return err

@@ -32,6 +32,8 @@ Known gaps, written down as the [definition of done](contributing.md#definition-
 - Done: `golib.Quit` ends a game. No key quits on its own: raylib's default of closing on Esc is turned off.
 - Done: 2D drawing with rectangles, circles, lines, triangles, text, and `Rectangle` overlap and point checks. Textures and sprites are part of M4.
 - Done: the screen scales to any window size and to fullscreen (`golib.SetFullscreen`), with `Config.PixelArt` for sharp pixels, and post-processing shaders run over the whole picture (`golib.NewShader`, `golib.SetPostProcess`). `games/asteroids` tries them out.
+- Done: sound effects made in code, so a game ships no sound files. `golib.NewSound` turns a `golib.SoundSpec` (waveform, frequency, pitch slide, duration, attack, release, volume, duty, vibrato) into a sound raylib plays, with ready-made recipes (`golib.Laser`, `golib.Explosion`, `golib.Pickup`, `golib.Jump`, `golib.Hurt`, `golib.PowerUp`) and `golib.SetVolume`. Up to four copies of a sound play at once. Not covered: looping or positional sounds, and sound effects loaded from files, which are part of M4.
+- Done: music streamed from the game's `assets/` folder with `golib.NewMusic`: OGG, MP3, WAV, QOA and the tracker formats XM and MOD, but not IT, which raylib doesn't read. It loops, and `golib.Music` has `Play`, `Pause`, `Stop` and `SetVolume`. Not covered: crossfading and playlists.
 - Done: reading files from the game's `assets/` folder with `golib.ReadAsset`, from disk in debug builds and from the copy embedded in dist builds.
 - Done: `golib new <name>` creates a game folder in `games/` from `tools/template/game/`, ready to run, without touching the framework.
 - Example games that double as documentation. In progress: `games/platformer` grows with each feature, and `games/asteroids` shows screen effects and fullscreen.
@@ -48,7 +50,7 @@ Postponed on 2026-09-15, until the owner picks it up again. Loading what Aseprit
 
 - Textures, and sprites and animations loaded from Aseprite files.
 - 2D maps loaded from Tiled: tile layers, tilesets and object layers.
-- Audio: sound effects and music.
+- Sound effects loaded from files, for games that want more than the ones M2 makes in code. Music landed in M2.
 - Fonts.
 
 ## M5: Shipping

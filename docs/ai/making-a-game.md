@@ -2,7 +2,7 @@
 
 For AI agents. Follow it when a user asks you to create a game, or to change the game in this project.
 
-> **Status:** the framework is still small (M2 in progress): a window, a fixed-step game loop, keyboard, mouse and gamepad input, random numbers, rectangles, circles, lines, triangles and text, fullscreen, post-processing shaders, reading files from `assets/`, quitting with `golib.Quit`, screenshots through `golib shot` and single-file builds through `golib dist`. scenes with `golib.SwitchScene`. Sprites, maps and audio are postponed; check the "Project status" table in [AGENTS.md](../../AGENTS.md). If the game needs something that doesn't exist yet, tell the user. Don't build a private engine to fill the gap.
+> **Status:** the framework is still small (M2 in progress): a window, a fixed-step game loop, keyboard, mouse and gamepad input, random numbers, rectangles, circles, lines, triangles and text, fullscreen, post-processing shaders, sound effects made in code, music from the game's `assets/` folder, reading files from `assets/`, quitting with `golib.Quit`, screenshots through `golib shot` and single-file builds through `golib dist`. scenes with `golib.SwitchScene`. Sprites, maps and sound files are postponed; check the "Project status" table in [AGENTS.md](../../AGENTS.md). If the game needs something that doesn't exist yet, tell the user. Don't build a private engine to fill the gap.
 
 ## Goal
 
@@ -54,7 +54,7 @@ The framework's API is documented in the doc comments of `framework/*.go`: read 
 | Timing | 60 FPS target; movement scaled by frame time |
 | Input | Keyboard (arrow keys and WASD) and gamepad 0 (d-pad or left stick, A to act, Start to pause) together; mouse when the genre needs it |
 | Art | Simple shapes and a small, coherent color palette drawn in code. No external files unless the user provides them |
-| Audio | Optional. The game must be fully playable muted |
+| Audio | Sound effects made in code with `golib.NewSound`, for every action that needs feedback; music only from a file the user provides, with `golib.NewMusic`. The game must stay fully playable muted |
 | Text | English, readable at a glance; controls shown on the title screen |
 | Scope | One polished core loop rather than many half-finished features |
 
@@ -127,6 +127,7 @@ GoLib has no editors. Content comes from established tools, and the game loads t
 | 2D maps and levels | Tiled |
 | Sprites and animations | Aseprite |
 | 3D models | Blender |
+| Music | A file the user provides: a tracker module (XM, MOD) or OGG, MP3, WAV or QOA |
 
 - Files the user provides go in the game's `assets/` folder. Read them with `golib.ReadAsset("sprites/player.png")`, with paths relative to that folder.
 - A game with an `assets/` folder also needs `assets.go` next to `main.go`, so `golib dist` embeds the folder. Copy it exactly from the `golib.EmbedAssets` documentation in `framework/assets.go`. `golib dist` stops and says so when it is missing.
@@ -140,6 +141,8 @@ GoLib has no editors. Content comes from established tools, and the game loads t
 - Base every timer, movement and animation on `dt` (always 1/60 s), never on `time.Now`. The game then plays the same on every machine and in screenshots.
 - Draw for the screen size in `golib.Config`, never for the window: GoLib scales the screen to any window size and to fullscreen, and reports mouse positions in screen pixels.
 - Screen effects (glow, CRT, color grading) are GLSL 330 fragment shaders in `shaders/*.fs`, embedded with `//go:embed` and run with `golib.SetPostProcess`; `golib.NewShader` documents the uniforms GoLib sets. Let the player turn them off, and check them with `golib shot`: screenshots include post-processing.
+- Sound effects come from `golib.NewSound`, which makes them from a `golib.SoundSpec` in code, so there are no sound files to ship: start from the ready-made recipes (`golib.Laser`, `golib.Explosion`, `golib.Pickup`, `golib.Jump`, `golib.Hurt`, `golib.PowerUp`), and keep every recipe in one file, as `games/asteroids/sounds.go` does. Give the player feedback for shooting, hitting, dying and scoring. Screenshots are silent, so you can't check sound yourself: tell the user what to listen for.
+- Music comes from a file in the game's `assets/` folder, played with `golib.NewMusic` (OGG, MP3, WAV, QOA, XM or MOD; not IT). Tracker modules are a few dozen kilobytes, so they suit a dist build. Only use music the user provides, never a file downloaded on your own: write where it came from and under which license in `assets/ATTRIBUTION.md`, and tell the user when the license is unclear. Let the player turn it off, and keep it under the sound effects with `music.SetVolume`. A game with an `assets/` folder needs `assets.go` too, or `golib dist` stops.
 - Get random numbers from `golib.RandomInt` and `golib.RandomFloat`, never from `math/rand`: they start from the same seed under `golib shot`, so shots repeat. Tests that use them call `golib.SetRandomSeed` first.
 - Separate updating (input, logic) from drawing. Drawing never changes game state.
 - End the game with `golib.Quit()` from `Update`, for example from a Quit menu entry. No key quits on its own, not even Esc; closing the window always does.
