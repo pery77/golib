@@ -26,6 +26,7 @@ golib run asteroids
 | `world.go` | The rules and the tuning constants, with no input or drawing |
 | `world_test.go` | Tests for the rules |
 | `DESIGN.md` | The design brief, with placeholder text to replace |
+| `game.json` | The title, version and author that `golib dist` writes into the executable |
 | `go.mod`, `go.sum` | The Go module; `replace golib => ../../framework` points it at the framework |
 
 [games/platformer](../../games/platformer) is the reference game. Read it before writing one, and follow its shape:
@@ -154,6 +155,13 @@ GoLib has no editors. Content comes from established tools, and the game loads t
 
 `golib dist <name>` builds `build/<name>/dist/<name>.exe` (no `.exe` on Linux and macOS): a single file with raylib and the game's assets inside, ready to share, for example on itch.io. Debug builds from `golib run` and `golib build` need the library files next to them, so don't hand those out. When the user wants to share the game, run `golib dist` and tell them where the file is.
 
+On Windows, the file also carries what players see in Explorer, the title bar and the taskbar:
+
+- `game.json`, which `golib new` writes, holds the title, version and author. Keep `title` the same as `Config.Title`, fill in `author` when the user says who they are, and raise `version` (major.minor.patch) each time the user shares a new build. [docs/tooling.md](../tooling.md#icon-and-version-information-windows) lists every field.
+- `icon.png`, next to it, is the icon: a square PNG, ideally 256 by 256 pixels, transparent around the shape. Ask the user for one, for example drawn in Aseprite, when they want to share the game; never download one. Without it, Windows shows its default icon.
+
+`golib dist` prints what it used, and stops with a `[fail]` line that says what to fix when either file has a mistake.
+
 ## Quality checklist
 
 Before calling a game done:
@@ -165,7 +173,7 @@ Before calling a game done:
 - [ ] Pause and resume work; restart after game over works without relaunching.
 - [ ] Closing the window exits cleanly.
 - [ ] Fullscreen switches on and off, and the game looks right in a resized window.
-- [ ] `golib dist <name>` succeeds.
+- [ ] `golib dist <name>` succeeds, and `game.json` has the game's title and current version.
 - [ ] Game speed is the same at 30, 60 and 144 FPS.
 - [ ] Visual style is consistent and text is readable.
 - [ ] The game is fully playable with audio muted.

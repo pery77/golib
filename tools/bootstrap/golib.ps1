@@ -43,6 +43,9 @@ $RaylibDir = Join-Path $ToolsDir 'raylib'
 $FrameworkDir = Join-Path $Root 'framework'
 $GamesDir = Join-Path $Root 'games'
 $TemplateDir = Join-Path $Root 'tools\template\game'
+$ShippingDir = Join-Path $Root 'tools\shipping'
+# GoLib's own Go programs. test checks them too; they don't use raylib.
+$ToolModules = @('tools/shipping')
 
 $script:Failures = 0
 $script:Warnings = 0
@@ -65,7 +68,7 @@ Commands:
                           frames into build/<game>/shots/ (default: frame 60, one second in).
                           --input "Enter@1 Right@30-90 Mouse@100:640,360 MouseLeft@101" plays keyboard,
                           mouse and gamepad input in those updates (see docs/tooling.md)
-  test                    Vet and test the framework and every game
+  test                    Vet and test the framework, every game and GoLib's Go tools
   go <args>               Run the project's Go toolchain, with GoLib's settings
   clean                   Delete build outputs (build/)
   clean --all             Also delete downloaded tools (.tools/); run setup again afterwards
@@ -373,10 +376,41 @@ function New-GameBuild([string]$Game) {
     return $exe
 }
 
+# Writes the Windows resources of games/<Game>, its icon from icon.png and the details Explorer
+# shows from game.json, into the .syso file at Path, using tools/shipping, and prints what it
+# found. Returns $false after printing a failure.
+function Write-WindowsResources([string]$Game, [string]$Path) {
+    if (Test-Path -LiteralPath $Path) { Remove-Item -LiteralPath $Path -Force }
+    # build/golib/ can't clash with a game's build folder: new refuses golib as a game name.
+    $tool = Join-Path $BuildDir 'golib\shipping.exe'
+    & $GoExe -C $ShippingDir build -o $tool . | Out-Host
+    if ($LASTEXITCODE -ne 0) {
+        Write-Check fail 'could not build tools/shipping (see the Go errors above)'
+        return $false
+    }
+    # It prints one fact per line: a check level, a space, then the message.
+    $lines = @(& $tool windows-resources -game (Join-Path $GamesDir $Game) -arch (Get-GoArch) -out $Path)
+    $code = $LASTEXITCODE
+    $failed = $false
+    foreach ($line in $lines) {
+        $level, $message = ([string]$line) -split ' ', 2
+        if (@('ok', 'info', 'warn', 'fail') -notcontains $level -or -not $message) {
+            $level = 'info'
+            $message = [string]$line
+        }
+        Write-Check $level $message
+        if ($level -eq 'fail') { $failed = $true }
+    }
+    if ($code -ne 0 -and -not $failed) {
+        Write-Check fail "tools/shipping stopped with exit code $code while making the icon and version information for games/$Game"
+    }
+    return ($code -eq 0)
+}
+
 # Builds games/<Game> as a dist build: build/<Game>/dist/<Game>.exe, a single file to share. It has
 # no console window, no debug symbols and no paths from this machine, and it embeds raylib,
-# libffi and the game's assets folder. Returns the executable path, or $null after printing a
-# failure.
+# libffi, the game's assets folder, and its icon and version information. Returns the executable
+# path, or $null after printing a failure.
 function New-GameDist([string]$Game) {
     $gameDir = Join-Path $GamesDir $Game
     if (Test-Path -LiteralPath (Join-Path $gameDir 'assets') -PathType Container) {
@@ -396,10 +430,19 @@ function New-GameDist([string]$Game) {
     $exe = Join-Path $outDir "$Game.exe"
     Remove-Tree $outDir
     New-Item -ItemType Directory -Force -Path $outDir | Out-Null
-    # -tags replaces raylib_no_embed and ffi_no_embed from GOFLAGS, so both libraries are embedded.
-    # -H=windowsgui makes a program that opens no console window.
-    & $GoExe -C $gameDir build -trimpath -tags=golib_dist '-ldflags=-s -w -H=windowsgui' -o $exe . | Out-Host
-    if ($LASTEXITCODE -ne 0) {
+    # Go links the .syso files in a package's folder into the program, and only from there, so the
+    # resources sit next to main.go for the length of the build. .gitignore lists the name.
+    $resources = Join-Path $gameDir "golib_dist_windows_$(Get-GoArch).syso"
+    if (-not (Write-WindowsResources $Game $resources)) { return $null }
+    try {
+        # -tags replaces raylib_no_embed and ffi_no_embed from GOFLAGS, so both libraries are embedded.
+        # -H=windowsgui makes a program that opens no console window.
+        & $GoExe -C $gameDir build -trimpath -tags=golib_dist '-ldflags=-s -w -H=windowsgui' -o $exe . | Out-Host
+        $code = $LASTEXITCODE
+    } finally {
+        if (Test-Path -LiteralPath $resources) { Remove-Item -LiteralPath $resources -Force }
+    }
+    if ($code -ne 0) {
         Write-Check fail "dist build failed for games/$Game (see the Go errors above)"
         return $null
     }
@@ -655,7 +698,7 @@ function Invoke-Shot([string[]]$Options) {
 function Invoke-Test([string[]]$Options) {
     if ($Options.Count -gt 0) { Stop-WithUsageError "test takes no options (got: $($Options -join ' '))" }
     Assert-Toolchain 'test'
-    $modules = @(Get-Modules)
+    $modules = @(Get-Modules) + @($ToolModules | Where-Object { Test-Path -LiteralPath (Join-Path $Root "$_\go.mod") -PathType Leaf })
     if ($modules.Count -eq 0) { Write-Check warn 'no Go modules to test' }
     foreach ($module in $modules) {
         $dir = Join-Path $Root $module
@@ -664,16 +707,19 @@ function Invoke-Test([string[]]$Options) {
             Write-Check fail "${module}: go vet found problems (see above)"
             continue
         }
-        try {
-            $null = Sync-Raylib $dir
-        } catch {
-            Write-Check fail "${module}: $($_.Exception.Message)"
-            continue
+        $usesRaylib = $ToolModules -notcontains $module
+        if ($usesRaylib) {
+            try {
+                $null = Sync-Raylib $dir
+            } catch {
+                Write-Check fail "${module}: $($_.Exception.Message)"
+                continue
+            }
         }
         # Test binaries load raylib.dll and libffi-8.dll when they start, so .tools/raylib/ must be
         # on the search path.
         $savedPath = $env:PATH
-        $env:PATH = $RaylibDir + ';' + $env:PATH
+        if ($usesRaylib) { $env:PATH = $RaylibDir + ';' + $env:PATH }
         try {
             & $GoExe -C $dir test ./... | Out-Host
             $code = $LASTEXITCODE

@@ -34,6 +34,8 @@ games/
     go.mod          Go module <name>, which uses the framework through a replace directive
     main.go         Entry point (package main)
     DESIGN.md       Design brief: the game's memory across sessions
+    game.json       Title, version and author, for the file golib dist builds (optional)
+    icon.png        The game's icon, a square PNG, for the file golib dist builds (optional)
     assets/         Content: maps, sprites, models, sounds, fonts; read with golib.ReadAsset
     assets.go       Embeds assets/ in golib dist builds; needed only when assets/ exists
     shaders/        GLSL post-processing shaders, embedded in the game's code with //go:embed (optional)

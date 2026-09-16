@@ -40,6 +40,8 @@ raylib_dir="$tools_dir/raylib"
 framework_dir="$root/framework"
 games_dir="$root/games"
 template_dir="$root/tools/template/game"
+# GoLib's own Go programs, space-separated. test checks them too; they don't use raylib.
+tool_modules="tools/shipping"
 
 failures=0
 warnings=0
@@ -61,7 +63,7 @@ Commands:
                           frames into build/<game>/shots/ (default: frame 60, one second in).
                           --input "Enter@1 Right@30-90 Mouse@100:640,360 MouseLeft@101" plays keyboard,
                           mouse and gamepad input in those updates (see docs/tooling.md)
-  test                    Vet and test the framework and every game
+  test                    Vet and test the framework, every game and GoLib's Go tools
   go <args>               Run the project's Go toolchain, with GoLib's settings
   clean                   Delete build outputs (build/)
   clean --all             Also delete downloaded tools (.tools/); run setup again afterwards
@@ -515,6 +517,9 @@ dist_game() {
     return 1
   fi
   check ok "built games/$1 into build/$1/dist/$1"
+  if [ -f "$dg_dir/game.json" ] || [ -f "$dg_dir/icon.png" ]; then
+    check info "only Windows builds carry the icon from icon.png and the details from game.json so far"
+  fi
   if [ "$goos" = darwin ]; then
     check info "one file with raylib, libffi and the assets inside; it copies raylib and libffi into the player's ~/Library/Caches folder when it first starts"
   else
@@ -788,6 +793,9 @@ cmd_test() {
   if [ $# -gt 0 ]; then usage_error "test takes no options (got: $*)"; fi
   assert_toolchain test
   list_modules
+  for ct_module in $tool_modules; do
+    if [ -f "$root/$ct_module/go.mod" ]; then modules="${modules:+$modules }$ct_module"; fi
+  done
   if [ -z "$modules" ]; then check warn "no Go modules to test"; fi
   for ct_module in $modules; do
     ct_dir="$root/$ct_module"
@@ -795,6 +803,16 @@ cmd_test() {
       check fail "$ct_module: go vet found problems (see above)"
       continue
     fi
+    case " $tool_modules " in
+      *" $ct_module "*)
+        if "$go_exe" -C "$ct_dir" test ./...; then
+          check ok "$ct_module: vet and tests passed"
+        else
+          check fail "$ct_module: tests failed (see above)"
+        fi
+        continue
+        ;;
+    esac
     if ! sync_raylib "$ct_dir"; then
       check fail "$ct_module: $raylib_error"
       continue

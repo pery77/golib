@@ -41,6 +41,8 @@ Rules for `golib.sh`:
 - POSIX sh only, so it runs under dash: no arrays, no `[[ ]]`, no `local`, no `function` keyword. Functions share one variable namespace, so prefix their variables.
 - Keep `set -eu`. Remember that a failing redirection on a special built-in such as `:` exits the shell; wrap probes in a subshell.
 
+`tools/shipping/` is a Go program for work that is easier in Go than in the scripts: today, the Windows icon and version information of [dist builds](#icon-and-version-information-windows), so only `golib.ps1` builds and runs it. It is a Go module of its own that uses only the standard library, and `golib test` vets and tests it in both scripts. It prints one fact per line, `ok`, `info` or `fail`, then a space and the message, which the script prints as its own check lines.
+
 ## Go toolchain and environment
 
 `golib setup` downloads the pinned Go release from `https://go.dev/dl/`, checks its SHA-256 and unpacks it into `.tools/go/`. To move to another Go version, change the version and all checksums in both scripts together (`$GoVersion` and `$GoSha256` in `golib.ps1`, `go_version` and `go_sha256_*` in `golib.sh`). The checksums are listed at `https://go.dev/dl/?mode=json`.
@@ -141,6 +143,38 @@ Debug builds leave that file out, so they never embed assets. Before building, `
 
 When a dist build starts, raylib-go and ffi write their libraries to the user's cache folder, in folders they name: `%LOCALAPPDATA%\github.com\gen2brain\raylib-go\<raylib version>\` and `%LOCALAPPDATA%\github.com\jupiterrider\ffi\libffi\<libffi version>\` on Windows, under `~/.cache/` on Linux and `~/Library/Caches/` on macOS. They write each file only when it is missing and never check it afterwards, so a damaged copy stops the game from starting until that folder is deleted. On Linux, players also need `libX11.so.6`, `libGL.so.1` and `libffi.so.8`.
 
+### Icon and version information (Windows)
+
+On Windows, a dist build carries the game's icon, which Explorer, the title bar and the taskbar show, and the details that Explorer lists under Properties > Details and Task Manager uses as the program's name. They come from two optional files in the game's folder:
+
+| File | Holds | Without it |
+| --- | --- | --- |
+| `icon.png` | The icon: a square PNG, ideally 256 by 256 pixels, transparent around the shape. Pixel art can be smaller, down to 16 by 16. | Windows' default program icon |
+| `game.json` | The title, version and author, below. `golib new` writes one. | The folder name and version 0.0.0 |
+
+Every field of `game.json` is optional:
+
+| Field | Example | Becomes |
+| --- | --- | --- |
+| `title` | `"Rocks in Space"` | The file description, which Task Manager shows, and the product name. Default: the folder name. Keep it the same as `Config.Title`. |
+| `version` | `"1.2.0"`, `"1.2.0-beta"` | The file and product version: major.minor.patch, each from 0 to 65535, optionally followed by a label after `-`, which marks a pre-release. Default: `0.0.0`. |
+| `author` | `"Ada Lovelace"` | The company name |
+| `copyright` | `"Copyright 2026 Ada Lovelace"` | The copyright |
+
+```json
+{
+  "title": "Rocks in Space",
+  "version": "1.2.0",
+  "author": "Ada Lovelace"
+}
+```
+
+A mistake in either file stops `dist` with a `[fail]` line that says what to fix: invalid JSON (with its line), an unknown field, a version that isn't major.minor.patch, an icon that isn't a square PNG of at least 16 pixels.
+
+How it works: `dist` builds `tools/shipping` into `build/golib/shipping.exe` and runs it. It resizes the icon to 16, 20, 24, 32, 40, 48, 64 and 256 pixels, averaging pixels to shrink and repeating them to grow, so pixel art stays sharp. It writes those images and the version information as Windows resources into a `.syso` file, the object file format the Go linker reads. The linker only picks up `.syso` files from the package's own folder, and `go build -overlay` doesn't cover them, so `dist` puts the file in the game's folder as `golib_dist_windows_<arch>.syso` while it builds, then deletes it, even when the build fails. `.gitignore` lists that name, in case a build is interrupted. The icon resource is named `GLFW_ICON`: GLFW, the library raylib opens windows with, gives an icon with that name to the game's window.
+
+Debug builds don't carry the icon or the details, and dist builds on Linux and macOS don't use the two files yet.
+
 ## New games
 
 `golib new <name>` creates `games/<name>/` from the files in `tools/template/game/`:
@@ -168,6 +202,7 @@ Windows PowerShell 5.1 splits arguments that start with `-` and contain a dot be
 | `build/<game>/` | A game's debug executable, next to its copies of the raylib libraries |
 | `build/<game>/shots/` | Screenshots from the latest `golib shot` |
 | `build/<game>/dist/` | The latest `golib dist` build: the game as a single file |
+| `build/golib/` | GoLib's own Go tools, built by `dist`: `shipping.exe` (`new` refuses `golib` as a game name, so no game's folder clashes with it) |
 
 `.tools/` and `build/` are git-ignored. `golib setup` creates `.tools/` and `golib clean --all` removes it; `golib build`, `run`, `shot` and `dist` create `build/` and `golib clean` removes it. `.tools/downloads/` only exists while setup is downloading.
 
@@ -214,4 +249,4 @@ Known limitation: every time the Go extension starts, and when you run **Go: Loc
 
 ## Planned architecture
 
-The shell scripts are meant to shrink to bootstrappers: provision the pinned Go toolchain into `.tools/`, then hand over to a Go program that implements every command once, for every platform. This hasn't started; until then, logic lives in the twin scripts.
+The shell scripts are meant to shrink to bootstrappers: provision the pinned Go toolchain into `.tools/`, then hand over to a Go program that implements every command once, for every platform. One piece is in Go so far, `tools/shipping`, which makes the Windows resources for `dist`; the rest of the logic lives in the twin scripts until then.

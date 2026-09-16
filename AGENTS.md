@@ -12,7 +12,7 @@ The promise: someone downloads the template, runs a couple of commands, and buil
 
 Keep this section true: update it in the same change that lands or removes a feature. Never describe planned work as if it existed.
 
-Last updated: 2026-09-16 (milestone M2, Framework basics, done; next: M5, Shipping; M4, Content, postponed).
+Last updated: 2026-09-16 (milestone M5, Shipping, in progress; M4, Content, postponed).
 
 | Area | State |
 | --- | --- |
@@ -30,6 +30,7 @@ Last updated: 2026-09-16 (milestone M2, Framework basics, done; next: M5, Shippi
 | Fixed-step game loop: 60 updates per second at any frame rate | Done (M2) |
 | `golib shot`: screenshots of chosen frames, rendered in a hidden window, with scripted keyboard, mouse and gamepad input (`--input`) and random numbers from a fixed seed | Done (brought forward from M3) |
 | `golib dist`: the game as a single file to share, with raylib and its assets inside | Done (brought forward from M5; tested on Windows only) |
+| Windows icon and version information in `golib dist`, from the game's `icon.png` and `game.json` | Done (M5; not yet on Linux and macOS) |
 | Keyboard, mouse (pointer, buttons, wheel) and gamepad (buttons, sticks) input; rectangles, circles, lines and triangles; `Rectangle` overlap and point checks | Done (M2) |
 | Screen scaled to any window size, fullscreen (`golib.SetFullscreen`), post-processing shaders (`golib.NewShader`, `golib.SetPostProcess`) | Done (M2) |
 | Random numbers: `golib.RandomInt`, `golib.RandomFloat`, `golib.SetRandomSeed` | Done (M2) |
@@ -72,10 +73,10 @@ Run from the project root. The command name is the same everywhere; only the pre
 | `doctor` | Read-only diagnosis of the environment and the project. |
 | `new <name>` | Creates `games/<name>/` from `tools/template/game/`: a small game that runs straight away, laid out like `games/platformer`. Names are lowercase letters, digits, `-` and `_`. |
 | `build [game]` | Debug build: builds `games/<game>` into `build/<game>/`, next to copies of the raylib libraries, with a console window for errors. `run`, `shot`, `test` and F5 build the same way, and read `assets/` from disk. Started from Explorer, the executable still reads `games/<game>/assets/` and shows errors in a message box, because its console window closes when the game ends. |
-| `dist [game]` | Dist build, to share: builds `build/<game>/dist/<game>.exe` (no `.exe` on Linux and macOS), a single file with raylib and the game's `assets/` folder inside and, on Windows, no console window. A game with an `assets/` folder needs an `assets.go` file: see `golib.EmbedAssets`. |
+| `dist [game]` | Dist build, to share: builds `build/<game>/dist/<game>.exe` (no `.exe` on Linux and macOS), a single file with raylib and the game's `assets/` folder inside and, on Windows, no console window. A game with an `assets/` folder needs an `assets.go` file: see `golib.EmbedAssets`. On Windows the file also carries the game's icon, from `icon.png`, and its title, version and author, from `game.json` (see [docs/tooling.md](docs/tooling.md#icon-and-version-information-windows)). |
 | `run [game]` | Builds the game, then runs it with `games/<game>/` as the working directory. |
 | `shot [game] [frame...] [--input "<script>"]` | Builds the game, runs it in a hidden window and saves screenshots of the given frames (default: 60) as `build/<game>/shots/frame-NNNNNN.png`. Frame N shows the game after N updates. `--input "Enter@1 Right@30-90 Mouse@100:640,360 MouseLeft@101"` presses Enter in update 1, holds Right from update 30 to 90, moves the mouse pointer to 640, 360 and clicks (see [docs/tooling.md](docs/tooling.md#screenshots)). Random numbers start from the same seed, so shots repeat. Open the files to see the game. |
-| `test` | Runs `go vet` and `go test` for the framework and every game. |
+| `test` | Runs `go vet` and `go test` for the framework, every game and `tools/shipping`. |
 | `go <args>` | Runs the project's Go toolchain with GoLib's environment, for example `go -C games/platformer mod tidy`. |
 | `clean` | Deletes `build/`. |
 | `clean --all` | Also deletes `.tools/`. Run `setup` again afterwards. |
@@ -98,6 +99,7 @@ golib-ui.cmd         Double-click to open the GoLib window (Windows); a thin shi
 tools/bootstrap/     CLI implementations: golib.sh (Linux, macOS), golib.ps1 (Windows)
 tools/ui/            The GoLib window: golib-ui.ps1, buttons that run the CLI
 tools/template/game/ The files golib new copies into games/<name>/
+tools/shipping/      A Go helper for golib dist: the Windows icon and version information
 framework/           The framework: Go module and package "golib"; README.md is its API guide
 games/               One folder per game, each its own Go module
   platformer/        The example game: tests each framework feature and shows how to use it

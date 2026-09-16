@@ -53,14 +53,16 @@ Postponed on 2026-09-15, until the owner picks it up again. Loading what Aseprit
 - Sound effects loaded from files, for games that want more than the ones M2 makes in code. Music landed in M2.
 - Fonts.
 
-## M5: Shipping (next)
+## M5: Shipping (in progress)
 
-- `golib dist`. Done early, during M2: a single executable with raylib, libffi and the game's assets inside; on Windows it opens no console window and shows errors in a message box. To do: a Windows icon and version information, a macOS app bundle, builds for other platforms than the current one.
+- `golib dist`. Done early, during M2: a single executable with raylib, libffi and the game's assets inside; on Windows it opens no console window and shows errors in a message box. To do: a macOS app bundle, builds for other platforms than the current one.
+- Done: the Windows icon and version information. `golib dist` reads the game's `icon.png` and `game.json` (title, version, author, copyright), and `tools/shipping`, GoLib's first piece of tooling written in Go, turns them into Windows resources that the Go linker adds to the executable. Explorer, the title bar and the taskbar show the icon, and Explorer and Task Manager show the details. `golib new` writes a `game.json`, and both example games have both files; their icons are placeholders drawn in code, to be replaced with ones made in Aseprite.
 - Investigate a web build.
 
 Known gaps:
 
 - Dist builds have only been tested on Windows amd64. On Linux, players also need the system's `libffi.so.8`, `libX11.so.6` and `libGL.so.1`.
+- The icon and the details reach Windows dist builds only: debug builds show Windows' default icon, and Linux and macOS dist builds ignore `icon.png` and `game.json`. For Windows on ARM, the resources have been linked and read back by Windows, but not seen in a running game.
 - The ffi module ships libffi for Windows amd64 and macOS only. On Windows on ARM there is no libffi to load, so games would stop at startup, in debug and dist builds alike. Not tested.
 
 ## Open questions

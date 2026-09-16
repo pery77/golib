@@ -25,8 +25,8 @@ $Actions = @(
     @{ Group = 'Play'; Label = 'Run'; Command = 'run {game}'; Tip = 'Build the game and play it' }
     @{ Group = 'Play'; Label = 'Screenshots'; Command = 'shot {game} {frames} {input}'; Tip = 'Run the game in a hidden window, playing the input in the box, and save screenshots of the frames in the box (60 frames are one second)' }
     @{ Group = 'Build'; Label = 'Debug build'; Command = 'build {game}'; Tip = 'Build into build\<game>\, next to the raylib libraries. Started from Explorer, it reads games\<game>\assets\, and shows errors in a message box because its console window closes when the game ends' }
-    @{ Group = 'Build'; Label = 'Dist build'; Command = 'dist {game}'; Tip = 'Build a single file to share, with everything inside, into build\<game>\dist\' }
-    @{ Group = 'Check'; Label = 'Test'; Command = 'test'; Tip = 'Vet and test the framework and every game' }
+    @{ Group = 'Build'; Label = 'Dist build'; Command = 'dist {game}'; Tip = 'Build a single file to share, with everything inside, into build\<game>\dist\. It takes its icon from icon.png and its title, version and author from game.json, in the game''s folder' }
+    @{ Group = 'Check'; Label = 'Test'; Command = 'test'; Tip = 'Vet and test the framework, every game and GoLib''s Go helper' }
     @{ Group = 'Check'; Label = 'Doctor'; Command = 'doctor'; Tip = 'Diagnose the environment without changing anything' }
     @{ Group = 'Open'; Label = 'Game folder'; Folder = 'games\{game}'; Tip = 'Open the game''s folder: its code, DESIGN.md and assets' }
     @{ Group = 'Open'; Label = 'Screenshots folder'; Folder = 'build\{game}\shots'; Tip = 'Open the screenshots from the latest Screenshots' }

@@ -62,9 +62,9 @@ Loading files from these tools is planned for M4, which is postponed for now: se
 | `golib new <name>` | Creates a new game in `games/<name>/`, ready to run. |
 | `golib run [game]` | Builds a game and runs it. |
 | `golib build [game]` | Builds a game into `build/`, for development. |
-| `golib dist [game]` | Builds a game as a single file to share, with everything inside. |
+| `golib dist [game]` | Builds a game as a single file to share, with everything inside and, on Windows, its icon and version details. |
 | `golib shot [game] [frame...]` | Saves screenshots of a game at the given frames, without opening a visible window. |
-| `golib test` | Checks and tests the framework and every game. |
+| `golib test` | Checks and tests the framework, every game and GoLib's Go helper. |
 | `golib go <args>` | Runs the project's own Go, for example `golib go version`. |
 | `golib clean` | Deletes build outputs. Add `--all` to also delete the downloaded tools. |
 | `golib help` | Lists all commands. |
