@@ -84,8 +84,9 @@
 //
 // [NewSound] makes a sound effect from a [SoundSpec], so games need no sound
 // files: [Laser], [Explosion], [Pickup], [Jump], [Hurt] and [PowerUp] are
-// ready-made recipes to start from. [NewMusic] streams music from a file in the
-// game's assets folder, and [SetVolume] sets how loud everything is. golib shot
+// ready-made recipes to start from. [NewSoundFile] plays a sound effect from a
+// file in the game's assets folder, [NewMusic] streams music from one, and
+// [SetVolume] sets how loud everything is. golib shot
 // runs without a sound device, so screenshots stay silent.
 //
 // # Quitting

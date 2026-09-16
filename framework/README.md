@@ -15,7 +15,7 @@ For AI agents writing game code with GoLib, and for anyone who wants the whole f
 | Check collisions | `golib.Rectangle` and its `Overlaps` | [Rectangles and collisions](#rectangles-and-collisions) |
 | Move between title, play, pause and game over | `golib.SwitchScene` | [Scenes](#scenes) |
 | Roll dice | `golib.RandomInt`, `golib.RandomFloat` | [Random numbers](#random-numbers) |
-| Play sound effects | `golib.NewSound`, `golib.Laser` and the other recipes | [Sound effects](#sound-effects) |
+| Play sound effects | `golib.NewSound`, `golib.Laser` and the other recipes, `golib.NewSoundFile` | [Sound effects](#sound-effects) |
 | Play music | `golib.NewMusic` | [Music](#music) |
 | Go fullscreen, add a CRT look | `golib.SetFullscreen`, `golib.NewShader`, `golib.SetPostProcess` | [Window, fullscreen and screen effects](#window-fullscreen-and-screen-effects) |
 | Read a data file | `golib.ReadAsset` | [Files: the assets folder](#files-the-assets-folder) |
@@ -76,7 +76,7 @@ func main() {
 8. **Random numbers come from `RandomInt` and `RandomFloat`**, never from `math/rand`: `golib shot` starts them from the same seed, so its screenshots repeat.
 9. **No key quits on its own, not even Esc.** Call `Quit` when the game should end; the game decides what Esc does.
 10. **`SwitchScene` and `Quit` don't stop the current update.** The code after them still runs, so `return` right after unless that is what you want.
-11. **Mistakes stop the game with a message.** `Run` returns an error for a nil scene, a shader that doesn't compile, a bad `SetUniform`, a sprite, map or music file that is missing or can't be read, a frame or animation a sprite doesn't have, or a layer a map doesn't have. `main` prints it with `log.Fatal`; read it, it says what to fix.
+11. **Mistakes stop the game with a message.** `Run` returns an error for a nil scene, a shader that doesn't compile, a bad `SetUniform`, a sprite, map, sound or music file that is missing or can't be read, a frame or animation a sprite doesn't have, or a layer a map doesn't have. `main` prints it with `log.Fatal`; read it, it says what to fix.
 12. **Sound is silent in tests and in `golib shot`.** `Play` is safe to call from the rules anyway, so they stay testable. You can't hear a game: tell the user what to listen for.
 
 ## Game, Run and Config
@@ -484,13 +484,15 @@ The numbers differ on every run, except under `golib shot`, which starts them fr
 
 ## Sound effects
 
-GoLib makes sound effects in code from a few numbers, so a game ships no sound files.
+GoLib makes sound effects in code from a few numbers, so a game needs no sound files, and plays sound files too.
 
 | Name | What it does |
 | --- | --- |
 | `NewSound` | `NewSound(spec SoundSpec) *Sound`: the sound the recipe describes. |
+| `NewSoundFile` | `NewSoundFile(name string) *Sound`: the `.wav`, `.ogg`, `.mp3` or `.qoa` file `name` in the game's assets folder, with forward slashes, as in `ReadAsset`. |
 | `Sound` | A sound effect, ready to play. |
 | `Sound.Play` | `Play()`: plays the sound, over any copy of it that is still playing; up to four copies at once, and a fifth cuts off the oldest. |
+| `Sound.SetVolume` | `SetVolume(volume float32)`: how loud this sound is, from 0 to 1, under `SetVolume`. Use it to even out sound files. |
 | `Laser` | A falling zap, for shots. |
 | `Explosion` | A low burst of noise, for things breaking apart. |
 | `Pickup` | A bright blip that rises, for coins. |
@@ -499,7 +501,7 @@ GoLib makes sound effects in code from a few numbers, so a game ships no sound f
 | `PowerUp` | A rising fanfare, for upgrades, extra lives and cleared levels. |
 | `SetVolume` | `SetVolume(volume float32)`: how loud all sound and music is, from 0 to 1. It works before `Run` too. |
 
-The six recipes return a `*Sound`, like `NewSound`. Keep every sound of a game in one file:
+The six recipes return a `*Sound`, like `NewSound` and `NewSoundFile`. Keep every sound of a game in one file:
 
 ```go
 package main
@@ -516,7 +518,13 @@ var (
 		Wave: golib.WaveSquare, Frequency: 1200, Slide: -3000, Duration: 0.12,
 		Attack: 0.001, Release: 0.09, Volume: 0.22, Duty: 0.2,
 	})
+
+	doorSound = golib.NewSoundFile("sounds/door.ogg") // games/<game>/assets/sounds/door.ogg
 )
+
+func init() {
+	doorSound.SetVolume(0.6) // the file is louder than the rest
+}
 ```
 
 and play them where things happen: `shotSound.Play()`.
@@ -544,7 +552,11 @@ and play them where things happen: `shotSound.Play()`.
 | `WaveSine` | Pure and smooth |
 | `WaveNoise` | Hiss, for explosions and hits; the frequency sets how coarse |
 
-`Waveform` is the type of these constants. A sound can't loop, be stopped or be loaded from a file yet.
+`Waveform` is the type of these constants.
+
+- A sound file is kept whole in memory: use `NewMusic` for long tracks. It is read the first time the sound plays, even under `golib shot` and in tests, which play nothing but stop at a file that is missing or can't be read.
+- A game with sound files has an `assets/` folder, so it needs `assets.go` (see [Files](#files-the-assets-folder)). Only use sounds the user provides, and write where they came from, and their license, in `assets/ATTRIBUTION.md`.
+- A sound can't loop or be stopped yet.
 
 ## Music
 
@@ -688,7 +700,7 @@ func main() {
 }
 ```
 
-Games read their own data files this way, such as levels in text or JSON; `NewSprite`, `NewSpriteSheet`, `NewMap` and `NewMusic` read the assets folder the same way. Fonts can't be loaded yet.
+Games read their own data files this way, such as levels in text or JSON; `NewSprite`, `NewSpriteSheet`, `NewMap`, `NewSoundFile` and `NewMusic` read the assets folder the same way. Fonts can't be loaded yet.
 
 ## Quitting
 
@@ -717,7 +729,7 @@ func TestJumpOnlyFromTheGround(t *testing.T) {
 ```
 
 - `Rectangle`, the random numbers, `ReadAsset`, `Animation`, a sprite's `Width`, `Height`, `Frames` and `Animation`, and everything a `Map` has but drawing work in tests; `golib test` runs them in the game's folder, so a test can check that a level has a start and the player can reach the exit.
-- `Sound.Play` and `Music.Play` do nothing in tests.
+- `Sound.Play` and `Music.Play` play nothing in tests; `Sound.Play` still reads a sound file, so a test that plays it checks the file.
 - `Run` and `Screen` need a window: check drawing with `golib shot` instead.
 
 ## Using raylib directly
@@ -740,7 +752,6 @@ import rl "github.com/gen2brain/raylib-go/raylib"
 | Parts of an image that aren't on a grid, Aseprite slices and tilemap layers | Not on the roadmap yet | Save each part as its own PNG file, or put the parts on a grid |
 | Isometric and hexagonal maps; drawing a map's shapes and text | Not on the roadmap yet | Orthogonal maps; draw what objects stand for with sprites and shapes |
 | Fonts | M4, in progress | The built-in font of `DrawText` |
-| Sound effects from files | M4, in progress | `NewSound` |
 | Looping sounds, stopping a sound | Not on the roadmap yet | Short sounds, played again |
 | Camera, vectors, rotation, physics | Not on the roadmap yet | `float32` math in the game: subtract a camera position, rotate with `math.Sin` and `math.Cos` |
 | Trigger pressure, vibration | Not on the roadmap yet | Triggers read as buttons |

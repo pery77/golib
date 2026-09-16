@@ -2,7 +2,11 @@ package golib
 
 import (
 	"encoding/binary"
+	"fmt"
 	"math"
+	"path"
+	"slices"
+	"strings"
 	"sync"
 
 	rl "github.com/gen2brain/raylib-go/raylib"
@@ -174,11 +178,19 @@ func wav(samples []int16) []byte {
 	return data
 }
 
-// Sound is a sound effect made by GoLib, ready to play. Create one with
-// NewSound or one of the ready-made recipes, keep it in the game's state, and
-// play it as often as needed.
+// soundFormats are the file types raylib reads sound effects from, by
+// extension.
+var soundFormats = []string{".wav", ".ogg", ".mp3", ".qoa"}
+
+// Sound is a sound effect, ready to play: made in code with NewSound or one of
+// the ready-made recipes, or read from a file with NewSoundFile. Keep it in
+// the game's state, and play it as often as needed.
 type Sound struct {
 	spec   SoundSpec
+	name   string // the file NewSoundFile was given; "" for a sound made in code
+	volume float32
+	read   bool // the file has been read, successfully or not
+	err    error
 	voices []rl.Sound // the same sound several times over, so it can overlap itself
 	next   int
 }
@@ -186,31 +198,73 @@ type Sound struct {
 // NewSound returns the sound effect spec describes. It is made the first time
 // it plays, so games can create their sounds before Run opens the window.
 func NewSound(spec SoundSpec) *Sound {
-	return &Sound{spec: spec.resolve()}
+	return &Sound{spec: spec.resolve(), volume: 1}
+}
+
+// NewSoundFile returns the sound effect in the game's assets folder named
+// name, which is relative to that folder and uses forward slashes, as in
+// [ReadAsset]. The file is a .wav, .ogg, .mp3 or .qoa file, which the sound
+// keeps whole in memory: use [NewMusic] for long tracks.
+//
+//	var coin = golib.NewSoundFile("sounds/coin.wav") // games/<game>/assets/sounds/coin.wav
+//
+// The file is read the first time the sound plays, even when there is no
+// sound device, so a file that is missing or can't be read stops Run with an
+// error under golib shot too.
+func NewSoundFile(name string) *Sound {
+	return &Sound{name: name, volume: 1}
 }
 
 // Play plays the sound, over any copy of it that is already playing. Up to
 // four copies sound at once; the fifth replaces the oldest.
 //
-// Nothing happens when there is no sound device, so screenshots from golib
+// Nothing is heard when there is no sound device, so screenshots from golib
 // shot stay silent.
 func (s *Sound) Play() {
-	if !audio.isReady() || !s.load() {
+	if !s.load() {
 		return
 	}
 	rl.PlaySound(s.voices[s.next])
 	s.next = (s.next + 1) % len(s.voices)
 }
 
-// load makes the sound the first time it plays, and reports whether it is
-// ready. The sound device must be open.
+// SetVolume sets how loud this sound is, from 0 (silent) to 1 (full), under
+// the volume [SetVolume] sets for everything. Use it to balance sound files
+// that are louder than the rest. It works before the sound plays.
+func (s *Sound) SetVolume(volume float32) {
+	s.volume = max(0, min(volume, 1))
+	for _, voice := range s.voices {
+		rl.SetSoundVolume(voice, s.volume)
+	}
+}
+
+// load makes or reads the sound the first time it plays, and reports whether
+// it is ready to play, which needs the sound device. Without one, a sound
+// file is still read once, so that a mistake in it shows. A mistake is
+// reported to Run every time the sound plays.
 func (s *Sound) load() bool {
 	if len(s.voices) > 0 {
 		return true
 	}
-	file := wav(s.spec.samples())
-	wave := rl.LoadWaveFromMemory(".wav", file, int32(len(file)))
+	if s.err != nil {
+		reportError(s.err)
+		return false
+	}
+	ready := audio.isReady()
+	if !ready && (s.name == "" || s.read) {
+		return false
+	}
+	s.read = true
+	wave, err := s.wave()
+	if err != nil {
+		s.err = err
+		reportError(err)
+		return false
+	}
 	defer rl.UnloadWave(wave)
+	if !ready {
+		return false
+	}
 	first := rl.LoadSoundFromWave(wave)
 	if first.FrameCount == 0 {
 		return false
@@ -219,11 +273,38 @@ func (s *Sound) load() bool {
 	for range soundVoices - 1 {
 		s.voices = append(s.voices, rl.LoadSoundAlias(first))
 	}
+	for _, voice := range s.voices {
+		rl.SetSoundVolume(voice, s.volume)
+	}
 	audio.track(s)
 	return true
 }
 
-// unload frees the sound, so that it is made again if a game runs again.
+// wave returns the sound's samples, made from its spec or read from its file.
+func (s *Sound) wave() (rl.Wave, error) {
+	if s.name == "" {
+		file := wav(s.spec.samples())
+		return rl.LoadWaveFromMemory(".wav", file, int32(len(file))), nil
+	}
+	format := strings.ToLower(path.Ext(s.name))
+	if !slices.Contains(soundFormats, format) {
+		return rl.Wave{}, fmt.Errorf("golib.NewSoundFile(%q): GoLib plays sound effects from %s files, not %q ones: convert the sound to one of those", s.name, strings.Join(soundFormats, ", "), format)
+	}
+	data, err := ReadAsset(s.name)
+	if err != nil {
+		return rl.Wave{}, fmt.Errorf("golib.NewSoundFile(%q): %w", s.name, err)
+	}
+	// Without the window, raylib would otherwise print a line for each file.
+	rl.SetTraceLogLevel(rl.LogWarning)
+	wave := rl.LoadWaveFromMemory(format, data, int32(len(data)))
+	if !rl.IsWaveValid(wave) {
+		return rl.Wave{}, fmt.Errorf("golib.NewSoundFile(%q): raylib could not read the sound: see the raylib warnings above", s.name)
+	}
+	return wave, nil
+}
+
+// unload frees the sound, so that it is made or read again if a game runs
+// again.
 func (s *Sound) unload() {
 	for i, voice := range s.voices {
 		if i == 0 {
@@ -232,8 +313,7 @@ func (s *Sound) unload() {
 			rl.UnloadSoundAlias(voice)
 		}
 	}
-	s.voices = nil
-	s.next = 0
+	s.voices, s.next, s.read, s.err = nil, 0, false, nil
 }
 
 // audioDevice is the sound device Run opens while a game plays. golib shot

@@ -4,7 +4,11 @@ import (
 	"bytes"
 	"encoding/binary"
 	"math"
+	"os"
+	"path/filepath"
 	"testing"
+
+	rl "github.com/gen2brain/raylib-go/raylib"
 )
 
 func TestSoundSpecDefaults(t *testing.T) {
@@ -146,4 +150,110 @@ func int16Bytes(samples []int16) []byte {
 		data = binary.LittleEndian.AppendUint16(data, uint16(sample))
 	}
 	return data
+}
+
+func TestSoundFiles(t *testing.T) {
+	if audio.isReady() {
+		t.Skip("a sound device is open")
+	}
+	useAssets(t, map[string][]byte{
+		"sounds/coin.wav":   wav(SoundSpec{Duration: 0.05}.resolve().samples()),
+		"sounds/broken.ogg": []byte("not a sound"),
+		"sounds/tune.flac":  []byte("fLaC"),
+	})
+	// Without a sound device, the file is still read once, and nothing plays.
+	coin := NewSoundFile("sounds/coin.wav")
+	coin.Play()
+	if err := takeError(); err != nil {
+		t.Errorf("reported error: %v", err)
+	}
+	if !coin.read || len(coin.voices) != 0 {
+		t.Errorf("after Play: read %v, %d voices, want read and none", coin.read, len(coin.voices))
+	}
+	if err := os.Remove(filepath.Join("assets", "sounds", "coin.wav")); err != nil {
+		t.Fatal(err)
+	}
+	coin.Play()
+	if err := takeError(); err != nil {
+		t.Errorf("the file was read again: %v", err)
+	}
+
+	tests := map[string]string{
+		"sounds/missing.wav": `golib.NewSoundFile("sounds/missing.wav"): golib.ReadAsset: assets/sounds/missing.wav not found`,
+		"sounds/broken.ogg":  `golib.NewSoundFile("sounds/broken.ogg"): raylib could not read the sound`,
+		"sounds/tune.flac":   `golib.NewSoundFile("sounds/tune.flac"): GoLib plays sound effects from .wav, .ogg, .mp3, .qoa files, not ".flac" ones`,
+		"sounds/music.xm":    `not ".xm" ones`,
+	}
+	for name, want := range tests {
+		sound := NewSoundFile(name)
+		sound.Play()
+		wantError(t, want)
+		// Every play reports the mistake again.
+		sound.Play()
+		wantError(t, want)
+		sound.unload()
+		if sound.read || sound.err != nil {
+			t.Errorf("%s: unload kept read %v, error %v", name, sound.read, sound.err)
+		}
+	}
+}
+
+func TestSoundVolume(t *testing.T) {
+	sound := NewSound(SoundSpec{})
+	if sound.volume != 1 || NewSoundFile("a.wav").volume != 1 {
+		t.Errorf("volume starts at %v, want 1", sound.volume)
+	}
+	for _, test := range []struct{ in, want float32 }{{0.25, 0.25}, {-1, 0}, {3, 1}} {
+		sound.SetVolume(test.in)
+		if sound.volume != test.want {
+			t.Errorf("SetVolume(%v) set %v, want %v", test.in, sound.volume, test.want)
+		}
+	}
+}
+
+func TestSoundFilesWithADevice(t *testing.T) {
+	if audio.isReady() {
+		t.Skip("a sound device is open")
+	}
+	SetVolume(0) // silent
+	audio.open()
+	t.Cleanup(func() {
+		audio.close()
+		SetVolume(1)
+	})
+	if !audio.isReady() {
+		t.Skip("this machine has no sound device")
+	}
+	useAssets(t, map[string][]byte{"coin.wav": wav(SoundSpec{Duration: 0.05}.resolve().samples())})
+	// raylib writes QOA files, but not OGG or MP3 ones.
+	wave := rl.LoadWave(filepath.Join("assets", "coin.wav"))
+	if !rl.IsWaveValid(wave) || !rl.ExportWave(wave, filepath.Join("assets", "coin.qoa")) {
+		t.Fatal("could not make a QOA file")
+	}
+	rl.UnloadWave(wave)
+
+	for _, name := range []string{"coin.wav", "coin.qoa"} {
+		sound := NewSoundFile(name)
+		sound.SetVolume(0.5)
+		sound.Play()
+		sound.Play()
+		if err := takeError(); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if len(sound.voices) != soundVoices || sound.next != 2 {
+			t.Errorf("%s: %d voices, next %d, want %d and 2", name, len(sound.voices), sound.next, soundVoices)
+		}
+		// raylib converts the sound to the device's rate, often 44.1 or 48 kHz.
+		if frames := sound.voices[0].FrameCount; frames < 2000 || frames > 2500 {
+			t.Errorf("%s has %d frames, want 0.05 seconds' worth", name, frames)
+		}
+	}
+	made := NewSound(SoundSpec{Duration: 0.05})
+	made.Play()
+	if len(made.voices) != soundVoices {
+		t.Errorf("a sound made in code has %d voices", len(made.voices))
+	}
+	if len(audio.sounds) != 3 {
+		t.Errorf("the device tracks %d sounds, want 3", len(audio.sounds))
+	}
 }
