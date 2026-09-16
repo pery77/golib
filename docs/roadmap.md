@@ -57,7 +57,15 @@ Postponed on 2026-09-15, until the owner picks it up again. Loading what Aseprit
 
 - `golib dist`. Done early, during M2: a single executable with raylib, libffi and the game's assets inside; on Windows it opens no console window and shows errors in a message box. To do: a macOS app bundle, builds for other platforms than the current one.
 - Done: the Windows icon and version information. `golib dist` reads the game's `icon.png` and `game.json` (title, version, author, copyright), and `tools/shipping`, GoLib's first piece of tooling written in Go, turns them into Windows resources that the Go linker adds to the executable. Explorer, the title bar and the taskbar show the icon, and Explorer and Task Manager show the details. `golib new` writes a `game.json`, and both example games have both files; their icons are placeholders drawn in code, to be replaced with ones made in Aseprite.
-- Investigate a web build.
+- Web build: investigated on 2026-09-16, then parked by the owner; nothing was built. What was found, for when it resumes:
+  - raylib-go has no web support, and its maintainer doesn't plan any ([issue #356](https://github.com/gen2brain/raylib-go/issues/356)). Raylib-Go-Wasm, a community fork that calls an Emscripten build of raylib from Go, has no license, so its code can't be reused.
+  - GoLib doesn't compile for `GOOS=js`: raylib-go's purego mode and the ffi module don't, and the framework defines its colors and keys from raylib's constants. A web build first needs the framework split into a core that works everywhere and a raylib backend.
+  - Go's side works, as tried in a throwaway program: `//go:wasmimport` is allowed with `GOOS=js` and costs about 20 ns a call (about 650 ns through `syscall/js`), JavaScript can read Go's memory (for audio samples), a game loop can wait for `requestAnimationFrame` on a channel, and a small program is about 2.5 MB (700 KB gzipped).
+  - Checking web builds needs no installs on Windows: headless Edge ships with Windows and has WebGL 2, and a page can post its screenshots to a small local Go server. Linux and macOS would need Chrome or Chromium.
+  - `games/asteroids`' shaders compile as GLSL ES 3.00 once `#version 330` becomes `#version 300 es`; shaders that mix integers into float math, such as `uv * 2`, don't.
+  - Two designs. (A) A web backend of GoLib's own, WebGL 2 and Web Audio behind a small JavaScript file: no C toolchain anywhere, but browsers don't decode XM, MOD or QOA music, and every M4 feature would be built twice. (B) raylib built for the web once by GoLib's maintainers with Emscripten (a 654 MB SDK): behaves like desktop raylib, but needs published binaries, copies between two separate memories, and patches for audio and the main loop. TinyGo, and Emscripten on the user's machine, were ruled out.
+  - If A is chosen, the owner prefers a first web version with sound effects only, and music in a later step.
+  - itch.io takes a zip with `index.html` (up to 1,000 files and 500 MB). Browsers wait for a click or a key press before playing audio or going fullscreen.
 
 Known gaps:
 
