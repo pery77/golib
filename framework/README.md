@@ -468,7 +468,7 @@ reach := a.radius + b.radius
 hit := dx*dx+dy*dy < reach*reach
 ```
 
-Pushing a player out of a wall is game code: `games/platformer/world.go` moves one axis at a time and pushes the player back out of any platform it overlaps.
+Pushing a player out of a wall is game code: `games/platformer/world.go` moves one axis at a time and pushes the player back out of any solid tile of the map it overlaps.
 
 ## Scenes
 
@@ -753,9 +753,9 @@ func TestJumpOnlyFromTheGround(t *testing.T) {
 	golib.SetRandomSeed(1) // needed only when the rules use random numbers
 	w := newWorld()
 	for range 60 {
-		w.step(0, false, dt) // fall for a second
+		w.step(0, false, false, dt) // fall for a second
 	}
-	w.step(0, true, dt)
+	w.step(0, true, false, dt) // jump
 	if w.player.velocityY >= 0 {
 		t.Fatal("jumping from the ground didn't move the player up")
 	}

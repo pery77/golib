@@ -33,10 +33,13 @@ golib run asteroids
 
 | File | Shows |
 | --- | --- |
-| [main.go](../../games/platformer/main.go) | How a game starts: `main` calls `golib.Run` with the first scene |
-| [scenes.go](../../games/platformer/scenes.go) | Scenes (title, play, pause, won) and `golib.SwitchScene` between them. The play scene's `Update` turns input into actions and its `Draw` draws the state; pause and won draw the play scene under a message; the title menu works with the keyboard, the mouse and a gamepad; clouds are placed with `golib.RandomFloat` |
-| [world.go](../../games/platformer/world.go) | The rules as plain Go types, with no input or drawing, and the tuning constants at the top |
-| [world_test.go](../../games/platformer/world_test.go) | Testing the rules by calling them directly, without a window or a keyboard |
+| [main.go](../../games/platformer/main.go) | How a game starts: `main` calls `golib.Run` with the first scene, on a 320 by 180 pixel art screen |
+| [scenes.go](../../games/platformer/scenes.go) | Scenes (title, play, pause, won) and `golib.SwitchScene` between them. The play scene's `Update` turns input into actions and its `Draw` draws the state; pause and won draw the play scene under a message; the title menu works with the keyboard, the mouse and a gamepad, over the level drawn with `screen.DrawMap` |
+| [world.go](../../games/platformer/world.go) | The rules as plain Go types, with no input or drawing, and the tuning constants at the top. The level comes from a Tiled map: the start and the snakes are objects, and tiles are solid or water by their properties |
+| [draw.go](../../games/platformer/draw.go) | Drawing the world: a camera that follows the player, the map layer by layer with sprites between the layers, animations, and clouds placed with `golib.RandomFloat` |
+| [art.go](../../games/platformer/art.go) | The sprite sheets, their frames and animations, and the map, made once as package variables |
+| [assets/maps/](../../games/platformer/assets/maps) | The level, `forest.tmx`, and its tileset, `forest.tsx`, as Tiled saves them |
+| [world_test.go](../../games/platformer/world_test.go) | Testing the rules by calling them directly, without a window or a keyboard, on the real level |
 | [DESIGN.md](../../games/platformer/DESIGN.md) | The design brief |
 
 [games/asteroids](../../games/asteroids) is a second example, for screen effects: GLSL shaders in `shaders/`, embedded with `//go:embed` and turned on and off with `golib.SetPostProcess` (F2), fullscreen on F11 or Alt+Enter, and sound effects made in code with the music, kept together in [sounds.go](../../games/asteroids/sounds.go); its `assets/` folder holds the music and the `ATTRIBUTION.md` that says where it comes from.

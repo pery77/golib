@@ -2,89 +2,131 @@ package main
 
 import "golib"
 
-// Tuning: the numbers that define how the game feels.
+// Tuning: the numbers that define how the game feels. The screen is 320 by
+// 180 pixels, and a tile of the level is 16 by 16.
 const (
-	moveSpeed    = 320  // pixels per second
-	jumpSpeed    = 760  // pixels per second, upwards; jumps about 160 pixels high
-	gravity      = 1800 // pixels per second, gained every second
-	maxFallSpeed = 1200 // pixels per second
+	moveSpeed    = 85  // pixels per second
+	jumpSpeed    = 230 // pixels per second, upwards; jumps about 52 pixels, just over three tiles
+	gravity      = 500 // pixels per second, gained every second
+	maxFallSpeed = 300 // pixels per second
 
-	playerWidth  = 36 // pixels
-	playerHeight = 48 // pixels
-	coinRadius   = 12 // pixels
+	playerWidth  = 12 // pixels: the hero's body, which is smaller than the hero's 32 by 32 frame
+	playerHeight = 22
+
+	slashTime   = 0.3 // seconds a slash lasts
+	slashReach  = 18  // pixels in front of the player that a slash hits
+	slashHeight = 16  // pixels, up from the player's feet
+
+	snakeSpeed  = 24 // pixels per second
+	snakeWidth  = 14 // pixels
+	snakeHeight = 10
+
+	fallMargin = 64 // pixels below the level where a falling player starts over
 )
 
-// Level size and start position, in pixels.
+// The level's layers, as assets/maps/forest.tmx names them. The tileset,
+// assets/maps/forest.tsx, gives the tiles of the ground layer a bool property:
+// solid for the ground and the crate, water for the water.
 const (
-	levelWidth  = 1280
-	levelHeight = 720
-	spawnX      = 80
-	spawnY      = 600
-	fallLimit   = levelHeight + 100 // below this, the player starts over at the spawn point
-	cloudCount  = 6                 // background clouds, placed at random
+	groundLayer = "ground"
+	chestLayer  = "chests" // tile objects of class chest
+	thingLayer  = "things" // the point named start, and points of class snake with a float property named distance
 )
 
 // player is the character the user controls.
 type player struct {
-	x, y      float32 // top-left corner, in pixels
-	velocityX float32 // pixels per second; positive is right
-	velocityY float32 // pixels per second; positive is down
-	onGround  bool
+	x, y       float32 // top-left corner of the hitbox, in pixels
+	velocityX  float32 // pixels per second; positive is right
+	velocityY  float32 // pixels per second; positive is down
+	onGround   bool
+	facingLeft bool
+	walkTime   float32 // seconds walked on the ground without stopping, for the walk animation
+	slashLeft  float32 // seconds left of the current slash; 0 when not slashing
 }
 
 func (p player) bounds() golib.Rectangle {
 	return golib.Rectangle{X: p.x, Y: p.y, Width: playerWidth, Height: playerHeight}
 }
 
-// coin is something to collect.
-type coin struct {
-	x, y      float32 // center, in pixels
-	collected bool
+// slashArea is what a slash hits: the space in front of the player.
+func (p player) slashArea() golib.Rectangle {
+	x := p.x + playerWidth
+	if p.facingLeft {
+		x = p.x - slashReach
+	}
+	return golib.Rectangle{X: x, Y: p.y + playerHeight - slashHeight, Width: slashReach, Height: slashHeight}
 }
 
-func (c coin) bounds() golib.Rectangle {
-	return golib.Rectangle{X: c.x - coinRadius, Y: c.y - coinRadius, Width: 2 * coinRadius, Height: 2 * coinRadius}
+// chest is something to open. Opening every chest wins.
+type chest struct {
+	bounds golib.Rectangle
+	open   bool
+}
+
+// snake crawls back and forth. Touching it sends the player back to the
+// start; a slash defeats it.
+type snake struct {
+	x, y        float32 // top-left corner of the hitbox, in pixels
+	left, right float32 // where the hitbox's left side turns back
+	facingLeft  bool
+	crawlTime   float32 // seconds crawled, for the animation
+	defeated    bool
+}
+
+func (s snake) bounds() golib.Rectangle {
+	return golib.Rectangle{X: s.x, Y: s.y, Width: snakeWidth, Height: snakeHeight}
 }
 
 // world is the whole game state and its rules. It knows nothing about the
-// keyboard or the screen, so world_test.go can play it directly. It does play
-// the sounds of sounds.go, which stay silent when there is no sound device, as
-// in tests and golib shot.
+// keyboard or the screen, so world_test.go can play it directly. It reads the
+// level from the map, which works in tests too, and plays the sounds of
+// sounds.go, which stay silent when there is no sound device, as in tests and
+// golib shot.
 type world struct {
-	player    player
-	platforms []golib.Rectangle
-	coins     []coin
-	won       bool
+	player         player
+	startX, startY float32 // where the player's feet start, from the level
+	width, height  float32 // the level's size, in pixels
+	chests         []chest
+	snakes         []snake
+	won            bool
 }
 
-// newWorld returns the level at its start. It becomes a Tiled map once GoLib
-// loads them.
+// newWorld returns the level at its start, as the map describes it.
 func newWorld() world {
-	return world{
-		player: player{x: spawnX, y: spawnY},
-		platforms: []golib.Rectangle{
-			{X: 0, Y: 660, Width: 500, Height: 60},   // ground, left of the gap
-			{X: 620, Y: 660, Width: 660, Height: 60}, // ground, right of the gap
-			{X: 180, Y: 530, Width: 180, Height: 24},
-			{X: 440, Y: 410, Width: 160, Height: 24},
-			{X: 700, Y: 300, Width: 180, Height: 24},
-			{X: 980, Y: 430, Width: 200, Height: 24},
-		},
-		coins: []coin{
-			{x: 270, y: 490},
-			{x: 520, y: 370},
-			{x: 790, y: 260},
-			{x: 1080, y: 390},
-			{x: 560, y: 600}, // over the gap
-		},
+	w := world{width: level.Width(), height: level.Height()}
+	if start, found := level.Object("start"); found {
+		w.startX, w.startY = start.X, start.Y
 	}
+	w.player = w.startingPlayer()
+	for _, object := range level.Objects(chestLayer) {
+		if object.Class == "chest" {
+			w.chests = append(w.chests, chest{bounds: object.Rectangle})
+		}
+	}
+	for _, object := range level.Objects(thingLayer) {
+		if object.Class == "snake" {
+			// A point object is where the snake's patrol starts, on the ground.
+			w.snakes = append(w.snakes, snake{
+				x:     object.X,
+				y:     object.Y - snakeHeight,
+				left:  object.X,
+				right: object.X + object.Properties.Float("distance"),
+			})
+		}
+	}
+	return w
 }
 
-// coinsCollected returns how many coins the player has picked up.
-func (w *world) coinsCollected() int {
+// startingPlayer returns the player standing at the start.
+func (w *world) startingPlayer() player {
+	return player{x: w.startX - playerWidth/2, y: w.startY - playerHeight}
+}
+
+// chestsOpened returns how many chests the player has opened.
+func (w *world) chestsOpened() int {
 	count := 0
-	for _, c := range w.coins {
-		if c.collected {
+	for _, c := range w.chests {
+		if c.open {
 			count++
 		}
 	}
@@ -92,61 +134,138 @@ func (w *world) coinsCollected() int {
 }
 
 // step advances the world by dt seconds. move is -1 (left), 0 or 1 (right).
-// jump asks for a jump, which only happens while standing on something.
-func (w *world) step(move float32, jump bool, dt float32) {
+// jump asks for a jump, which only happens while standing on something, and
+// slash asks for a slash, which only starts when the last one has ended.
+func (w *world) step(move float32, jump, slash bool, dt float32) {
 	if w.won {
 		return
 	}
+	w.moveSnakes(dt)
 	p := &w.player
 
 	p.velocityX = move * moveSpeed
+	if move < 0 {
+		p.facingLeft = true
+	} else if move > 0 {
+		p.facingLeft = false
+	}
 	if jump && p.onGround {
 		p.velocityY = -jumpSpeed
 		jumpSound.Play()
 	}
+	p.slashLeft = max(0, p.slashLeft-dt)
+	if slash && p.slashLeft == 0 {
+		p.slashLeft = slashTime
+		slashSound.Play()
+	}
 	p.velocityY = min(p.velocityY+gravity*dt, maxFallSpeed)
 
-	// Move one axis at a time, and push the player back out of any platform it
-	// runs into. Doing X first, then Y, keeps walls and floors separate.
-	p.x = max(0, min(p.x+p.velocityX*dt, levelWidth-playerWidth))
-	for _, platform := range w.platforms {
-		if p.bounds().Overlaps(platform) {
-			if p.velocityX > 0 {
-				p.x = platform.X - playerWidth
-			} else if p.velocityX < 0 {
-				p.x = platform.X + platform.Width
-			}
+	// Move one axis at a time, and push the player back out of any solid tile
+	// it runs into. Doing X first, then Y, keeps walls and floors separate.
+	p.x = max(0, min(p.x+p.velocityX*dt, w.width-playerWidth))
+	for _, tile := range solidTiles(p.bounds()) {
+		if p.velocityX > 0 {
+			p.x = tile.X - playerWidth
+		} else if p.velocityX < 0 {
+			p.x = tile.X + tile.Width
 		}
 	}
 
 	p.y += p.velocityY * dt
 	p.onGround = false
-	for _, platform := range w.platforms {
-		if p.bounds().Overlaps(platform) {
-			if p.velocityY > 0 {
-				p.y = platform.Y - playerHeight // landed on top
-				p.onGround = true
-			} else if p.velocityY < 0 {
-				p.y = platform.Y + platform.Height // bumped a head
+	for _, tile := range solidTiles(p.bounds()) {
+		if p.velocityY > 0 {
+			p.y = tile.Y - playerHeight // landed on top
+			p.onGround = true
+		} else if p.velocityY < 0 {
+			p.y = tile.Y + tile.Height // bumped a head
+		}
+		p.velocityY = 0
+	}
+	if p.onGround && p.velocityX != 0 {
+		p.walkTime += dt
+	} else {
+		p.walkTime = 0
+	}
+
+	if p.slashLeft > 0 {
+		area := p.slashArea()
+		for i := range w.snakes {
+			if s := &w.snakes[i]; !s.defeated && area.Overlaps(s.bounds()) {
+				s.defeated = true
+				hitSound.Play()
 			}
-			p.velocityY = 0
 		}
 	}
 
-	if p.y > fallLimit {
-		*p = player{x: spawnX, y: spawnY}
+	if p.y > w.height+fallMargin || touchesWater(p.bounds()) || w.bitten() {
+		*p = w.startingPlayer()
 		fallSound.Play()
+		return
 	}
 
-	for i := range w.coins {
-		if !w.coins[i].collected && p.bounds().Overlaps(w.coins[i].bounds()) {
-			w.coins[i].collected = true
-			coinSound.Play()
+	for i := range w.chests {
+		if c := &w.chests[i]; !c.open && p.bounds().Overlaps(c.bounds) {
+			c.open = true
+			chestSound.Play()
 		}
 	}
 	// Winning happens once: the next step returns above, with w.won already set.
-	w.won = w.coinsCollected() == len(w.coins)
+	w.won = w.chestsOpened() == len(w.chests)
 	if w.won {
 		winSound.Play()
 	}
+}
+
+// moveSnakes crawls every snake along its patrol, turning at each end.
+func (w *world) moveSnakes(dt float32) {
+	for i := range w.snakes {
+		s := &w.snakes[i]
+		if s.defeated {
+			continue
+		}
+		s.crawlTime += dt
+		if s.facingLeft {
+			s.x -= snakeSpeed * dt
+			if s.x <= s.left {
+				s.x, s.facingLeft = s.left, false
+			}
+		} else {
+			s.x += snakeSpeed * dt
+			if s.x >= s.right {
+				s.x, s.facingLeft = s.right, true
+			}
+		}
+	}
+}
+
+// bitten reports whether a snake touches the player.
+func (w *world) bitten() bool {
+	for _, s := range w.snakes {
+		if !s.defeated && w.player.bounds().Overlaps(s.bounds()) {
+			return true
+		}
+	}
+	return false
+}
+
+// solidTiles returns the cells of the solid tiles that area overlaps.
+func solidTiles(area golib.Rectangle) []golib.Rectangle {
+	var solid []golib.Rectangle
+	for _, tile := range level.TilesIn(groundLayer, area) {
+		if tile.Properties.Bool("solid") {
+			solid = append(solid, tile.Rectangle)
+		}
+	}
+	return solid
+}
+
+// touchesWater reports whether area overlaps a water tile.
+func touchesWater(area golib.Rectangle) bool {
+	for _, tile := range level.TilesIn(groundLayer, area) {
+		if tile.Properties.Bool("water") {
+			return true
+		}
+	}
+	return false
 }
