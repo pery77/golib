@@ -2,7 +2,7 @@
 
 For AI agents. Follow it when a user asks you to create a game, or to change the game in this project.
 
-> **Status:** the framework is still small (M2 in progress): a window, a fixed-step game loop, keyboard, mouse and gamepad input, random numbers, rectangles, circles, lines, triangles and text, fullscreen, post-processing shaders, sound effects made in code, music from the game's `assets/` folder, reading files from `assets/`, quitting with `golib.Quit`, screenshots through `golib shot` and single-file builds through `golib dist`. scenes with `golib.SwitchScene`. Sprites, maps and sound files are postponed; check the "Project status" table in [AGENTS.md](../../AGENTS.md). If the game needs something that doesn't exist yet, tell the user. Don't build a private engine to fill the gap.
+> **Status:** the framework is still small (M2, Framework basics, is done): a window, a fixed-step game loop, keyboard, mouse and gamepad input, random numbers, rectangles, circles, lines, triangles and text, fullscreen, post-processing shaders, sound effects made in code, music from the game's `assets/` folder, reading files from `assets/`, scenes with `golib.SwitchScene`, quitting with `golib.Quit`, screenshots through `golib shot` and single-file builds through `golib dist`. Sprites, maps, fonts and sound files are postponed; check the "Project status" table in [AGENTS.md](../../AGENTS.md), and the end of [framework/README.md](../../framework/README.md) for what else is missing. If the game needs something that doesn't exist yet, tell the user. Don't build a private engine to fill the gap.
 
 ## Goal
 
@@ -40,7 +40,7 @@ golib run asteroids
 
 [games/asteroids](../../games/asteroids) is a second example, for screen effects: GLSL shaders in `shaders/`, embedded with `//go:embed` and turned on and off with `golib.SetPostProcess` (F2), fullscreen on F11 or Alt+Enter, and sound effects made in code with the music, kept together in [sounds.go](../../games/asteroids/sounds.go); its `assets/` folder holds the music and the `ATTRIBUTION.md` that says where it comes from.
 
-The framework's API is documented in the doc comments of `framework/*.go`: read them too. Where the framework has nothing yet, a game may call raylib directly (`github.com/gen2brain/raylib-go/raylib`). Tell the user when you do, because that code should move to framework APIs as they land.
+Before writing code, read [framework/README.md](../../framework/README.md), the framework's API guide: every name grouped by task, the rules the names don't tell you (such as drawing before the first update, or making sounds only once), and what GoLib doesn't have yet. The doc comments in `framework/*.go` have the details. Where the framework has nothing yet, a game may call raylib directly (`github.com/gen2brain/raylib-go/raylib`). Tell the user when you do, because that code should move to framework APIs as they land.
 
 ## 1. Understand the request
 

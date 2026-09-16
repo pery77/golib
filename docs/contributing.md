@@ -8,7 +8,7 @@ A change is done when all of these hold:
 
 1. It works on Windows, Linux and macOS, or the gap is written down in [roadmap.md](roadmap.md).
 2. On a clean checkout, `golib setup`, `golib doctor` and `golib test` succeed, and every game in `games/` builds with `golib build <game>`. Go code is formatted: `golib go -C <module folder> fmt ./...` lists no files.
-3. Every doc that describes the changed behavior is updated in the same change: the status table, commands and layout in `AGENTS.md`, `README.md`, and the relevant files in `docs/`.
+3. Every doc that describes the changed behavior is updated in the same change: the status table, commands and layout in `AGENTS.md`, `README.md`, the relevant files in `docs/`, and, for any change to the framework's exported API, the API guide in `framework/README.md`. `golib test` fails while the guide misses an exported name or names one that no longer exists, but only a careful read keeps its explanations true.
 4. A fresh agent session that only reads `AGENTS.md` and follows its links would use the change correctly.
 5. Anything that draws has been checked with `golib shot`, by looking at the screenshots, not just by building.
 
@@ -22,7 +22,7 @@ The framework's first reader is an AI agent writing a game from a short descript
 - **Working defaults.** Zero configuration should produce something that runs and looks decent.
 - **Actionable errors.** Say what failed, why, and what to do next. For example: `assets/player.png not found: asset paths are relative to the game's assets folder`.
 - **No hidden rules.** No initialization order or package-level mutable state that callers must know about.
-- **Documented exports.** Every exported identifier has a doc comment, with a short example when usage isn't obvious. Examples must compile.
+- **Documented exports.** Every exported identifier has a doc comment, with a short example when usage isn't obvious, and a line in the API guide, `framework/README.md`, in the section for its task. Examples must compile, in doc comments and in the guide alike.
 - **Generic, not game-specific.** A feature belongs in the framework only if games other than the one that asked for it would use it. The framework never imports or refers to a game. See [architecture.md](architecture.md).
 - **Content comes from files.** Maps, sprites and models are loaded from the files Tiled, Aseprite and Blender save. Don't add editors or content GUIs.
 

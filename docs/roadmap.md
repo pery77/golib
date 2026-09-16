@@ -22,7 +22,7 @@ Known gaps, written down as the [definition of done](contributing.md#definition-
 - On hold since 2026-09-15, while Windows comes first: `golib.sh` has not run on a real Linux or macOS machine, and framework features since M1 have only been tried on Windows. From Windows, its help, usage errors and doctor ran in Git Bash, and its Go download, checksum check and extraction ran on a simulated Linux. The first time GoLib is on Linux or macOS, run `golib setup`, `golib test` and `golib run` there; continuous integration on Linux and macOS runners would keep it working.
 - VS Code's Go extension runs `go version -m` without the project environment each time it starts, so Go updates its local telemetry counters in the user's config folder. No setting redirects those calls; see [tooling.md](tooling.md#vs-code-integration).
 
-## M2: Framework basics (in progress)
+## M2: Framework basics (done, 2026-09-16)
 
 - Done: a fixed-step game loop. `Update` runs 60 times per second of game time with a constant `dt`, whatever the frame rate; after a long pause the lost time is skipped.
 - Done: scenes. Each scene is a `golib.Game`, and `golib.SwitchScene` moves between them; `games/platformer` has a title, play, pause and won scene.
@@ -36,8 +36,8 @@ Known gaps, written down as the [definition of done](contributing.md#definition-
 - Done: music streamed from the game's `assets/` folder with `golib.NewMusic`: OGG, MP3, WAV, QOA and the tracker formats XM and MOD, but not IT, which raylib doesn't read. It loops, and `golib.Music` has `Play`, `Pause`, `Stop` and `SetVolume`. `games/asteroids` plays a module. Not covered: crossfading and playlists.
 - Done: reading files from the game's `assets/` folder with `golib.ReadAsset`, from disk in debug builds and from the copy embedded in dist builds.
 - Done: `golib new <name>` creates a game folder in `games/` from `tools/template/game/`, ready to run, without touching the framework.
-- Example games that double as documentation. In progress: `games/platformer` grows with each feature, and `games/asteroids` shows screen effects, fullscreen, sound and music.
-- An API guide for agents.
+- Done: example games that double as documentation. `games/platformer` tries each feature as it lands, and `games/asteroids` shows screen effects, fullscreen, sound and music; both keep growing with the framework.
+- Done: an API guide for agents, `framework/README.md`: every exported name grouped by task, the rules the names don't tell you, and what GoLib doesn't have yet. Two framework tests fail when it misses an exported name or names one that doesn't exist. They embed the guide, so `go test` runs them again when only the guide changes.
 
 ## M3: Agent verification loop (done early, during M2, 2026-09-15)
 
@@ -53,7 +53,7 @@ Postponed on 2026-09-15, until the owner picks it up again. Loading what Aseprit
 - Sound effects loaded from files, for games that want more than the ones M2 makes in code. Music landed in M2.
 - Fonts.
 
-## M5: Shipping
+## M5: Shipping (next)
 
 - `golib dist`. Done early, during M2: a single executable with raylib, libffi and the game's assets inside; on Windows it opens no console window and shows errors in a message box. To do: a Windows icon and version information, a macOS app bundle, builds for other platforms than the current one.
 - Investigate a web build.

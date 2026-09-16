@@ -28,6 +28,7 @@ GoLib has two sides, and they don't mix.
 framework/          The framework: Go module "golib"
   go.mod
   *.go              package golib
+  README.md         The API guide: every exported name by task; apiguide_test.go keeps it in step
 games/
   <name>/           One game; the folder name is the game's short name
     go.mod          Go module <name>, which uses the framework through a replace directive

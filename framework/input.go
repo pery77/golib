@@ -30,9 +30,11 @@ func (in *Input) KeyPressed(key Key) bool {
 }
 
 // MousePosition returns where the mouse pointer is, in the pixel coordinates
-// Screen draws with: from the top-left corner of the window, with Y growing
-// downwards. When the pointer leaves the window, it keeps its last position
-// inside it or gets values outside the screen.
+// Screen draws with: from the top-left corner of the screen, with Y growing
+// downwards, however Run scales the screen to the window. Over the black bars
+// around the screen, the position is outside it. When the pointer leaves the
+// window, it keeps its last position inside it or gets values outside the
+// screen.
 func (in *Input) MousePosition() (x, y float32) {
 	return in.mouseX, in.mouseY
 }

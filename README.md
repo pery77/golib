@@ -78,7 +78,7 @@ Type `.\golib` on Windows (PowerShell or cmd) and `./golib` in bash or zsh. `[ga
 | `golib`, `golib.cmd` | Command-line entry points |
 | `golib-ui.cmd`, `tools/ui/` | The GoLib window: a button for each command (Windows) |
 | `tools/bootstrap/` | The CLI itself: short, readable scripts |
-| `framework/` | The GoLib framework (Go package `golib`) |
+| `framework/` | The GoLib framework (Go package `golib`), with its API guide, `README.md` |
 | `games/` | Games, one folder each; `platformer` is the example to learn from |
 | `AGENTS.md`, `CLAUDE.md` | Instructions for AI agents |
 | `docs/` | Vision, roadmap, internals and AI playbooks |
@@ -92,3 +92,4 @@ Type `.\golib` on Windows (PowerShell or cmd) and `./golib` in bash or zsh. `[ga
 - [Tooling internals](docs/tooling.md)
 - [Contributing to GoLib](docs/contributing.md)
 - [How agents make games](docs/ai/making-a-game.md)
+- [The framework's API, by task](framework/README.md)

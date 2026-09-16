@@ -12,7 +12,7 @@ The promise: someone downloads the template, runs a couple of commands, and buil
 
 Keep this section true: update it in the same change that lands or removes a feature. Never describe planned work as if it existed.
 
-Last updated: 2026-09-16 (milestone M2, Framework basics, in progress).
+Last updated: 2026-09-16 (milestone M2, Framework basics, done; next: M5, Shipping; M4, Content, postponed).
 
 | Area | State |
 | --- | --- |
@@ -39,9 +39,10 @@ Last updated: 2026-09-16 (milestone M2, Framework basics, in progress).
 | Scenes: `golib.SwitchScene` moves between title, play, pause and other screens | Done (M2) |
 | Reading files from the game's `assets/` folder (`golib.ReadAsset`), embedded in dist builds | Done (M2) |
 | `golib new <name>`: a new game, ready to run, from `tools/template/game/` | Done (M2) |
+| API guide for agents, `framework/README.md`: every exported name by task, checked against the code by `golib test` | Done (M2) |
 | Content: textures, Aseprite sprites, Tiled maps, fonts, sound effects loaded from files | Postponed (M4) |
 
-**The framework is still small.** It opens a window, runs a fixed-step game loop, reads the keyboard, the mouse and gamepads, draws rectangles, circles, lines, triangles and text, scales the screen to any window or fullscreen, runs post-processing shaders, makes random numbers, makes and plays sound effects, streams music, switches between scenes, reads files from the game's `assets/` folder, quits when the game asks, and takes screenshots for `golib shot`: `golib.Run`, `Game`, `Config`, `Input`, `Key`, `MouseButton`, `GamepadButton`, `Screen`, `Rectangle`, colors, `Shader`, `NewShader`, `SetPostProcess`, `SetFullscreen`, `IsFullscreen`, `RandomInt`, `RandomFloat`, `SetRandomSeed`, `NewSound`, `SoundSpec`, `SetVolume`, `NewMusic`, `Music`, `SwitchScene`, `Quit`, `ReadAsset` and `EmbedAssets`, documented in the doc comments in `framework/`. `games/platformer` is the reference for using it: read it before writing a game. `games/asteroids` shows post-processing shaders, fullscreen, sound and music. There are no textures, sprites, maps or fonts yet (M4, postponed): sound effects are made in code, and music is a file in the game's `assets/` folder. If someone asks for a game that needs them, say what is missing and point to [docs/roadmap.md](docs/roadmap.md). Do not improvise a stand-alone engine to fill the gap.
+**The framework is still small.** It opens a window, runs a fixed-step game loop, reads the keyboard, the mouse and gamepads, draws rectangles, circles, lines, triangles and text, scales the screen to any window or fullscreen, runs post-processing shaders, makes random numbers, makes and plays sound effects, streams music, switches between scenes, reads files from the game's `assets/` folder, quits when the game asks, and takes screenshots for `golib shot`. [framework/README.md](framework/README.md) is its API guide: every exported name, grouped by task, with the rules the names don't tell you and what is still missing. Read it before writing game code; the doc comments in `framework/*.go` have the details. `games/platformer` is the reference for using it: read it before writing a game. `games/asteroids` shows post-processing shaders, fullscreen, sound and music. There are no textures, sprites, maps or fonts yet (M4, postponed): sound effects are made in code, and music is a file in the game's `assets/` folder. If someone asks for a game that needs them, say what is missing and point to [docs/roadmap.md](docs/roadmap.md). Do not improvise a stand-alone engine to fill the gap.
 
 ## Golden rules
 
@@ -97,7 +98,7 @@ golib-ui.cmd         Double-click to open the GoLib window (Windows); a thin shi
 tools/bootstrap/     CLI implementations: golib.sh (Linux, macOS), golib.ps1 (Windows)
 tools/ui/            The GoLib window: golib-ui.ps1, buttons that run the CLI
 tools/template/game/ The files golib new copies into games/<name>/
-framework/           The framework: Go module and package "golib"
+framework/           The framework: Go module and package "golib"; README.md is its API guide
 games/               One folder per game, each its own Go module
   platformer/        The example game: tests each framework feature and shows how to use it
   asteroids/         A second example: post-processing shaders, fullscreen, sound and music
@@ -129,6 +130,7 @@ The test game developed alongside the framework is still a game: it follows the 
 | [docs/tooling.md](docs/tooling.md) | Changing the CLI, the VS Code config, line endings or `.tools/` |
 | [docs/contributing.md](docs/contributing.md) | Changing GoLib itself: definition of done, API design for agents, commits |
 | [docs/ai/making-a-game.md](docs/ai/making-a-game.md) | Building or iterating on a game |
+| [framework/README.md](framework/README.md) | Writing game code: the framework's API by task, the rules it doesn't show, and what it doesn't have yet |
 
 ## Platform notes
 
