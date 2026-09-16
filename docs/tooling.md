@@ -104,7 +104,7 @@ A debug program that can't find a library stops as soon as it starts, with `cann
 
 The prebuilt Linux library links against `libX11.so.6` and loads `libGL.so.1` when a window opens, and raylib-go needs the system's `libffi.so.8`. Desktop Linux systems usually have all three; `golib doctor` checks for them and prints the install command when they are missing.
 
-To update raylib-go, run `golib go -C framework get github.com/gen2brain/raylib-go/raylib@<version>`, then `golib go -C <module folder> mod tidy` for the framework and every game, then `golib setup`.
+To update raylib-go, run `golib go -C framework get github.com/gen2brain/raylib-go/raylib@<version>`, then `golib go -C <module folder> mod tidy` for the framework and every game, then `golib setup` and `golib test`. If the new version brings a new raylib version, `golib test` asks for its [third-party notices](#third-party-licenses).
 
 ## Screenshots
 
@@ -202,12 +202,14 @@ The licenses of Go, purego (Apache-2.0), ffi and libffi ask for their notices to
 | --- | --- |
 | Go | `.tools/go/LICENSE`: the Go runtime and standard library are in every executable |
 | Each Go module the game is built from, as `go list -deps` reports with the dist build tags, except the game's own and GoLib's | The files in the module's folder whose names start with `LICENSE`, `LICENCE`, `COPYING`, `COPYRIGHT` or `NOTICE`. A module without one gets a `[warn]` line: find its license and add its notice by hand |
-| raylib, and libffi when the platform has it | `libs/LICENSE` in raylib-go, `assets/libffi/LICENSE` in ffi |
+| raylib, and libffi when the platform has it | `libs/LICENSE` in raylib-go, `assets/libffi/LICENSE` in ffi. For raylib, also `tools/cli/notices/raylib-<version>.txt` (below) |
 | `assets/ATTRIBUTION.md`, when the game has one | The file itself: where the files in the assets folder that weren't made for the game come from, and their licenses (see [framework/README.md](../framework/README.md)) |
 
 GoLib is left out because its license, zlib, asks for nothing in games (see [roadmap.md](roadmap.md#decisions)). The file starts with the game's title from `game.json`. `dist` writes it again on every build, so don't edit it: put what it should say in `assets/ATTRIBUTION.md`.
 
-Not covered yet: raylib's library includes other libraries, and raylib's `LICENSE` covers none of them. Most of them (GLFW, miniaudio, stb, dr_libs) ask for no notice in programs, but some are under the MIT license, which does: cgltf, tinyobj_loader_c, vox_loader, m3d, par_shapes, qoi, qoa and glad's Khronos code. Their texts are in their headers, in raylib-go's `external/` folder. See [roadmap.md](roadmap.md#m5-shipping-in-progress).
+raylib's library includes other libraries, and raylib's `LICENSE` covers none of them. Most of them (GLFW, miniaudio, dr_libs, stb, jar_xm, jar_mod, sinfl, sdefl, rprand, rl_gputex) are under zlib, public domain, MIT-0 or a choice of public domain, and ask for no notice in programs. The others ask for one: cgltf, tinyobj_loader_c, vox_loader, m3d, par_shapes, QOI and QOA (MIT), glad's `khrplatform.h` (Khronos), and dirent, in the Windows library only. Their notices are written out in `tools/cli/notices/raylib-<version>.txt`, which `dist` embeds and adds under raylib's heading. The texts sit in comments in each library's header, in different forms, so they are copied by hand rather than extracted.
+
+When raylib-go moves to a new raylib version, `golib test` fails until that file exists for it. To write it, copy the previous one, then check it against raylib-go's `external/` folder and `config.h`: which headers the C files include with the default settings, what each header's license says, and whether the prebuilt libraries contain them (search them for strings such as `KHR_materials_emissive_strength` for cgltf or `mtllib` for tinyobj_loader_c). `dist` prints a `[warn]` line, and leaves those notices out, while the file is missing.
 
 ### Icon and version information (Windows)
 

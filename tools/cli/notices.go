@@ -1,6 +1,7 @@
 package main
 
 import (
+	"embed"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -20,6 +21,16 @@ const attributionFile = "ATTRIBUTION.md"
 // that hold its license and notices, in capitals.
 var licenseFilePrefixes = []string{"LICENSE", "LICENCE", "COPYING", "COPYRIGHT", "NOTICE"}
 
+// raylibNotices holds, for each raylib version, the notices of the libraries
+// inside raylib whose licenses ask for them, which raylib's own LICENSE
+// doesn't include: notices/raylib-<version>.txt. Nothing in raylib-go's
+// module has them in a form that can be copied as it is, so they are
+// written out here, and checked again for each new raylib version (see
+// docs/tooling.md#third-party-licenses).
+//
+//go:embed notices/raylib-*.txt
+var raylibNotices embed.FS
+
 // notice is one piece of third-party software, or a group of files, in a
 // game, with the files that hold its license.
 type notice struct {
@@ -27,6 +38,19 @@ type notice struct {
 	url   string // where to find it, or ""
 	where string // where it is in the game
 	files []string
+	texts []licenseText // license texts that aren't in files, after them
+}
+
+// licenseText is a license text with a name for its heading.
+type licenseText struct {
+	name, text string
+}
+
+// raylibNotice returns the notices of the libraries inside raylib version,
+// and false when GoLib has none for that version.
+func raylibNotice(version string) (licenseText, bool) {
+	text, err := raylibNotices.ReadFile("notices/raylib-" + version + ".txt")
+	return licenseText{name: "libraries inside raylib " + version, text: string(text)}, err == nil
 }
 
 // moduleLicenseFiles returns the files in a module's folder that hold its
@@ -60,14 +84,18 @@ func thirdPartyNotices(title string, notices []notice) ([]byte, error) {
 			heading = slices.Delete(heading, 2, 3)
 		}
 		fmt.Fprintf(&text, "\n%s\n", strings.Join(heading, "\n"))
+		texts := make([]licenseText, 0, len(n.files)+len(n.texts))
 		for _, file := range n.files {
 			content, err := os.ReadFile(file)
 			if err != nil {
 				return nil, err
 			}
-			body := strings.ReplaceAll(string(content), "\r\n", "\n")
+			texts = append(texts, licenseText{name: filepath.Base(file), text: string(content)})
+		}
+		for _, t := range append(texts, n.texts...) {
+			body := strings.ReplaceAll(t.text, "\r\n", "\n")
 			body = strings.TrimRight(strings.TrimLeft(body, "\n"), " \t\n")
-			fmt.Fprintf(&text, "\n--- %s ---\n\n%s\n", filepath.Base(file), body)
+			fmt.Fprintf(&text, "\n--- %s ---\n\n%s\n", t.name, body)
 		}
 	}
 	return []byte(text.String()), nil

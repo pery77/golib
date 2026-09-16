@@ -215,12 +215,21 @@ func (c *cli) gameNotices(game, exe string, modules []goModule, libraries []libr
 		if !beside {
 			where = "Built into " + exe
 		}
-		notices = append(notices, notice{
+		n := notice{
 			title: l.title,
 			url:   l.url,
 			where: fmt.Sprintf("%s, from %s %s", where, l.from.Path, l.from.Version),
 			files: []string{l.license},
-		})
+		}
+		if l.from.Path == raylibModule {
+			text, found := raylibNotice(l.version)
+			if found {
+				n.texts = append(n.texts, text)
+			} else {
+				c.check("warn", fmt.Sprintf("GoLib has no notices for the libraries inside raylib %s, so %s leaves them out: add tools/cli/notices/raylib-%s.txt (see docs/tooling.md)", l.version, noticesFile, l.version))
+			}
+		}
+		notices = append(notices, n)
 	}
 	// Games write where the files in their assets folder come from, and under
 	// which license, in assets/ATTRIBUTION.md (see framework/README.md).

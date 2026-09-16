@@ -49,6 +49,7 @@ type goModule struct {
 type library struct {
 	name    string // its file name, such as raylib.dll
 	title   string // what it is, such as "raylib 6.0"
+	version string // its own version, such as "6.0", or ""
 	url     string
 	from    goModule // the Go module it comes with
 	license string   // the path of its license text
@@ -83,6 +84,7 @@ func findLibraries(platform string, modules []goModule) ([]library, error) {
 			libraries = append(libraries, library{
 				name:    name,
 				title:   "raylib " + version,
+				version: version,
 				url:     "https://www.raylib.com",
 				from:    m,
 				license: filepath.Join(m.Dir, "libs", "LICENSE"),

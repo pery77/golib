@@ -297,7 +297,7 @@ dist: 0 failed, 0 warning(s)
 		"\n--- LICENSE ---\n\n  raylib-go's license, indented\n",
 		"\n--- COPYRIGHT.txt ---\n\nffi's copyright\n\n--- LICENSE ---\n\nffi's license\n",
 		"\nraylib 6.0\nhttps://www.raylib.com\nraylib.dll, next to rocks.exe, from github.com/gen2brain/raylib-go/raylib v0.60.1\n",
-		"\n--- LICENSE ---\n\nraylib's license\n",
+		"\n--- LICENSE ---\n\nraylib's license\n\n--- libraries inside raylib 6.0 ---\n\nraylib 6.0 contains the libraries below",
 		"\nlibffi\nhttps://sourceware.org/libffi/\nlibffi-8.dll, next to rocks.exe, from github.com/jupiterrider/ffi v0.7.0\n",
 		"\n--- LICENSE ---\n\nlibffi's license\n",
 		"\n" + rule + "\nassets/ATTRIBUTION.md\nBuilt into rocks.exe: files in the game's assets folder that were not made for it\n" + rule + "\n\n--- ATTRIBUTION.md ---\n\n# Music by Ada\n",
@@ -458,6 +458,60 @@ func TestDistMacOS(t *testing.T) {
 	} {
 		if !strings.Contains(folder[noticesFile], part) {
 			t.Errorf("%s doesn't contain %q", noticesFile, part)
+		}
+	}
+}
+
+func TestDistRaylibWithoutNotices(t *testing.T) {
+	tp := newTestProject(t, "linux", "rocks")
+	libs := filepath.Join(tp.modules[1].Dir, "libs")
+	if err := os.Rename(filepath.Join(libs, "raylib-6.0_linux_amd64.tar.gz"), filepath.Join(libs, "raylib-9.9_linux_amd64.tar.gz")); err != nil {
+		t.Fatal(err)
+	}
+	if code := tp.c.dist(nil); code != 0 {
+		t.Fatalf("exit code %d, output:\n%s", code, tp.stdout.String())
+	}
+	want := "[warn] GoLib has no notices for the libraries inside raylib 9.9, so THIRD-PARTY-LICENSES.txt leaves them out: add tools/cli/notices/raylib-9.9.txt (see docs/tooling.md)\n"
+	if !strings.Contains(tp.stdout.String(), want) {
+		t.Errorf("output:\n%s\nwant a warning:\n%s", tp.stdout.String(), want)
+	}
+	notices := tp.folder(t, "rocks")[noticesFile]
+	if !strings.Contains(notices, "\nraylib 9.9\n") || strings.Contains(notices, "libraries inside raylib") {
+		t.Errorf("%s:\n%s\nwant raylib 9.9 with its LICENSE only", noticesFile, notices)
+	}
+}
+
+// TestRaylibNoticesForTheProject fails when the framework moves to a raylib
+// version that tools/cli/notices has no file for.
+func TestRaylibNoticesForTheProject(t *testing.T) {
+	goMod, err := os.ReadFile(filepath.Join("..", "..", "framework", "go.mod"))
+	if err != nil {
+		t.Skip("not in a GoLib project:", err)
+	}
+	var moduleVersion string
+	for _, line := range strings.Split(string(goMod), "\n") {
+		if fields := strings.Fields(strings.TrimPrefix(strings.TrimSpace(line), "require ")); len(fields) >= 2 && fields[0] == raylibModule {
+			moduleVersion = fields[1]
+		}
+	}
+	cache := os.Getenv("GOMODCACHE")
+	if moduleVersion == "" || cache == "" {
+		t.Skip("framework/go.mod names no raylib-go version, or GOMODCACHE is unset: run golib test")
+	}
+	archives, _ := filepath.Glob(filepath.Join(cache, "github.com", "gen2brain", "raylib-go", "raylib@"+moduleVersion, "libs", "raylib-*.tar.gz"))
+	if len(archives) == 0 {
+		t.Skipf("raylib-go %s isn't downloaded: run golib setup", moduleVersion)
+	}
+	for _, archive := range archives {
+		version, _, _ := strings.Cut(strings.TrimPrefix(filepath.Base(archive), "raylib-"), "_")
+		text, found := raylibNotice(version)
+		if !found {
+			t.Fatalf("raylib-go %s holds raylib %s, but tools/cli/notices/raylib-%s.txt doesn't exist: check which libraries in raylib's src/external/ ask for a notice, and write them there", moduleVersion, version, version)
+		}
+		for _, library := range []string{"cgltf", "tinyobj_loader_c", "vox_loader", "m3d", "par_shapes", "QOI", "QOA", "glad", "dirent"} {
+			if !strings.Contains(text.text, "\n"+library+", ") {
+				t.Errorf("tools/cli/notices/raylib-%s.txt has no section for %s", version, library)
+			}
 		}
 	}
 }
