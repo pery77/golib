@@ -5,8 +5,9 @@
 #
 # tools/bootstrap/golib.ps1 is the Windows twin of this file. Both must expose the same
 # commands, options, output format and exit codes: change one, change the other.
-# Commands are moving into tools/cli, a Go program that both scripts build and start
-# (run_cli here); so far it runs dist.
+# Most commands live in tools/cli, a Go program that both scripts build and start (run_cli
+# here): new, build, run, shot, test and dist. This file keeps what has to work before that
+# program can be built: help, setup, doctor, go and clean.
 # POSIX sh only, so it runs under dash: no bash arrays, no [[ ]], no "local". Functions
 # share one variable namespace, so their variables carry a short prefix.
 #
@@ -28,11 +29,6 @@ raylib_module=github.com/gen2brain/raylib-go/raylib
 # assets/libffi/ folder; Linux games load the system's libffi.so.8.
 ffi_module=github.com/jupiterrider/ffi
 
-# golib shot: the frame captured when none is given (one second of game time), and how many
-# seconds a game may run before it is stopped.
-shot_default_frame=60
-shot_timeout=120
-
 root=$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)
 tools_dir="$root/.tools"
 build_dir="$root/build"
@@ -41,14 +37,10 @@ go_exe="$go_root/bin/go"
 raylib_dir="$tools_dir/raylib"
 framework_dir="$root/framework"
 games_dir="$root/games"
-template_dir="$root/tools/template/game"
 # The Go side of golib, and where run_cli builds it. build/golib/ can't clash with a game's build
 # folder: new refuses golib as a game name.
 cli_dir="$root/tools/cli"
 cli_exe="$build_dir/golib/golib"
-# GoLib's own Go programs, space-separated. test checks them too; they don't use raylib.
-tool_modules="tools/cli"
-
 failures=0
 warnings=0
 
@@ -295,8 +287,9 @@ set_go_environment() {
   PATH="$go_root/bin:$PATH"
   export GOROOT GOPATH GOMODCACHE GOCACHE GOENV GOTOOLCHAIN CGO_ENABLED GOFLAGS PATH
   # Go writes telemetry counters to the user's config folder ($XDG_CONFIG_HOME or ~/.config on
-  # Linux, ~/Library/Application Support on macOS). Redirect that folder into .tools/;
-  # restore_user_environment undoes this before a game starts.
+  # Linux, ~/Library/Application Support on macOS). Redirect that folder into .tools/.
+  # run_cli sets all this in a subshell, so tools/cli, and the games it starts, get the user's
+  # own values.
   if [ "$goos" = darwin ]; then
     mkdir -p "$tools_dir/home"
     HOME="$tools_dir/home"
@@ -304,17 +297,6 @@ set_go_environment() {
   else
     XDG_CONFIG_HOME="$tools_dir/config"
     export XDG_CONFIG_HOME
-  fi
-}
-
-restore_user_environment() {
-  HOME=$user_home
-  export HOME
-  if [ "$user_xdg_set" = true ]; then
-    XDG_CONFIG_HOME=$user_xdg_config_home
-    export XDG_CONFIG_HOME
-  else
-    unset XDG_CONFIG_HOME
   fi
 }
 
@@ -376,31 +358,6 @@ list_modules() {
   done
 }
 
-# resolve_game <command> [name]: sets game, or exits with a usage error.
-resolve_game() {
-  rg_command=$1
-  shift
-  if [ $# -gt 1 ]; then usage_error "$rg_command takes at most one game name (got: $*)"; fi
-  list_games
-  if [ $# -eq 1 ]; then
-    for rg_game in $games; do
-      if [ "$rg_game" = "$1" ]; then
-        game=$1
-        return 0
-      fi
-    done
-    if [ -z "$games" ]; then usage_error "no game named \"$1\": games/ has no games yet (create one: golib new <name>)"; fi
-    usage_error "no game named \"$1\" in games/ (available: $(comma_list "$games"))"
-  fi
-  set -- $games
-  if [ $# -eq 1 ]; then
-    game=$1
-    return 0
-  fi
-  if [ $# -eq 0 ]; then usage_error "there are no games in games/ yet (create one: golib new <name>)"; fi
-  usage_error "$rg_command needs a game name (available: $(comma_list "$games"))"
-}
-
 # Prints the raylib-go version whose library is in .tools/raylib/, or nothing. It is the first line
 # of .tools/raylib/VERSION.
 raylib_version() {
@@ -409,12 +366,13 @@ raylib_version() {
   fi
 }
 
-# Makes sure .tools/raylib/ holds the libraries that a module's debug builds load: raylib, from the
-# module's raylib-go version, and on macOS libffi, from its ffi version. VERSION records both
-# versions. The folder has no version in its name, so editor settings can point at it. Sets
-# raylib_lib and ffi_lib (empty on Linux, which uses the system's libffi) to the libraries' paths
-# and sr_version to the raylib-go version, or sets raylib_error and returns 1.
-# Requires set_go_environment.
+# For setup: makes sure .tools/raylib/ holds the libraries that a module's debug builds load:
+# raylib, from the module's raylib-go version, and on macOS libffi, from its ffi version. VERSION
+# records both versions. The folder has no version in its name, so editor settings can point at
+# it. Sets raylib_lib and ffi_lib (empty on Linux, which uses the system's libffi) to the
+# libraries' paths and sr_version to the raylib-go version, or sets raylib_error and returns 1.
+# Requires set_go_environment. syncRaylib in tools/cli/libraries.go does the same for the other
+# commands: keep them in step.
 sync_raylib() {
   if ! sr_info=$("$go_exe" -C "$1" list -m -f '{{.Path}}|{{.Version}}|{{.Dir}}' "$raylib_module" "$ffi_module"); then
     raylib_error="cannot find $raylib_module and $ffi_module for $1 (run: golib setup)"
@@ -481,37 +439,6 @@ sync_raylib() {
     chmod u+w "$ffi_lib" # Go's module cache is read-only; the copy doesn't need to be
   fi
   printf '%s\n' "$sr_expected" >"$raylib_dir/VERSION"
-}
-
-# Adds a folder to the dynamic library search path. Call it in a subshell.
-use_library_dir() {
-  if [ "$goos" = darwin ]; then
-    DYLD_LIBRARY_PATH="$1${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
-    export DYLD_LIBRARY_PATH
-  else
-    LD_LIBRARY_PATH="$1${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-    export LD_LIBRARY_PATH
-  fi
-}
-
-# Builds games/<game> as a debug build into build/<game>/, next to copies of the libraries it
-# loads. Sets built_exe; prints a failure and returns 1 if something goes wrong.
-build_game() {
-  bg_dir="$games_dir/$1"
-  bg_out="$build_dir/$1"
-  built_exe="$bg_out/$1"
-  mkdir -p "$bg_out"
-  if ! "$go_exe" -C "$bg_dir" build -o "$built_exe" .; then
-    check fail "build failed for games/$1 (see the Go errors above)"
-    return 1
-  fi
-  if ! sync_raylib "$bg_dir"; then
-    check fail "$raylib_error"
-    return 1
-  fi
-  cp -f "$raylib_lib" "$bg_out/"
-  if [ -n "$ffi_lib" ]; then cp -f "$ffi_lib" "$bg_out/"; fi
-  check ok "built games/$1 into build/$1/$1"
 }
 
 # --- Commands -------------------------------------------------------------------------------
@@ -604,208 +531,6 @@ cmd_doctor() {
   exit 0
 }
 
-# new <name>: creates games/<name>/ from the templates in tools/template/game/.
-cmd_new() {
-  if [ $# -ne 1 ]; then usage_error "new needs one game name, for example: golib new asteroids"; fi
-  cn_name=$1
-  cn_invalid="invalid game name \"$cn_name\": use 1 to 32 lowercase letters, digits, - and _, starting with a letter"
-  case "$cn_name" in
-    [a-z]*) ;;
-    *) usage_error "$cn_invalid" ;;
-  esac
-  case "$cn_name" in
-    *[!a-z0-9_-]*) usage_error "$cn_invalid" ;;
-  esac
-  if [ ${#cn_name} -gt 32 ]; then usage_error "$cn_invalid"; fi
-  # golib would clash with the framework's import path; the others are device names on Windows.
-  case "$cn_name" in
-    golib | con | prn | aux | nul | com[1-9] | lpt[1-9]) usage_error "the game name \"$cn_name\" is reserved: pick another one" ;;
-  esac
-  cn_dir="$games_dir/$cn_name"
-  if [ -e "$cn_dir" ]; then usage_error "games/$cn_name already exists: pick another name, or delete that folder first"; fi
-  assert_toolchain new
-
-  mkdir -p "$cn_dir"
-  cn_today=$(date +%Y-%m-%d)
-  for cn_template in "$template_dir"/*.tmpl; do
-    sed -e "s/{{name}}/$cn_name/g" -e "s/{{go}}/$go_version/g" -e "s/{{date}}/$cn_today/g" \
-      "$cn_template" >"$cn_dir/$(basename "$cn_template" .tmpl)"
-  done
-  # The framework's checksums cover the modules a new game needs, so tidy doesn't have to look them up.
-  cp "$framework_dir/go.sum" "$cn_dir/go.sum"
-  if ! "$go_exe" -C "$cn_dir" mod tidy; then
-    remove_tree "$cn_dir"
-    check fail "go mod tidy failed for games/$cn_name (see the Go errors above); the folder was deleted, so new can run again"
-    summary new
-    exit 1
-  fi
-  check ok "created games/$cn_name/ from tools/template/game/"
-  check info "next: golib run $cn_name, and describe the game in games/$cn_name/DESIGN.md"
-  summary new
-  exit 0
-}
-
-cmd_build() {
-  resolve_game build "$@"
-  assert_toolchain build
-  if build_game "$game"; then
-    summary build
-    exit 0
-  fi
-  summary build
-  exit 1
-}
-
-cmd_run() {
-  resolve_game run "$@"
-  assert_toolchain run
-  if ! build_game "$game"; then
-    summary run
-    exit 1
-  fi
-  check info "running build/$game/$game with games/$game/ as the working directory"
-  cr_code=0
-  (
-    restore_user_environment
-    use_library_dir "$build_dir/$game"
-    cd "$games_dir/$game" || exit 1
-    exec "$built_exe"
-  ) || cr_code=$?
-  printf '\nrun: %s exited with code %d\n' "$game" "$cr_code"
-  if [ "$cr_code" -ne 0 ]; then exit 1; fi
-  exit 0
-}
-
-# shot [game] [frame...] [--input <script>]: numbers are frames, anything else names the game.
-cmd_shot() {
-  cs_names=''
-  cs_list=''
-  cs_input=''
-  while [ $# -gt 0 ]; do
-    cs_arg=$1
-    shift
-    case "$cs_arg" in
-      '') usage_error "shot got an empty argument" ;;
-      --input)
-        if [ $# -eq 0 ]; then usage_error 'shot --input needs input to play, for example: --input "Enter@1 Right@30-90"'; fi
-        cs_input=$1
-        shift
-        ;;
-      --input=*) cs_input=${cs_arg#--input=} ;;
-      -*) usage_error "unknown option for shot: $cs_arg" ;;
-      *[!0-9]*) cs_names="${cs_names:+$cs_names }$cs_arg" ;;
-      *)
-        if [ ${#cs_arg} -gt 6 ] || [ "$cs_arg" -lt 1 ]; then
-          usage_error "frame numbers go from 1 to 999999 (got: $cs_arg)"
-        fi
-        cs_list="${cs_list:+$cs_list }$(expr "$cs_arg" + 0)"
-        ;;
-    esac
-  done
-  if [ -z "$cs_list" ]; then cs_list=$shot_default_frame; fi
-  cs_frames=$(printf '%s\n' $cs_list | sort -n -u | tr '\n' ' ')
-  resolve_game shot $cs_names
-  assert_toolchain shot
-  if ! build_game "$game"; then
-    summary shot
-    exit 1
-  fi
-
-  cs_dir="$build_dir/$game/shots"
-  remove_tree "$cs_dir"
-  mkdir -p "$cs_dir"
-  check info "running $game for $(printf '%s\n' $cs_frames | tail -n 1) frame(s) in a hidden window${cs_input:+, playing $cs_input}"
-  cs_code=0
-  (
-    restore_user_environment
-    use_library_dir "$build_dir/$game"
-    GOLIB_SHOT_DIR=$cs_dir
-    GOLIB_SHOT_FRAMES=$(printf '%s\n' $cs_frames | paste -s -d , -)
-    GOLIB_SHOT_INPUT=$cs_input
-    export GOLIB_SHOT_DIR GOLIB_SHOT_FRAMES GOLIB_SHOT_INPUT
-    cd "$games_dir/$game" || exit 1
-    "$built_exe" &
-    cs_pid=$!
-    # Stop a game that never finishes, so whoever waits for shot isn't stuck.
-    (
-      cs_waited=0
-      while kill -0 "$cs_pid" 2>/dev/null; do
-        if [ "$cs_waited" -ge "$shot_timeout" ]; then
-          : >"$cs_dir/.timed-out"
-          kill "$cs_pid" 2>/dev/null
-          exit 0
-        fi
-        sleep 1
-        cs_waited=$((cs_waited + 1))
-      done
-    ) &
-    cs_watchdog=$!
-    cs_status=0
-    wait "$cs_pid" || cs_status=$?
-    wait "$cs_watchdog" 2>/dev/null || true
-    exit "$cs_status"
-  ) || cs_code=$?
-
-  if [ -f "$cs_dir/.timed-out" ]; then
-    rm -f "$cs_dir/.timed-out"
-    check fail "$game didn't finish within $shot_timeout seconds and was stopped (does Update or Draw loop forever?)"
-  elif [ "$cs_code" -ne 0 ]; then
-    check fail "$game exited with code $cs_code (see its output above)"
-  fi
-  for cs_frame in $cs_frames; do
-    cs_file=$(printf 'frame-%06d.png' "$cs_frame")
-    if [ -f "$cs_dir/$cs_file" ]; then
-      check ok "frame $cs_frame: build/$game/shots/$cs_file"
-    else
-      check fail "frame $cs_frame: no screenshot was saved"
-    fi
-  done
-  summary shot
-  if [ "$failures" -gt 0 ]; then exit 1; fi
-  exit 0
-}
-
-cmd_test() {
-  if [ $# -gt 0 ]; then usage_error "test takes no options (got: $*)"; fi
-  assert_toolchain test
-  list_modules
-  for ct_module in $tool_modules; do
-    if [ -f "$root/$ct_module/go.mod" ]; then modules="${modules:+$modules }$ct_module"; fi
-  done
-  if [ -z "$modules" ]; then check warn "no Go modules to test"; fi
-  for ct_module in $modules; do
-    ct_dir="$root/$ct_module"
-    if ! "$go_exe" -C "$ct_dir" vet ./...; then
-      check fail "$ct_module: go vet found problems (see above)"
-      continue
-    fi
-    case " $tool_modules " in
-      *" $ct_module "*)
-        if "$go_exe" -C "$ct_dir" test ./...; then
-          check ok "$ct_module: vet and tests passed"
-        else
-          check fail "$ct_module: tests failed (see above)"
-        fi
-        continue
-        ;;
-    esac
-    if ! sync_raylib "$ct_dir"; then
-      check fail "$ct_module: $raylib_error"
-      continue
-    fi
-    # Test binaries load the raylib library (and libffi on macOS) when they start, so .tools/raylib/
-    # must be on the search path.
-    if (use_library_dir "$(dirname "$raylib_lib")" && "$go_exe" -C "$ct_dir" test ./...); then
-      check ok "$ct_module: vet and tests passed"
-    else
-      check fail "$ct_module: tests failed (see above)"
-    fi
-  done
-  summary test
-  if [ "$failures" -gt 0 ]; then exit 1; fi
-  exit 0
-}
-
 cmd_go() {
   if [ $# -eq 0 ]; then usage_error "go needs arguments, for example: golib go version"; fi
   assert_toolchain go
@@ -837,15 +562,6 @@ cmd_clean() {
 }
 
 detect_platform
-# Saved before set_go_environment redirects them, so games run with the user's own values.
-user_home=${HOME-}
-if [ "${XDG_CONFIG_HOME+set}" = set ]; then
-  user_xdg_set=true
-  user_xdg_config_home=$XDG_CONFIG_HOME
-else
-  user_xdg_set=false
-  user_xdg_config_home=''
-fi
 
 command=${1:-help}
 if [ $# -gt 0 ]; then shift; fi
@@ -853,12 +569,7 @@ if [ $# -gt 0 ]; then shift; fi
 case "$command" in
   setup) cmd_setup "$@" ;;
   doctor) cmd_doctor "$@" ;;
-  new) cmd_new "$@" ;;
-  build) cmd_build "$@" ;;
-  dist) run_cli dist "$@" ;;
-  run) cmd_run "$@" ;;
-  shot) cmd_shot "$@" ;;
-  test) cmd_test "$@" ;;
+  new | build | run | shot | test | dist) run_cli "$command" "$@" ;;
   go) cmd_go "$@" ;;
   clean) cmd_clean "$@" ;;
   help | -h | --help) show_help ;;

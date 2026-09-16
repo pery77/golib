@@ -22,10 +22,10 @@ The command logic is moving from two twin scripts into one Go program, a command
 
 | Part | Commands |
 | --- | --- |
-| `tools/bootstrap/golib.ps1` (Windows PowerShell 5.1 and PowerShell 7) and `tools/bootstrap/golib.sh` (POSIX sh), twins with the same commands, options, output and exit codes | `help`, `setup`, `doctor`, `new`, `build`, `run`, `shot`, `test`, `go`, `clean`; they also build and start the Go program |
-| `tools/cli/`, the Go program | `dist` |
+| `tools/bootstrap/golib.ps1` (Windows PowerShell 5.1 and PowerShell 7) and `tools/bootstrap/golib.sh` (POSIX sh), twins with the same commands, options, output and exit codes | `help`, `setup`, `doctor`, `go`, `clean`; they also build and start the Go program for the other commands |
+| `tools/cli/`, the Go program | `new`, `build`, `run`, `shot`, `test`, `dist` |
 
-The scripts will keep what has to work without Go, or while the Go program isn't running: downloading and checking Go in `setup`, building and starting the Go program, `clean` (on Windows a running program can't delete its own folder), and the checks of `doctor` that don't need Go.
+The scripts keep what has to work without Go, or while the Go program isn't running or doesn't build: downloading and checking Go in `setup`, building and starting the Go program, `clean` (on Windows a running program can't delete its own folder), `doctor`, which never starts Go, and `go`, which stays usable to fix `tools/cli` when it doesn't compile. `setup` also still downloads the modules and fills `.tools/raylib/` itself; that part is to move into the Go program next (see [roadmap.md](roadmap.md#m5-shipping-in-progress)), and until then `Sync-Raylib`, `sync_raylib` and `syncRaylib` in `tools/cli/libraries.go` must fill the folder the same way.
 
 Rules for everything golib prints, in the scripts and the Go program:
 
@@ -43,7 +43,9 @@ Rules for everything golib prints, in the scripts and the Go program:
 2. build it with the project environment into `build/golib/golib.exe` (`build/golib/golib` on Linux and macOS). `go build` leaves an up-to-date executable alone, so this adds about 0.1 seconds; after a change to `tools/cli`, or after `golib clean`, it takes a few seconds. A build error stops with a `[fail]` line;
 3. start it with the command and its options, and with the user's own environment, and exit with its exit code: `Invoke-Cli` in `golib.ps1`, `run_cli` in `golib.sh`.
 
-The program finds the project from its own location, two folders above `build/golib/`, and sets the project environment for each `go` command it runs (`goEnv` in `tools/cli/project.go`), so the programs it starts otherwise get the user's environment. `golib test` vets and tests it; its tests replace the `go` command with a fake one that records its arguments.
+The program finds the project from its own location, two folders above `build/golib/`, and sets the project environment for each `go` command it runs (`goEnv` in `tools/cli/project.go`), so the games it starts get the user's environment. `golib test` vets and tests it; its tests replace the `go` command and the games with fakes that record how they were started (`runGo` and `runGame` in `project.go`).
+
+While a game started by `run` or `shot` is open, the program is running too. On Windows, a running program's file can't be replaced or deleted, so until the game ends, a change to `tools/cli` can't be built (the next command stops with `could not build tools/cli`) and `golib clean` can't delete `build/golib/`. Close the game first.
 
 To move a command into it:
 

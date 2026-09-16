@@ -7,8 +7,9 @@
 #
 # tools/bootstrap/golib.sh is the Linux/macOS twin of this file. Both must expose the same
 # commands, options, output format and exit codes: change one, change the other.
-# Commands are moving into tools/cli, a Go program that both scripts build and start
-# (Invoke-Cli here); so far it runs dist.
+# Most commands live in tools/cli, a Go program that both scripts build and start (Invoke-Cli
+# here): new, build, run, shot, test and dist. This file keeps what has to work before that
+# program can be built: help, setup, doctor, go and clean.
 # Keep this file ASCII-only: Windows PowerShell 5.1 reads files without a BOM as ANSI.
 #
 # Exit codes: 0 success, 1 failure, 2 usage error.
@@ -31,11 +32,6 @@ $RaylibModule = 'github.com/gen2brain/raylib-go/raylib'
 # assets/libffi/ folder.
 $FfiModule = 'github.com/jupiterrider/ffi'
 
-# golib shot: the frame captured when none is given (one second of game time), and how many
-# seconds a game may run before it is stopped.
-$ShotDefaultFrame = 60
-$ShotTimeoutSeconds = 120
-
 $Root = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 $ToolsDir = Join-Path $Root '.tools'
 $BuildDir = Join-Path $Root 'build'
@@ -44,17 +40,13 @@ $GoExe = Join-Path $GoRoot 'bin\go.exe'
 $RaylibDir = Join-Path $ToolsDir 'raylib'
 $FrameworkDir = Join-Path $Root 'framework'
 $GamesDir = Join-Path $Root 'games'
-$TemplateDir = Join-Path $Root 'tools\template\game'
 # The Go side of golib, and where Invoke-Cli builds it. build/golib/ can't clash with a game's
 # build folder: new refuses golib as a game name.
 $CliDir = Join-Path $Root 'tools\cli'
 $CliExe = Join-Path $BuildDir 'golib\golib.exe'
-# GoLib's own Go programs. test checks them too; they don't use raylib.
-$ToolModules = @('tools/cli')
 
 $script:Failures = 0
 $script:Warnings = 0
-$script:UserAppData = $env:APPDATA
 # The user's values of the variables Set-GoEnvironment changes, for Restore-UserEnvironment.
 $script:UserEnvironment = @{}
 foreach ($name in @('GOROOT', 'GOPATH', 'GOMODCACHE', 'GOCACHE', 'GOENV', 'GOTOOLCHAIN', 'CGO_ENABLED', 'GOFLAGS', 'PATH', 'APPDATA')) {
@@ -249,7 +241,7 @@ function Set-GoEnvironment {
     $env:GOFLAGS = '-tags=raylib_no_embed,ffi_no_embed'
     $env:PATH = (Join-Path $GoRoot 'bin') + ';' + $env:PATH
     # Go writes telemetry counters to the user's config folder (%APPDATA%\go\telemetry).
-    # Redirect that folder into .tools/; Invoke-Run restores it before starting a game.
+    # Redirect that folder into .tools/; Restore-UserEnvironment puts it back.
     $env:APPDATA = Join-Path $ToolsDir 'config'
 }
 
@@ -293,20 +285,6 @@ function Get-Modules {
     return $modules
 }
 
-function Resolve-Game([string]$Command, [string[]]$Options) {
-    if ($Options.Count -gt 1) { Stop-WithUsageError "$Command takes at most one game name (got: $($Options -join ' '))" }
-    $games = @(Get-Games)
-    if ($Options.Count -eq 1) {
-        $match = @($games | Where-Object { $_ -eq $Options[0] })
-        if ($match.Count -eq 1) { return $match[0] }
-        if ($games.Count -eq 0) { Stop-WithUsageError "no game named `"$($Options[0])`": games/ has no games yet (create one: golib new <name>)" }
-        Stop-WithUsageError "no game named `"$($Options[0])`" in games/ (available: $($games -join ', '))"
-    }
-    if ($games.Count -eq 1) { return $games[0] }
-    if ($games.Count -eq 0) { Stop-WithUsageError 'there are no games in games/ yet (create one: golib new <name>)' }
-    Stop-WithUsageError "$Command needs a game name (available: $($games -join ', '))"
-}
-
 # Returns the raylib-go version whose library is in .tools/raylib/, or $null. It is the first line
 # of .tools/raylib/VERSION.
 function Get-RaylibVersion {
@@ -317,10 +295,11 @@ function Get-RaylibVersion {
     return ([string]$first[0]).Trim()
 }
 
-# Makes sure .tools/raylib/ holds the libraries that a module's debug builds load: raylib, from the
-# module's raylib-go version, and libffi, from its ffi version (ffi ships it for amd64 only).
-# VERSION records both versions. Returns the libraries' full paths. The folder has no version in
-# its name, so editor settings can point at it. Requires Set-GoEnvironment.
+# For setup: makes sure .tools/raylib/ holds the libraries that a module's debug builds load:
+# raylib, from the module's raylib-go version, and libffi, from its ffi version (ffi ships it for
+# amd64 only). VERSION records both versions. Returns the libraries' full paths. The folder has no
+# version in its name, so editor settings can point at it. Requires Set-GoEnvironment.
+# syncRaylib in tools/cli/libraries.go does the same for the other commands: keep them in step.
 function Sync-Raylib([string]$ModuleDir) {
     $modules = @{}
     foreach ($line in @(& $GoExe -C $ModuleDir list -m -f '{{.Path}}|{{.Version}}|{{.Dir}}' $RaylibModule $FfiModule)) {
@@ -368,29 +347,6 @@ function Sync-Raylib([string]$ModuleDir) {
     }
     [System.IO.File]::WriteAllText($versionFile, $versionText)
     return $libs
-}
-
-# Builds games/<Game> as a debug build into build/<Game>/, next to copies of the libraries it
-# loads. Returns the executable path, or $null after printing a failure.
-function New-GameBuild([string]$Game) {
-    $gameDir = Join-Path $GamesDir $Game
-    $outDir = Join-Path $BuildDir $Game
-    $exe = Join-Path $outDir "$Game.exe"
-    New-Item -ItemType Directory -Force -Path $outDir | Out-Null
-    & $GoExe -C $gameDir build -o $exe . | Out-Host
-    if ($LASTEXITCODE -ne 0) {
-        Write-Check fail "build failed for games/$Game (see the Go errors above)"
-        return $null
-    }
-    try {
-        $libs = @(Sync-Raylib $gameDir)
-    } catch {
-        Write-Check fail $_.Exception.Message
-        return $null
-    }
-    foreach ($lib in $libs) { Copy-Item -LiteralPath $lib -Destination $outDir -Force }
-    Write-Check ok "built games/$Game into build/$Game/$Game.exe"
-    return $exe
 }
 
 # Builds tools/cli into build/golib/ when its code has changed, then runs it with the command and
@@ -513,180 +469,6 @@ function Invoke-Doctor([string[]]$Options) {
     exit 0
 }
 
-# new <name>: creates games/<name>/ from the templates in tools/template/game/.
-function Invoke-New([string[]]$Options) {
-    if ($Options.Count -ne 1) { Stop-WithUsageError 'new needs one game name, for example: golib new asteroids' }
-    $name = $Options[0]
-    if ($name -cnotmatch '^[a-z][a-z0-9_-]{0,31}$') {
-        Stop-WithUsageError "invalid game name `"$name`": use 1 to 32 lowercase letters, digits, - and _, starting with a letter"
-    }
-    # golib would clash with the framework's import path; the others are device names on Windows.
-    if ($name -match '^(golib|con|prn|aux|nul|com[1-9]|lpt[1-9])$') { Stop-WithUsageError "the game name `"$name`" is reserved: pick another one" }
-    $gameDir = Join-Path $GamesDir $name
-    if (Test-Path -LiteralPath $gameDir) { Stop-WithUsageError "games/$name already exists: pick another name, or delete that folder first" }
-    Assert-Toolchain 'new'
-
-    New-Item -ItemType Directory -Force -Path $gameDir | Out-Null
-    $utf8 = New-Object System.Text.UTF8Encoding $false
-    $today = Get-Date -Format 'yyyy-MM-dd'
-    foreach ($template in @(Get-ChildItem -LiteralPath $TemplateDir -File -Filter '*.tmpl')) {
-        $text = [System.IO.File]::ReadAllText($template.FullName).Replace('{{name}}', $name).Replace('{{go}}', $GoVersion).Replace('{{date}}', $today)
-        [System.IO.File]::WriteAllText((Join-Path $gameDir $template.BaseName), $text, $utf8)
-    }
-    # The framework's checksums cover the modules a new game needs, so tidy doesn't have to look them up.
-    Copy-Item -LiteralPath (Join-Path $FrameworkDir 'go.sum') -Destination (Join-Path $gameDir 'go.sum')
-    & $GoExe -C $gameDir mod tidy | Out-Host
-    if ($LASTEXITCODE -ne 0) {
-        Remove-Tree $gameDir
-        Write-Check fail "go mod tidy failed for games/$name (see the Go errors above); the folder was deleted, so new can run again"
-        Write-Summary 'new'
-        exit 1
-    }
-    Write-Check ok "created games/$name/ from tools/template/game/"
-    Write-Check info "next: golib run $name, and describe the game in games/$name/DESIGN.md"
-    Write-Summary 'new'
-    exit 0
-}
-
-function Invoke-Build([string[]]$Options) {
-    $game = Resolve-Game 'build' $Options
-    Assert-Toolchain 'build'
-    $exe = New-GameBuild $game
-    Write-Summary 'build'
-    if (-not $exe) { exit 1 }
-    exit 0
-}
-
-function Invoke-Run([string[]]$Options) {
-    $game = Resolve-Game 'run' $Options
-    Assert-Toolchain 'run'
-    $exe = New-GameBuild $game
-    if (-not $exe) {
-        Write-Summary 'run'
-        exit 1
-    }
-    Write-Check info "running build/$game/$game.exe with games/$game/ as the working directory"
-    $env:APPDATA = $script:UserAppData
-    Push-Location -LiteralPath (Join-Path $GamesDir $game)
-    try {
-        & $exe
-        $code = $LASTEXITCODE
-    } finally {
-        Pop-Location
-    }
-    Write-Host ''
-    Write-Host "run: $game exited with code $code"
-    if ($code -ne 0) { exit 1 }
-    exit 0
-}
-
-# shot [game] [frame...] [--input <script>]: numbers are frames, anything else names the game.
-function Invoke-Shot([string[]]$Options) {
-    $names = @()
-    $frames = @()
-    $inputScript = ''    # not $input: PowerShell reserves that name
-    for ($i = 0; $i -lt $Options.Count; $i++) {
-        $option = $Options[$i]
-        if ($option -eq '') {
-            Stop-WithUsageError 'shot got an empty argument'
-        } elseif ($option -eq '--input') {
-            if ($i + 1 -ge $Options.Count) { Stop-WithUsageError 'shot --input needs input to play, for example: --input "Enter@1 Right@30-90"' }
-            $i++
-            $inputScript = $Options[$i]
-        } elseif ($option.StartsWith('--input=')) {
-            $inputScript = $option.Substring('--input='.Length)
-        } elseif ($option.StartsWith('-')) {
-            Stop-WithUsageError "unknown option for shot: $option"
-        } elseif ($option -match '^[0-9]+$') {
-            if ($option.Length -gt 6 -or [int]$option -lt 1) { Stop-WithUsageError "frame numbers go from 1 to 999999 (got: $option)" }
-            $frames += [int]$option
-        } else {
-            $names += $option
-        }
-    }
-    if ($frames.Count -eq 0) { $frames = @($ShotDefaultFrame) }
-    $frames = @($frames | Sort-Object -Unique)
-    $game = Resolve-Game 'shot' $names
-    Assert-Toolchain 'shot'
-    $exe = New-GameBuild $game
-    if (-not $exe) {
-        Write-Summary 'shot'
-        exit 1
-    }
-
-    $shotsDir = Join-Path (Join-Path $BuildDir $game) 'shots'
-    Remove-Tree $shotsDir
-    New-Item -ItemType Directory -Force -Path $shotsDir | Out-Null
-    $playing = if ($inputScript) { ", playing $inputScript" } else { '' }
-    Write-Check info "running $game for $($frames[-1]) frame(s) in a hidden window$playing"
-    $env:APPDATA = $script:UserAppData
-    $env:GOLIB_SHOT_DIR = $shotsDir
-    $env:GOLIB_SHOT_FRAMES = $frames -join ','
-    $env:GOLIB_SHOT_INPUT = $inputScript    # an empty value removes the variable
-    $process = Start-Process -FilePath $exe -WorkingDirectory (Join-Path $GamesDir $game) -NoNewWindow -PassThru
-    $null = $process.Handle    # keeps the exit code readable after the process ends
-    # Stop a game that never finishes, so whoever waits for shot isn't stuck.
-    if (-not $process.WaitForExit($ShotTimeoutSeconds * 1000)) {
-        $process.Kill()
-        Write-Check fail "$game didn't finish within $ShotTimeoutSeconds seconds and was stopped (does Update or Draw loop forever?)"
-    } elseif ($process.ExitCode -ne 0) {
-        Write-Check fail "$game exited with code $($process.ExitCode) (see its output above)"
-    }
-    foreach ($frame in $frames) {
-        $name = 'frame-{0:D6}.png' -f $frame
-        if (Test-Path -LiteralPath (Join-Path $shotsDir $name) -PathType Leaf) {
-            Write-Check ok "frame ${frame}: build/$game/shots/$name"
-        } else {
-            Write-Check fail "frame ${frame}: no screenshot was saved"
-        }
-    }
-    Write-Summary 'shot'
-    if ($script:Failures -gt 0) { exit 1 }
-    exit 0
-}
-
-function Invoke-Test([string[]]$Options) {
-    if ($Options.Count -gt 0) { Stop-WithUsageError "test takes no options (got: $($Options -join ' '))" }
-    Assert-Toolchain 'test'
-    $modules = @(Get-Modules) + @($ToolModules | Where-Object { Test-Path -LiteralPath (Join-Path $Root "$_\go.mod") -PathType Leaf })
-    if ($modules.Count -eq 0) { Write-Check warn 'no Go modules to test' }
-    foreach ($module in $modules) {
-        $dir = Join-Path $Root $module
-        & $GoExe -C $dir vet ./... | Out-Host
-        if ($LASTEXITCODE -ne 0) {
-            Write-Check fail "${module}: go vet found problems (see above)"
-            continue
-        }
-        $usesRaylib = $ToolModules -notcontains $module
-        if ($usesRaylib) {
-            try {
-                $null = Sync-Raylib $dir
-            } catch {
-                Write-Check fail "${module}: $($_.Exception.Message)"
-                continue
-            }
-        }
-        # Test binaries load raylib.dll and libffi-8.dll when they start, so .tools/raylib/ must be
-        # on the search path.
-        $savedPath = $env:PATH
-        if ($usesRaylib) { $env:PATH = $RaylibDir + ';' + $env:PATH }
-        try {
-            & $GoExe -C $dir test ./... | Out-Host
-            $code = $LASTEXITCODE
-        } finally {
-            $env:PATH = $savedPath
-        }
-        if ($code -ne 0) {
-            Write-Check fail "${module}: tests failed (see above)"
-        } else {
-            Write-Check ok "${module}: vet and tests passed"
-        }
-    }
-    Write-Summary 'test'
-    if ($script:Failures -gt 0) { exit 1 }
-    exit 0
-}
-
 function Invoke-GoCommand([string[]]$Options) {
     if ($Options.Count -eq 0) { Stop-WithUsageError 'go needs arguments, for example: golib go version' }
     Assert-Toolchain 'go'
@@ -719,12 +501,12 @@ $options = @(if ($args.Count -gt 1) { $args[1..($args.Count - 1)] })
 switch -CaseSensitive ($command) {
     'setup'  { Invoke-Setup $options }
     'doctor' { Invoke-Doctor $options }
-    'new'    { Invoke-New $options }
-    'build'  { Invoke-Build $options }
+    'new'    { Invoke-Cli 'new' $options }
+    'build'  { Invoke-Cli 'build' $options }
     'dist'   { Invoke-Cli 'dist' $options }
-    'run'    { Invoke-Run $options }
-    'shot'   { Invoke-Shot $options }
-    'test'   { Invoke-Test $options }
+    'run'    { Invoke-Cli 'run' $options }
+    'shot'   { Invoke-Cli 'shot' $options }
+    'test'   { Invoke-Cli 'test' $options }
     'go'     { Invoke-GoCommand $options }
     'clean'  { Invoke-Clean $options }
     'help'   { Show-Help; exit 0 }

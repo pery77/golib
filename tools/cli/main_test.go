@@ -16,11 +16,11 @@ func TestRunUsage(t *testing.T) {
 		{[]string{"Dist"}, "golib: unknown command \"Dist\"\n"},
 	} {
 		var stdout, stderr bytes.Buffer
-		if code := run(tt.args, &stdout, &stderr); code != 2 {
-			t.Errorf("run(%q) = %d, want 2", tt.args, code)
+		if code := execute(tt.args, &stdout, &stderr); code != 2 {
+			t.Errorf("execute(%q) = %d, want 2", tt.args, code)
 		}
 		if want := tt.want + "Run \"golib help\" for usage.\n"; stderr.String() != want || stdout.Len() > 0 {
-			t.Errorf("run(%q) printed %q and %q, want %q on stderr only", tt.args, stdout.String(), stderr.String(), want)
+			t.Errorf("execute(%q) printed %q and %q, want %q on stderr only", tt.args, stdout.String(), stderr.String(), want)
 		}
 	}
 }
@@ -28,7 +28,7 @@ func TestRunUsage(t *testing.T) {
 func TestRunOutsideAProject(t *testing.T) {
 	// The test binary isn't in build/golib/ of a project.
 	var stdout, stderr bytes.Buffer
-	if code := run([]string{"dist"}, &stdout, &stderr); code != 1 {
+	if code := execute([]string{"dist"}, &stdout, &stderr); code != 1 {
 		t.Errorf("exit code %d, want 1", code)
 	}
 	if !strings.HasPrefix(stderr.String(), "golib: ") || !strings.Contains(stderr.String(), "start it with golib") || stdout.Len() > 0 {

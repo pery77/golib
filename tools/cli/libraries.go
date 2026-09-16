@@ -2,7 +2,9 @@ package main
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -106,6 +108,98 @@ func findLibraries(platform string, modules []goModule) ([]library, error) {
 		}
 	}
 	return libraries, nil
+}
+
+// syncRaylib makes sure .tools/raylib/ holds the libraries that debug builds
+// of the Go module in dir load, from the raylib-go and ffi versions it
+// requires, and returns their paths. .tools/raylib/VERSION names both
+// versions: the raylib-go version on the first line, then "ffi <version>".
+// The folder has no version in its name, so editor settings can point at it.
+// The scripts' setup fills the same folder: keep both in step.
+func (c *cli) syncRaylib(dir string) ([]string, error) {
+	output, err := c.goOutput(dir, "list", "-m", "-json", raylibModule, ffiModule)
+	var modules []goModule
+	if err == nil {
+		decoder := json.NewDecoder(bytes.NewReader(output))
+		for {
+			var m goModule
+			if err = decoder.Decode(&m); err != nil {
+				break
+			}
+			modules = append(modules, m)
+		}
+		if errors.Is(err, io.EOF) {
+			err = nil
+		}
+	}
+	found := map[string]goModule{}
+	for _, m := range modules {
+		found[m.Path] = m
+	}
+	raylib, ffi := found[raylibModule], found[ffiModule]
+	if err != nil || raylib.Version == "" || ffi.Version == "" {
+		return nil, fmt.Errorf("cannot find %s and %s for %s (run: golib setup)", raylibModule, ffiModule, c.shown(dir))
+	}
+	platform := c.goos + "/" + c.goarch
+	for _, m := range []goModule{raylib, ffi} {
+		if m.Dir == "" && (m.Path == raylibModule || libffiFiles[platform] != "") {
+			return nil, fmt.Errorf("%s %s is not downloaded yet (run: golib setup)", m.Path, m.Version)
+		}
+	}
+	libraries, err := findLibraries(platform, []goModule{raylib, ffi})
+	if err != nil {
+		return nil, err
+	}
+
+	folder := c.path(".tools", "raylib")
+	versionFile := filepath.Join(folder, "VERSION")
+	versions := raylib.Version + "\nffi " + ffi.Version + "\n"
+	ready := true
+	if data, err := os.ReadFile(versionFile); err != nil || string(data) != versions {
+		ready = false
+	}
+	var paths []string
+	for _, l := range libraries {
+		path := filepath.Join(folder, l.name)
+		paths = append(paths, path)
+		if !isFile(path) {
+			ready = false
+		}
+	}
+	if ready {
+		return paths, nil
+	}
+	if err := os.RemoveAll(folder); err != nil {
+		return nil, fmt.Errorf("cannot empty .tools/raylib/ (is a game still running?): %w", err)
+	}
+	if err := os.MkdirAll(folder, 0o755); err != nil {
+		return nil, err
+	}
+	for _, l := range libraries {
+		if err := l.copyTo(folder); err != nil {
+			return nil, fmt.Errorf("cannot copy %s into .tools/raylib/: %w", l.name, err)
+		}
+	}
+	return paths, os.WriteFile(versionFile, []byte(versions), 0o644)
+}
+
+// copyFile copies the file at source to target, replacing target.
+func copyFile(source, target string) error {
+	from, err := os.Open(source)
+	if err != nil {
+		return err
+	}
+	defer from.Close()
+	info, err := from.Stat()
+	if err != nil {
+		return err
+	}
+	to, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, info.Mode().Perm()|0o200)
+	if err != nil {
+		return err
+	}
+	_, err = io.Copy(to, from)
+	return errors.Join(err, to.Close())
 }
 
 // archivedFileName returns the name of the first file in a .tar.gz archive.

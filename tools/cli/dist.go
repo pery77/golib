@@ -187,10 +187,9 @@ func (c *cli) buildExecutable(game, tags, output string) (gameInfo, bool) {
 // the executable or inside it, and the files that the game's
 // assets/ATTRIBUTION.md lists.
 func (c *cli) gameNotices(game, exe string, modules []goModule, libraries []library, beside bool) []notice {
-	goVersion := "(unknown version)"
-	if data, err := os.ReadFile(c.path(".tools", "go", "VERSION")); err == nil {
-		first, _, _ := strings.Cut(string(data), "\n")
-		goVersion = strings.TrimPrefix(strings.TrimSpace(first), "go")
+	goVersion, err := c.goVersion()
+	if err != nil {
+		goVersion = "(unknown version)"
 	}
 	notices := []notice{{
 		title: "Go " + goVersion,

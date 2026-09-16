@@ -1,13 +1,16 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 )
 
 // project is a GoLib project: the folder that holds framework/, games/ and
@@ -17,11 +20,28 @@ type project struct {
 	root         string
 	goos, goarch string
 
-	// goRun runs the project's go command in dir, with its output going to
-	// the terminal. goOutput returns its standard output instead. Tests
-	// replace both.
-	goRun    func(dir string, args ...string) error
-	goOutput func(dir string, args ...string) ([]byte, error)
+	// runGo runs the project's go command, and runGame a game's executable.
+	// Tests replace both.
+	runGo   func(call goCall) ([]byte, error)
+	runGame func(run gameRun) (exitCode int, timedOut bool, err error)
+}
+
+// goCall is one run of the project's go command.
+type goCall struct {
+	dir  string
+	args []string
+	// env holds variables to set on top of GoLib's environment (goEnv).
+	env []string
+	// output makes runGo return the command's standard output instead of
+	// showing it.
+	output bool
+}
+
+// gameRun is one run of a game's executable.
+type gameRun struct {
+	exe, dir string
+	env      []string
+	timeout  time.Duration // 0 for none
 }
 
 // newProject returns the project that exe, this program, belongs to. The
@@ -32,23 +52,85 @@ func newProject(exe string, stdout, stderr io.Writer) (*project, error) {
 		return nil, fmt.Errorf("%s is not in the build/golib/ folder of a GoLib project: start it with golib, which builds it there", exe)
 	}
 	p := &project{root: root, goos: runtime.GOOS, goarch: runtime.GOARCH}
-	p.goRun = func(dir string, args ...string) error {
-		cmd := p.goCommand(dir, args)
-		cmd.Stdout, cmd.Stderr = stdout, stderr
-		return cmd.Run()
-	}
-	p.goOutput = func(dir string, args ...string) ([]byte, error) {
-		cmd := p.goCommand(dir, args)
+	p.runGo = func(call goCall) ([]byte, error) {
+		cmd := p.goCommand(call.dir, call.args)
+		cmd.Env = append(cmd.Env, call.env...)
 		cmd.Stderr = stderr
-		return cmd.Output()
+		if call.output {
+			return cmd.Output()
+		}
+		cmd.Stdout = stdout
+		return nil, cmd.Run()
+	}
+	p.runGame = func(run gameRun) (int, bool, error) {
+		cmd := exec.Command(run.exe)
+		cmd.Dir, cmd.Env = run.dir, run.env
+		cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, stdout, stderr
+		return waitForGame(cmd, run.timeout)
 	}
 	return p, nil
+}
+
+// waitForGame starts cmd and waits for it to end, or stops it after timeout,
+// unless timeout is 0. It returns the game's exit code.
+func waitForGame(cmd *exec.Cmd, timeout time.Duration) (exitCode int, timedOut bool, err error) {
+	// Ctrl+C reaches the game too, which ends; this program stays to say how.
+	interrupts := make(chan os.Signal, 1)
+	signal.Notify(interrupts, os.Interrupt)
+	defer signal.Stop(interrupts)
+
+	if err := cmd.Start(); err != nil {
+		return 0, false, err
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	var expired <-chan time.Time
+	if timeout > 0 {
+		timer := time.NewTimer(timeout)
+		defer timer.Stop()
+		expired = timer.C
+	}
+	select {
+	case err = <-done:
+	case <-expired:
+		_ = cmd.Process.Kill()
+		<-done
+		return 0, true, nil
+	}
+	var exit *exec.ExitError
+	if errors.As(err, &exit) {
+		return exit.ExitCode(), false, nil
+	}
+	return 0, false, err
+}
+
+// goRun runs the project's go command in dir, with its output going to the
+// terminal.
+func (p *project) goRun(dir string, args ...string) error {
+	_, err := p.runGo(goCall{dir: dir, args: args})
+	return err
+}
+
+// goOutput runs the project's go command in dir, and returns its standard
+// output. Errors still go to the terminal.
+func (p *project) goOutput(dir string, args ...string) ([]byte, error) {
+	return p.runGo(goCall{dir: dir, args: args, output: true})
 }
 
 // path returns the full path of a file or folder in the project, given as
 // the names along its path from the root.
 func (p *project) path(names ...string) string {
 	return filepath.Join(append([]string{p.root}, names...)...)
+}
+
+// shown returns how messages name path: from the project's root, with
+// forward slashes.
+func (p *project) shown(path string) string {
+	relative, err := filepath.Rel(p.root, path)
+	if err != nil || strings.HasPrefix(relative, "..") {
+		return path
+	}
+	return filepath.ToSlash(relative)
 }
 
 // executable returns the file name of a program called name on the platform.
@@ -103,6 +185,74 @@ func (p *project) goEnv() []string {
 		env = append(env, "XDG_CONFIG_HOME="+p.path(".tools", "config"))
 	}
 	return env
+}
+
+// libraryPath returns the variable that makes programs look for shared
+// libraries in dir before anywhere else, given the environment env: PATH on
+// Windows, DYLD_LIBRARY_PATH on macOS, LD_LIBRARY_PATH on Linux.
+func (p *project) libraryPath(dir string, env []string) string {
+	name := "LD_LIBRARY_PATH"
+	switch p.goos {
+	case "windows":
+		name = "PATH"
+	case "darwin":
+		name = "DYLD_LIBRARY_PATH"
+	}
+	if current := p.lookupEnv(env, name); current != "" {
+		dir += string(os.PathListSeparator) + current
+	}
+	return name + "=" + dir
+}
+
+// lookupEnv returns the value of the variable name in env: its last one, as
+// programs get it. Windows ignores the letter case of names.
+func (p *project) lookupEnv(env []string, name string) string {
+	value := ""
+	for _, entry := range env {
+		key, v, _ := strings.Cut(entry, "=")
+		if key == name || (p.goos == "windows" && strings.EqualFold(key, name)) {
+			value = v
+		}
+	}
+	return value
+}
+
+// gameEnv returns the environment a debug build of game runs with: the
+// user's, without any GOLIB_SHOT_ variables, with the game's build folder
+// on the library search path outside Windows, where the executable's own
+// folder is searched first anyway, and with extra.
+func (c *cli) gameEnv(game string, extra ...string) []string {
+	var env []string
+	for _, entry := range os.Environ() {
+		if !strings.HasPrefix(strings.ToUpper(entry), "GOLIB_SHOT_") {
+			env = append(env, entry)
+		}
+	}
+	if c.goos != "windows" {
+		env = append(env, c.libraryPath(c.path("build", game), env))
+	}
+	return append(env, extra...)
+}
+
+// toolModules are GoLib's own Go programs, which don't use raylib.
+var toolModules = []string{"tools/cli"}
+
+// modules returns the project's Go modules, as paths from the root with
+// forward slashes: the framework, each game, then GoLib's own programs.
+func (p *project) modules() []string {
+	var modules []string
+	if isFile(p.path("framework", "go.mod")) {
+		modules = append(modules, "framework")
+	}
+	for _, game := range p.games() {
+		modules = append(modules, "games/"+game)
+	}
+	for _, tool := range toolModules {
+		if isFile(p.path(filepath.FromSlash(tool), "go.mod")) {
+			modules = append(modules, tool)
+		}
+	}
+	return modules
 }
 
 // games returns the names of the games: the folders in games/ that hold a

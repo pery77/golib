@@ -2,7 +2,9 @@
 // tools/bootstrap/ build it into build/golib/ and start it for the commands
 // that have moved here, passing their arguments on; nobody needs to start it
 // by hand. Commands move here from the scripts one at a time (see
-// docs/roadmap.md). So far: dist.
+// docs/roadmap.md): so far new, build, run, shot, test and dist. The scripts
+// keep help, setup, doctor, clean and go, which have to work before this
+// program can be built.
 //
 // It prints what the scripts print: one fact per line, starting with [ok],
 // [info], [warn] or [fail], then a summary line. The exit code is 0 after
@@ -24,15 +26,20 @@ import (
 // start this program for these commands only, and list every command in
 // their help.
 var commands = map[string]func(c *cli, options []string) int{
-	"dist": (*cli).dist,
+	"new":   (*cli).newGame,
+	"build": (*cli).build,
+	"run":   (*cli).run,
+	"shot":  (*cli).shot,
+	"test":  (*cli).test,
+	"dist":  (*cli).dist,
 }
 
 func main() {
-	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+	os.Exit(execute(os.Args[1:], os.Stdout, os.Stderr))
 }
 
-// run runs the golib command in args and returns its exit code.
-func run(args []string, stdout, stderr io.Writer) int {
+// execute runs the golib command in args and returns its exit code.
+func execute(args []string, stdout, stderr io.Writer) int {
 	c := &cli{stdout: stdout, stderr: stderr}
 	if len(args) == 0 {
 		return c.usage("no command given")
