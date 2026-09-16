@@ -44,7 +44,7 @@ Known gaps, written down as the [definition of done](contributing.md#definition-
 - `golib shot` runs a game in a hidden window for a number of frames and saves screenshots an agent can inspect, and `--input` plays keys, mouse buttons and mouse moves in chosen updates, so shots reach every scene.
 - Deterministic runs, so results are reproducible: the fixed timestep, with exactly one update per frame in shots, and random numbers that start from the same seed in every shot.
 
-## M4: Content (in progress)
+## M4: Content (done, 2026-09-17)
 
 Postponed on 2026-09-15, resumed on 2026-09-17. Loading what Aseprite, Tiled and audio tools make, through `golib.ReadAsset`:
 
@@ -54,7 +54,8 @@ Postponed on 2026-09-15, resumed on 2026-09-17. Loading what Aseprite, Tiled and
 - Parallax follows Tiled's documentation: a layer is in place when the view's center is at the map's parallax origin. The code of Tiled 1.11's editor adds the origin to the view's center instead, a sign change made in a 2024 refactor, so a map that sets a parallax origin may look different in Tiled's editor; maps that leave it at 0, 0 look the same.
 - Not covered in maps: isometric, hexagonal and staggered maps, Tiled's JSON files, Zstandard data, collision shapes drawn on tiles in the tileset editor, and drawing object shapes and text.
 - Done on 2026-09-17: sound effects from files. `golib.NewSoundFile` reads a `.wav`, `.ogg`, `.mp3` or `.qoa` file from the assets folder into a `golib.Sound`, which plays like the sounds made in code, up to four copies at once. The file is read the first time the sound plays, even without a sound device, so a missing or unreadable file stops `Run` under `golib shot` too. `Sound.SetVolume` sets one sound's volume, for files and for sounds made in code. A test opens the sound device, silent, and plays WAV and QOA files; raylib can't write OGG or MP3 files to test with, so those were only tried with a broken file, which raylib's OGG reader rejects. FLAC is off in raylib-go's build. Not covered: looping, stopping and positional sounds.
-- Fonts.
+- Done on 2026-09-17: fonts. `golib.NewFont` reads a `.ttf` or `.otf` file, and `Screen.DrawText` and `Screen.TextWidth` take a `golib.TextOptions` with the font; without one they keep the built-in font. raylib draws a font's letters into a texture at one size, so GoLib makes one texture per size the game uses, the first time it uses it, and keeps the last eight per font, flushing raylib's pending drawing before it frees one. Every size starts with ASCII, and any other letter is added the first time it is drawn, so text in any language works with a font that has its letters. The file's table directory is checked before raylib reads it, because raylib's font reader trusts its input. Text is now drawn at whole pixels, with the built-in font too. Tests draw with a TrueType font the test builds itself, in a hidden window; tried by hand with Arial, Consolas, Spanish and Japanese text. Not covered: font collections, WOFF, bitmap fonts (`.fnt`, `.bdf`), letter and line spacing, and hinting, so small sizes look a little tight, as in raylib.
+- Next: `games/platformer` tries sprites, a Tiled map and sound files out.
 
 ## M5: Shipping (in progress)
 

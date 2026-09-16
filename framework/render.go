@@ -132,6 +132,7 @@ func (r *renderer) pass(i int) rl.RenderTexture2D {
 // sprites the game drew.
 func (r *renderer) close() {
 	loadedSprites.unloadAll()
+	loadedFonts.unloadAll()
 	rl.UnloadRenderTexture(r.scene)
 	for _, pass := range r.passes {
 		rl.UnloadRenderTexture(pass)

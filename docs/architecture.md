@@ -2,7 +2,7 @@
 
 How GoLib keeps the framework apart from the games made with it, and where game content comes from.
 
-> **Status:** the framework and game split exists since M1, with `framework/` and the example game, `games/platformer`. Tiled maps, Aseprite files and PNG images load since M4, and 3D models from Blender come in M6, after it (see [roadmap.md](roadmap.md)).
+> **Status:** the framework and game split exists since M1, with `framework/` and the example game, `games/platformer`. Tiled maps, Aseprite files, PNG images, fonts and sound files load since M4, and 3D models from Blender come in M6, after it (see [roadmap.md](roadmap.md)).
 
 ## Framework and games
 
@@ -94,7 +94,7 @@ GoLib has no visual editor, scene designer, level editor or asset GUI, and won't
 | 3D models | [Blender](https://www.blender.org) | glTF (`.glb`) exported from Blender | M6, with 3D support |
 | Music | Any music tool, or a tracker such as [MilkyTracker](https://milkytracker.org) | `.ogg`, `.mp3`, `.wav`, `.qoa`, and the tracker modules `.xm` and `.mod` | Done (M2): `golib.NewMusic` |
 | Sound effects | Any audio tool | `.wav`, `.ogg`, `.mp3`, `.qoa` | Done (M4): `golib.NewSoundFile`. GoLib also makes sound effects in code: `golib.NewSound` |
-| Fonts | Existing fonts whose license allows it | `.ttf` | M4 |
+| Fonts | Existing fonts whose license allows it | `.ttf`, `.otf` | Done (M4): `golib.NewFont` |
 
 Why:
 

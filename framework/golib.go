@@ -74,6 +74,11 @@
 // [NewSpriteSheet] cuts a PNG image into a grid of frames. [Screen.DrawSprite]
 // draws a frame, and an [Animation] says which frame to show as time passes.
 //
+// # Fonts
+//
+// [Screen.DrawText] writes in a built-in pixel font, or in a TrueType or
+// OpenType font read with [NewFont] and passed in [TextOptions].
+//
 // # Maps
 //
 // [NewMap] reads a level made in Tiled. [Screen.DrawMap] draws it, and

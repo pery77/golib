@@ -9,6 +9,7 @@ For AI agents writing game code with GoLib, and for anyone who wants the whole f
 | Start the game | `golib.Run(firstScene, golib.Config{...})` in `main` | [Game, Run and Config](#game-run-and-config) |
 | Change the game 60 times per second | `Update(input *golib.Input, dt float32)` | [Game, Run and Config](#game-run-and-config) |
 | Draw it | `Draw(screen *golib.Screen)` | [Drawing](#drawing) |
+| Write text in a font | `golib.NewFont`, `screen.DrawText` with `golib.TextOptions` | [Fonts](#fonts) |
 | Draw pictures and animations | `golib.NewSprite`, `golib.NewSpriteSheet`, `screen.DrawSprite`, `golib.Animation` | [Sprites and animations](#sprites-and-animations) |
 | Load levels made in Tiled | `golib.NewMap`, `screen.DrawMap`, `level.TilesIn`, `level.Objects` | [Maps](#maps) |
 | Read keys, mouse and gamepads | `input.KeyDown`, `input.KeyPressed`, `input.MousePosition`, `input.GamepadDown` | [Input](#input) |
@@ -72,11 +73,11 @@ func main() {
 4. **Pressed happens once, Down lasts.** `KeyPressed`, `MousePressed` and `GamepadPressed` are true in exactly one update per press: use them for jumping, firing and menus. `KeyDown`, `MouseDown` and `GamepadDown` stay true while held: use them for walking and thrust.
 5. **Use `Input` only in `Update`, and `Screen` only in `Draw`.** Don't keep them in the game's state.
 6. **Draw in screen pixels.** The screen is `Config.Width` by `Config.Height` pixels, with 0, 0 at the top-left corner and y growing downwards, whatever the window's size. `Run` scales it to the window, with black bars where the shapes differ, and reports the mouse in the same pixels.
-7. **Make sprites, maps, sounds, music and shaders once, and keep them.** Create them as package variables or in `main`, never in `Update`, in `Draw` or in a scene that is made again for every new game: each one loads the first time it is used and stays loaded until `Run` returns.
+7. **Make sprites, maps, fonts, sounds, music and shaders once, and keep them.** Create them as package variables or in `main`, never in `Update`, in `Draw` or in a scene that is made again for every new game: each one loads the first time it is used and stays loaded until `Run` returns.
 8. **Random numbers come from `RandomInt` and `RandomFloat`**, never from `math/rand`: `golib shot` starts them from the same seed, so its screenshots repeat.
 9. **No key quits on its own, not even Esc.** Call `Quit` when the game should end; the game decides what Esc does.
 10. **`SwitchScene` and `Quit` don't stop the current update.** The code after them still runs, so `return` right after unless that is what you want.
-11. **Mistakes stop the game with a message.** `Run` returns an error for a nil scene, a shader that doesn't compile, a bad `SetUniform`, a sprite, map, sound or music file that is missing or can't be read, a frame or animation a sprite doesn't have, or a layer a map doesn't have. `main` prints it with `log.Fatal`; read it, it says what to fix.
+11. **Mistakes stop the game with a message.** `Run` returns an error for a nil scene, a shader that doesn't compile, a bad `SetUniform`, a sprite, map, font, sound or music file that is missing or can't be read, a frame or animation a sprite doesn't have, or a layer a map doesn't have. `main` prints it with `log.Fatal`; read it, it says what to fix.
 12. **Sound is silent in tests and in `golib shot`.** `Play` is safe to call from the rules anyway, so they stay testable. You can't hear a game: tell the user what to listen for.
 
 ## Game, Run and Config
@@ -208,14 +209,15 @@ Gamepads are numbered 0 to 3, in the order they were connected; a one-player gam
 | `Screen.DrawCircle` | `DrawCircle(x, y, radius float32, color Color)`: a filled circle centered at x, y. |
 | `Screen.DrawLine` | `DrawLine(x1, y1, x2, y2, thickness float32, color Color)`: a straight line, thickness pixels wide. |
 | `Screen.DrawTriangle` | `DrawTriangle(x1, y1, x2, y2, x3, y3 float32, color Color)`: a filled triangle; the corners can come in any order. |
-| `Screen.DrawText` | `DrawText(text string, x, y, size float32, color Color)`: text with its top-left corner at x, y, size pixels high. |
-| `Screen.TextWidth` | `TextWidth(text string, size float32) float32`: how wide `DrawText` draws text, to center or right-align it. |
+| `Screen.DrawText` | `DrawText(text string, x, y, size float32, color Color, options ...TextOptions)`: text with its top-left corner at x, y, size pixels high, in the built-in font or the font the options give (see [Fonts](#fonts)). A `\n` starts a new line. |
+| `Screen.TextWidth` | `TextWidth(text string, size float32, options ...TextOptions) float32`: how wide `DrawText` draws text with the same options, to center or right-align it. |
 | `Screen.Width`, `Screen.Height` | `Width() float32`, `Height() float32`: the screen's size, from `Config`. |
 
 - Positions and sizes are `float32`. Untyped constants convert by themselves; other numbers need `float32(n)`.
 - Shapes are filled. For an outline, draw lines. For a rotated shape, work out its corners with `math.Sin` and `math.Cos` and draw triangles or lines, as `games/asteroids/scenes.go` does for the ship and the rocks. Pictures are sprites: see [Sprites and animations](#sprites-and-animations).
 - There is no camera. To scroll, subtract the camera's position from everything you draw.
-- There is one font, raylib's built-in pixel font, which is 10 pixels high: sizes that are multiples of 10 keep its pixels even.
+- The built-in font is raylib's pixel font, which is 10 pixels high: sizes that are multiples of 10 keep its pixels even. Other fonts come from files: see [Fonts](#fonts).
+- Text is drawn at whole pixels: x and y are rounded, so letters stay sharp.
 
 ```go
 // drawCentered draws text centered across the screen.
@@ -232,6 +234,38 @@ func drawCentered(screen *golib.Screen, text string, y, size float32, color goli
 The named colors are raylib's palette: `LightGray` `Gray` `DarkGray` `Yellow` `Gold` `Orange` `Pink` `Red` `Maroon` `Green` `Lime` `DarkGreen` `SkyBlue` `Blue` `DarkBlue` `Purple` `Violet` `DarkPurple` `Beige` `Brown` `DarkBrown` `White` `Black` `Magenta`, `RayWhite` (the off-white raylib uses for backgrounds) and `Blank` (fully transparent).
 
 Keep a game's colors together as named variables, as `games/platformer/main.go` does, so its look changes in one place.
+
+## Fonts
+
+A font is a `.ttf` or `.otf` file in the assets folder. Pass it to `DrawText` and `TextWidth` in a `TextOptions`.
+
+| Name | What it does |
+| --- | --- |
+| `Font` | A TrueType or OpenType font. |
+| `NewFont` | `NewFont(name string) *Font`: the `.ttf` or `.otf` file `name` in the assets folder, with forward slashes, as in `ReadAsset`. |
+| `TextOptions` | Changes how `DrawText` draws and `TextWidth` measures: `golib.TextOptions{Font: title}`. Pass at most one. |
+| `TextOptions.Font` | The font. Default: the built-in pixel font. |
+
+```go
+var (
+	titleFont = golib.NewFont("fonts/title.ttf") // games/<game>/assets/fonts/title.ttf
+	title     = golib.TextOptions{Font: titleFont}
+)
+
+func (s *titleScene) Draw(screen *golib.Screen) {
+	screen.Clear(golib.Black)
+	name := "Cave Runner"
+	x := (screen.Width() - screen.TextWidth(name, 64, title)) / 2
+	screen.DrawText(name, x, 120, 64, golib.Gold, title)
+	screen.DrawText("Press Enter", 20, 300, 20, golib.White) // the built-in font
+}
+```
+
+- **Draw text at a few sizes.** GoLib draws a font's letters at each size the first time the game uses it, so text stays sharp, and keeps the last eight sizes of each font. Text whose size changes every frame, such as a title that grows, makes that work every frame: grow it in a few steps instead.
+- Any letter the font has can be drawn, in any language: letters beyond English, such as ñ, é or ü, are added the first time they are drawn. A letter the font doesn't have shows as a question mark.
+- The file is read the first time text is drawn with the font, so a missing or broken file stops `Run` under `golib shot` too. Measuring and drawing need the window, so they work only in `Draw`.
+- Font collections (`.ttc`), web fonts (`.woff`) and bitmap fonts (`.fnt`) aren't read. Pixel fonts in `.ttf` look best at the sizes they were made for, or whole multiples of them.
+- Only use fonts the user provides, whose license allows shipping them with a game, such as the SIL Open Font License, and write where each came from, and its license, in `assets/ATTRIBUTION.md`. The fonts that come with the computer usually can't be shipped.
 
 ## Sprites and animations
 
@@ -700,7 +734,7 @@ func main() {
 }
 ```
 
-Games read their own data files this way, such as levels in text or JSON; `NewSprite`, `NewSpriteSheet`, `NewMap`, `NewSoundFile` and `NewMusic` read the assets folder the same way. Fonts can't be loaded yet.
+Games read their own data files this way, such as levels in text or JSON; `NewSprite`, `NewSpriteSheet`, `NewMap`, `NewFont`, `NewSoundFile` and `NewMusic` read the assets folder the same way.
 
 ## Quitting
 
@@ -751,7 +785,6 @@ import rl "github.com/gen2brain/raylib-go/raylib"
 | --- | --- | --- |
 | Parts of an image that aren't on a grid, Aseprite slices and tilemap layers | Not on the roadmap yet | Save each part as its own PNG file, or put the parts on a grid |
 | Isometric and hexagonal maps; drawing a map's shapes and text | Not on the roadmap yet | Orthogonal maps; draw what objects stand for with sprites and shapes |
-| Fonts | M4, in progress | The built-in font of `DrawText` |
 | Looping sounds, stopping a sound | Not on the roadmap yet | Short sounds, played again |
 | Camera, vectors, rotation, physics | Not on the roadmap yet | `float32` math in the game: subtract a camera position, rotate with `math.Sin` and `math.Cos` |
 | Trigger pressure, vibration | Not on the roadmap yet | Triggers read as buttons |

@@ -2,7 +2,7 @@
 
 Make games in **Go**, powered by **[raylib](https://www.raylib.com)**, designed so an AI agent can turn a single prompt into a playable game.
 
-> **Status: early development.** GoLib installs its own Go toolchain, runs games with keyboard, mouse and gamepad input, shapes, text, random numbers, scenes, fullscreen, post-processing shaders, sprites and animations from PNG and Aseprite files, Tiled maps, sound effects made in code or read from files, and music, and builds them into a zip to share, and `golib new` starts a new game; fonts come next: see the [roadmap](docs/roadmap.md).
+> **Status: early development.** GoLib installs its own Go toolchain, runs games with keyboard, mouse and gamepad input, shapes, text, random numbers, scenes, fullscreen, post-processing shaders, sprites and animations from PNG and Aseprite files, Tiled maps, fonts, sound effects made in code or read from files, and music, and builds them into a zip to share, and `golib new` starts a new game; 3D comes later: see the [roadmap](docs/roadmap.md).
 
 ## Quick start
 
@@ -44,14 +44,14 @@ Then describe the game you want, for example:
 
 In Claude Code, `/make-game <your description>` runs the full game-making playbook.
 
-The framework is still small (shapes, text, sprites, Tiled maps, keyboard, mouse, gamepad, scenes, screen effects, sound effects and music), so for now the agent tells you what is missing instead of faking it.
+The framework is still small (shapes, text and fonts, sprites, Tiled maps, keyboard, mouse, gamepad, scenes, screen effects, sound effects and music), so for now the agent tells you what is missing instead of faking it.
 
 ## How games are made
 
 - **Your game and the framework are separate.** The framework lives in `framework/` and each game in its own folder under `games/`. You make a game without touching the framework, and a game moves to a newer GoLib by copying its folder into the newer template (see [Distribution](docs/architecture.md#distribution)).
 - **No built-in editors.** Maps are made in [Tiled](https://www.mapeditor.org), sprites in [Aseprite](https://www.aseprite.org) and 3D models in [Blender](https://www.blender.org); GoLib loads their files. You only need these tools to edit content: games build and run without them.
 
-GoLib reads Tiled maps, Aseprite files and PNG images already; Blender models come with 3D in M6: see the [architecture](docs/architecture.md).
+GoLib reads Tiled maps, Aseprite files, PNG images, fonts and sound files already; Blender models come with 3D in M6: see the [architecture](docs/architecture.md).
 
 ## Commands
 

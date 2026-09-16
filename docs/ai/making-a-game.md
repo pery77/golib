@@ -2,7 +2,7 @@
 
 For AI agents. Follow it when a user asks you to create a game, or to change the game in this project.
 
-> **Status:** the framework is still small (M2, Framework basics, is done): a window, a fixed-step game loop, keyboard, mouse and gamepad input, random numbers, rectangles, circles, lines, triangles and text, sprites and animations from PNG and Aseprite files, Tiled maps, fullscreen, post-processing shaders, sound effects made in code or read from files, music from the game's `assets/` folder, reading files from `assets/`, scenes with `golib.SwitchScene`, quitting with `golib.Quit`, screenshots through `golib shot` and zips to share through `golib dist`. Fonts are in progress (M4); check the "Project status" table in [AGENTS.md](../../AGENTS.md), and the end of [framework/README.md](../../framework/README.md) for what else is missing. If the game needs something that doesn't exist yet, tell the user. Don't build a private engine to fill the gap.
+> **Status:** the framework is still small (M2, Framework basics, is done): a window, a fixed-step game loop, keyboard, mouse and gamepad input, random numbers, rectangles, circles, lines, triangles and text, sprites and animations from PNG and Aseprite files, Tiled maps, fonts, fullscreen, post-processing shaders, sound effects made in code or read from files, music from the game's `assets/` folder, reading files from `assets/`, scenes with `golib.SwitchScene`, quitting with `golib.Quit`, screenshots through `golib shot` and zips to share through `golib dist`. Check the "Project status" table in [AGENTS.md](../../AGENTS.md), and the end of [framework/README.md](../../framework/README.md) for what else is missing. If the game needs something that doesn't exist yet, tell the user. Don't build a private engine to fill the gap.
 
 ## Goal
 
@@ -56,7 +56,7 @@ Before writing code, read [framework/README.md](../../framework/README.md), the 
 | Input | Keyboard (arrow keys and WASD) and gamepad 0 (d-pad or left stick, A to act, Start to pause) together; mouse when the genre needs it |
 | Art | Simple shapes and a small, coherent color palette drawn in code, or sprites when the user provides art (PNG or Aseprite files). No external files unless the user provides them |
 | Audio | Sound effects for every action that needs feedback, made in code with `golib.NewSound`, or from files the user provides with `golib.NewSoundFile`; music only from a file the user provides, with `golib.NewMusic`. The game must stay fully playable muted |
-| Text | English, readable at a glance; controls shown on the title screen |
+| Text | English, readable at a glance; controls shown on the title screen. The built-in font, or a font file the user provides, with `golib.NewFont` |
 | Scope | One polished core loop rather than many half-finished features |
 
 ## 2. Write the design brief

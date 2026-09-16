@@ -1,8 +1,6 @@
 package golib
 
 import (
-	"math"
-
 	rl "github.com/gen2brain/raylib-go/raylib"
 )
 
@@ -54,22 +52,21 @@ func (s *Screen) DrawTriangle(x1, y1, x2, y2, x3, y3 float32, color Color) {
 	rl.DrawTriangle(rl.Vector2{X: x1, Y: y1}, rl.Vector2{X: x2, Y: y2}, rl.Vector2{X: x3, Y: y3}, color)
 }
 
-// DrawText draws text in the default font. x and y are the top-left corner and
-// size is the text height, all in pixels.
-func (s *Screen) DrawText(text string, x, y, size float32, color Color) {
-	rl.DrawTextEx(rl.GetFontDefault(), text, rl.Vector2{X: x, Y: y}, size, textSpacing(size), color)
+// DrawText draws text with its top-left corner at x, y, size pixels high, in
+// GoLib's built-in pixel font unless options give a [Font]. Text is drawn at
+// whole pixels, rounding x and y, so that its letters stay sharp. A line break
+// starts a new line, 2 pixels below the last.
+func (s *Screen) DrawText(text string, x, y, size float32, color Color, options ...TextOptions) {
+	font, spacing := textFont("DrawText", text, size, options)
+	rl.DrawTextEx(font, text, rl.Vector2{X: wholePixel(x), Y: wholePixel(y)}, size, spacing, color)
 }
 
-// TextWidth returns the width, in pixels, of text drawn by DrawText at size.
+// TextWidth returns the width, in pixels, of text drawn by DrawText at size
+// with the same options, or of its longest line.
 // Use it to center or right-align text:
 //
 //	x := (screen.Width() - screen.TextWidth(message, 40)) / 2
-func (s *Screen) TextWidth(text string, size float32) float32 {
-	return rl.MeasureTextEx(rl.GetFontDefault(), text, size, textSpacing(size)).X
-}
-
-// textSpacing matches raylib's DrawText: one pixel between letters for every
-// 10 pixels of text height.
-func textSpacing(size float32) float32 {
-	return float32(math.Floor(float64(max(size, 10)) / 10))
+func (s *Screen) TextWidth(text string, size float32, options ...TextOptions) float32 {
+	font, spacing := textFont("TextWidth", text, size, options)
+	return rl.MeasureTextEx(font, text, size, spacing).X
 }
