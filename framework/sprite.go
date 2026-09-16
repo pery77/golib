@@ -368,6 +368,7 @@ type DrawOptions struct {
 
 // DrawSprite draws frame number frame of sprite with its top-left corner at x,
 // y, at its own size. Pass one DrawOptions to flip, scale, rotate or tint it.
+// x and y are rounded to whole pixels, so that pixel art stays sharp.
 // Frames are numbered from 0; a frame the sprite doesn't have stops Run with
 // an error.
 //
@@ -414,7 +415,7 @@ func (o DrawOptions) draw(texture rl.Texture2D, place image.Rectangle, x, y floa
 	if o.FlipY {
 		source.Height = -height
 	}
-	dest := rl.Rectangle{X: x, Y: y, Width: width * scale, Height: height * scale}
+	dest := rl.Rectangle{X: wholePixel(x), Y: wholePixel(y), Width: width * scale, Height: height * scale}
 	origin := rl.Vector2{X: o.OriginX * scale, Y: o.OriginY * scale}
 	rl.DrawTexturePro(texture, source, dest, origin, o.Rotation, tint)
 }

@@ -4,12 +4,9 @@ import (
 	"bytes"
 	"encoding/binary"
 	"os"
-	"runtime"
 	"slices"
 	"sort"
 	"testing"
-
-	rl "github.com/gen2brain/raylib-go/raylib"
 )
 
 // testGlyph is a glyph of testFont: a filled box, in font units, and how far
@@ -171,25 +168,11 @@ func TestFontFiles(t *testing.T) {
 }
 
 func TestFontsInAWindow(t *testing.T) {
-	if runtime.GOOS == "linux" && os.Getenv("DISPLAY") == "" && os.Getenv("WAYLAND_DISPLAY") == "" {
-		t.Skip("no display to open a window on")
-	}
-	// OpenGL draws from the thread that opened the window, and tests run on
-	// any thread: keep this one.
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
-	config := Config{Title: "font test", Width: 64, Height: 32}
-	if err := openWindow(config, true); err != nil {
-		t.Skip(err)
-	}
-	defer rl.CloseWindow()
-	render := newRenderer(config)
-	defer render.close()
 	useAssets(t, map[string][]byte{"test.ttf": testFont(), "nocmap.ttf": testFont("cmap")})
+	screen, capture := openTestWindow(t, 64, 32)
 
 	font := NewFont("test.ttf")
 	options := TextOptions{Font: font}
-	screen := &Screen{width: 64, height: 32}
 	// A is 6 pixels wide with the space after it, B is 7.
 	if got := screen.TextWidth("AB", 10, options); got != 13 {
 		t.Errorf("TextWidth(AB, 10) = %v, want 13", got)
@@ -217,25 +200,22 @@ func TestFontsInAWindow(t *testing.T) {
 	}
 
 	// The text is drawn at whole pixels, with its top at y.
-	rl.BeginTextureMode(render.scene)
-	screen.Clear(Blank)
-	screen.DrawText("A", 10.4, 3.5, 10, White, options)
-	screen.DrawText("B", 30, 0, 10, Red) // the built-in font
-	rl.EndTextureMode()
-	image := rl.LoadImageFromTexture(render.scene.Texture)
-	rl.ImageFlipVertical(image)
+	picture := capture(func() {
+		screen.DrawText("A", 10.4, 3.5, 10, White, options)
+		screen.DrawText("B", 30, 0, 10, Red) // the built-in font
+	})
 	for _, test := range []struct {
-		x, y int32
+		x, y int
 		lit  bool
 	}{{10, 4, true}, {14, 4, true}, {10, 11, true}, {14, 11, true}, {9, 4, false}, {15, 4, false}, {10, 3, false}, {10, 12, false}} {
-		if lit := rl.GetImageColor(*image, test.x, test.y).A > 0; lit != test.lit {
+		if lit := picture.NRGBAAt(test.x, test.y).A > 0; lit != test.lit {
 			t.Errorf("pixel %d, %d lit: %v, want %v", test.x, test.y, lit, test.lit)
 		}
 	}
 	builtIn := 0
-	for y := int32(0); y < 10; y++ {
-		for x := int32(30); x < 40; x++ {
-			if rl.GetImageColor(*image, x, y).A > 0 {
+	for y := range 10 {
+		for x := 30; x < 40; x++ {
+			if picture.NRGBAAt(x, y).A > 0 {
 				builtIn++
 			}
 		}
@@ -243,7 +223,6 @@ func TestFontsInAWindow(t *testing.T) {
 	if builtIn == 0 {
 		t.Error("the built-in font drew nothing")
 	}
-	rl.UnloadImage(image)
 
 	// Only the sizes used last stay.
 	for size := float32(11); size <= 19; size++ {

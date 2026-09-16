@@ -351,7 +351,7 @@ var (
 - Aseprite files are read as Aseprite shows them: visible layers only, with their opacity and blend mode, groups, linked cels and z-indexes. Hidden and reference layers aren't drawn. A tag plays forward, in reverse or in ping-pong, as many times as its Repeat field says (an empty field loops forever, and `Once` is then false); a repeated tag name uses the first tag. Slices and user data are ignored. A visible tilemap layer stops `Run` with an error.
 - Keep the `.aseprite` file in the assets folder: the game reads it as it is, so there is no export step to forget.
 - For a PNG sheet with no animation data, write the animations in code, as above. Only frames on a grid can be drawn; there is no way yet to draw a part of an image of another size.
-- Pixels stay sharp when a sprite is scaled: sprites are drawn without smoothing. For pixel art, also set `Config.PixelArt` with a small screen.
+- Pixels stay sharp: sprites are drawn without smoothing, at whole pixels, rounding x and y, as maps and text are. For pixel art, also set `Config.PixelArt` with a small screen, and round the camera's position too, so everything moves together.
 - `Width`, `Height`, `Frames` and `Animation` read the file, so they work in tests and before `Run`.
 - Only use art the user provides, and write where it came from, and its license, in `assets/ATTRIBUTION.md`, as `games/platformer` does.
 
