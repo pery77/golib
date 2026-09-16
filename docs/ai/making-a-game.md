@@ -2,7 +2,7 @@
 
 For AI agents. Follow it when a user asks you to create a game, or to change the game in this project.
 
-> **Status:** the framework is still small (M2, Framework basics, is done): a window, a fixed-step game loop, keyboard, mouse and gamepad input, random numbers, rectangles, circles, lines, triangles and text, sprites and animations from PNG and Aseprite files, fullscreen, post-processing shaders, sound effects made in code, music from the game's `assets/` folder, reading files from `assets/`, scenes with `golib.SwitchScene`, quitting with `golib.Quit`, screenshots through `golib shot` and zips to share through `golib dist`. Maps, fonts and sound files are in progress (M4); check the "Project status" table in [AGENTS.md](../../AGENTS.md), and the end of [framework/README.md](../../framework/README.md) for what else is missing. If the game needs something that doesn't exist yet, tell the user. Don't build a private engine to fill the gap.
+> **Status:** the framework is still small (M2, Framework basics, is done): a window, a fixed-step game loop, keyboard, mouse and gamepad input, random numbers, rectangles, circles, lines, triangles and text, sprites and animations from PNG and Aseprite files, Tiled maps, fullscreen, post-processing shaders, sound effects made in code, music from the game's `assets/` folder, reading files from `assets/`, scenes with `golib.SwitchScene`, quitting with `golib.Quit`, screenshots through `golib shot` and zips to share through `golib dist`. Fonts and sound files are in progress (M4); check the "Project status" table in [AGENTS.md](../../AGENTS.md), and the end of [framework/README.md](../../framework/README.md) for what else is missing. If the game needs something that doesn't exist yet, tell the user. Don't build a private engine to fill the gap.
 
 ## Goal
 
@@ -130,11 +130,53 @@ GoLib has no editors. Content comes from established tools, and the game loads t
 | 3D models | Blender |
 | Music | A file the user provides: a tracker module (XM, MOD) or OGG, MP3, WAV or QOA |
 
-- Files the user provides go in the game's `assets/` folder, with paths relative to that folder: load pictures with `golib.NewSprite("sprites/player.aseprite")` or `golib.NewSpriteSheet("sprites/player.png", 32, 32)`, music with `golib.NewMusic`, and other files with `golib.ReadAsset`. Keep Aseprite files as `.aseprite`: the game reads them as they are, with their tags as animations.
+- Files the user provides go in the game's `assets/` folder, with paths relative to that folder: load pictures with `golib.NewSprite("sprites/player.aseprite")` or `golib.NewSpriteSheet("sprites/player.png", 32, 32)`, maps with `golib.NewMap("maps/level1.tmx")`, music with `golib.NewMusic`, and other files with `golib.ReadAsset`. Keep Aseprite files as `.aseprite`: the game reads them as they are, with their tags as animations.
 - Source files the game doesn't load, such as a `.blend` file next to the `.glb` exported from it, go in the game's `sources/` folder, with the same paths as in `assets/`. Everything in `assets/` ships in the dist build; `sources/` doesn't.
 - A game with an `assets/` folder also needs `assets.go` next to `main.go`, so `golib dist` embeds the folder. Copy it exactly from the `golib.EmbedAssets` documentation in `framework/assets.go`. `golib dist` stops and says so when it is missing.
-- When a game has levels and the framework loads Tiled maps, write the levels as Tiled maps instead of arrays in code, so the user can open and change them in Tiled.
+- When a game has levels, make them Tiled maps instead of arrays in code, so the user can open and change them in Tiled. A map is XML you can write directly: see the example below and the Maps section of [framework/README.md](../../framework/README.md). Put the tileset in its own `.tsx` file, so every level shares it, and mark tiles there with properties such as `solid`, not by ID in code.
 - Never build a level editor, sprite editor or other content tool, inside the game or next to it.
+
+A level written by hand, `assets/maps/level1.tmx`, with the tileset `assets/maps/tiles.tsx` for the 16 by 16 pixel tiles of `assets/sprites/tiles.png`. Tile layer data is one tile per cell, row by row: 0 for none, else the tile's ID in the tileset plus the tileset's `firstgid`.
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<map version="1.10" orientation="orthogonal" renderorder="right-down" width="8" height="4" tilewidth="16" tileheight="16" infinite="0" nextlayerid="3" nextobjectid="3">
+ <tileset firstgid="1" source="tiles.tsx"/>
+ <layer id="1" name="ground" width="8" height="4">
+  <data encoding="csv">
+0,0,0,0,0,0,0,0,
+0,0,0,0,0,3,3,0,
+0,0,0,0,0,0,0,0,
+1,1,1,1,1,1,1,1
+</data>
+ </layer>
+ <objectgroup id="2" name="things">
+  <object id="1" name="start" x="16" y="32">
+   <point/>
+  </object>
+  <object id="2" name="exit" x="96" y="16" width="16" height="32"/>
+ </objectgroup>
+</map>
+```
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<tileset version="1.10" name="tiles" tilewidth="16" tileheight="16" tilecount="8" columns="4">
+ <image source="../sprites/tiles.png" width="64" height="32"/>
+ <tile id="0">
+  <properties>
+   <property name="solid" type="bool" value="true"/>
+  </properties>
+ </tile>
+ <tile id="2">
+  <properties>
+   <property name="solid" type="bool" value="true"/>
+  </properties>
+ </tile>
+</tileset>
+```
+
+Keep `id`, `nextlayerid` and `nextobjectid` unique and increasing, as Tiled does, so the file opens cleanly in Tiled. Check a new map with a test that reads it (see "Testing a game" in the API guide) and with `golib shot`.
 
 ## Code organization
 

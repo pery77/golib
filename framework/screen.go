@@ -11,6 +11,7 @@ import (
 // growing downwards. Later drawing covers earlier drawing.
 type Screen struct {
 	width, height float32
+	time          float32 // seconds of game time, for animated map tiles
 }
 
 // Width returns the screen width in pixels.

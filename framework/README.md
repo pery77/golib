@@ -10,6 +10,7 @@ For AI agents writing game code with GoLib, and for anyone who wants the whole f
 | Change the game 60 times per second | `Update(input *golib.Input, dt float32)` | [Game, Run and Config](#game-run-and-config) |
 | Draw it | `Draw(screen *golib.Screen)` | [Drawing](#drawing) |
 | Draw pictures and animations | `golib.NewSprite`, `golib.NewSpriteSheet`, `screen.DrawSprite`, `golib.Animation` | [Sprites and animations](#sprites-and-animations) |
+| Load levels made in Tiled | `golib.NewMap`, `screen.DrawMap`, `level.TilesIn`, `level.Objects` | [Maps](#maps) |
 | Read keys, mouse and gamepads | `input.KeyDown`, `input.KeyPressed`, `input.MousePosition`, `input.GamepadDown` | [Input](#input) |
 | Check collisions | `golib.Rectangle` and its `Overlaps` | [Rectangles and collisions](#rectangles-and-collisions) |
 | Move between title, play, pause and game over | `golib.SwitchScene` | [Scenes](#scenes) |
@@ -71,11 +72,11 @@ func main() {
 4. **Pressed happens once, Down lasts.** `KeyPressed`, `MousePressed` and `GamepadPressed` are true in exactly one update per press: use them for jumping, firing and menus. `KeyDown`, `MouseDown` and `GamepadDown` stay true while held: use them for walking and thrust.
 5. **Use `Input` only in `Update`, and `Screen` only in `Draw`.** Don't keep them in the game's state.
 6. **Draw in screen pixels.** The screen is `Config.Width` by `Config.Height` pixels, with 0, 0 at the top-left corner and y growing downwards, whatever the window's size. `Run` scales it to the window, with black bars where the shapes differ, and reports the mouse in the same pixels.
-7. **Make sprites, sounds, music and shaders once, and keep them.** Create them as package variables or in `main`, never in `Update`, in `Draw` or in a scene that is made again for every new game: each one loads the first time it is used and stays loaded until `Run` returns.
+7. **Make sprites, maps, sounds, music and shaders once, and keep them.** Create them as package variables or in `main`, never in `Update`, in `Draw` or in a scene that is made again for every new game: each one loads the first time it is used and stays loaded until `Run` returns.
 8. **Random numbers come from `RandomInt` and `RandomFloat`**, never from `math/rand`: `golib shot` starts them from the same seed, so its screenshots repeat.
 9. **No key quits on its own, not even Esc.** Call `Quit` when the game should end; the game decides what Esc does.
 10. **`SwitchScene` and `Quit` don't stop the current update.** The code after them still runs, so `return` right after unless that is what you want.
-11. **Mistakes stop the game with a message.** `Run` returns an error for a nil scene, a shader that doesn't compile, a bad `SetUniform`, a sprite or music file that is missing or can't be read, or a frame or animation a sprite doesn't have. `main` prints it with `log.Fatal`; read it, it says what to fix.
+11. **Mistakes stop the game with a message.** `Run` returns an error for a nil scene, a shader that doesn't compile, a bad `SetUniform`, a sprite, map or music file that is missing or can't be read, a frame or animation a sprite doesn't have, or a layer a map doesn't have. `main` prints it with `log.Fatal`; read it, it says what to fix.
 12. **Sound is silent in tests and in `golib shot`.** `Play` is safe to call from the rules anyway, so they stay testable. You can't hear a game: tell the user what to listen for.
 
 ## Game, Run and Config
@@ -320,6 +321,101 @@ var (
 - `Width`, `Height`, `Frames` and `Animation` read the file, so they work in tests and before `Run`.
 - Only use art the user provides, and write where it came from, and its license, in `assets/ATTRIBUTION.md`, as `games/platformer` does.
 
+## Maps
+
+A map is a level made in [Tiled](https://www.mapeditor.org): a `.tmx` file in the assets folder, with the tilesets (`.tsx`), templates (`.tx`) and PNG images it uses. The game reads the files as Tiled saves them, so there is no export step.
+
+| Name | What it does |
+| --- | --- |
+| `Map` | A Tiled map: its layers, its tilesets and its objects. |
+| `NewMap` | `NewMap(name string) *Map`: the `.tmx` file `name`, relative to the assets folder, as in `ReadAsset`. |
+| `Screen.DrawMap` | `DrawMap(level *Map, x, y float32)`: draws every visible layer with the map's top-left corner at x, y, over the map's background color if Tiled gives it one. To follow a camera, pass the camera's position, negated. |
+| `Screen.DrawMapLayer` | `DrawMapLayer(level *Map, layer string, x, y float32)`: draws one layer, even one hidden in Tiled. Draw a map layer by layer to put sprites between its layers. |
+| `Map.Width`, `Map.Height` | `Width() float32`, `Height() float32`: the map's size, in pixels. |
+| `Map.TileWidth`, `Map.TileHeight` | `TileWidth() float32`, `TileHeight() float32`: the size of the map's grid cells, in pixels. |
+| `Map.Tile` | `Tile(layer string, column, row int) Tile`: the tile in a cell of a tile layer. Columns and rows count from 0 at the top-left corner; outside the layer, cells are empty. |
+| `Map.TileAt` | `TileAt(layer string, x, y float32) Tile`: the tile of a tile layer under a point, in the map's pixels. |
+| `Map.TilesIn` | `TilesIn(layer string, area Rectangle) []MapTile`: the tiles of a tile layer whose cells overlap `area`, row by row, leaving out empty cells. Use it for collisions. |
+| `Map.Objects` | `Objects(layer string) []MapObject`: the objects of an object layer, in Tiled's order, or of every object layer for `""`. |
+| `Map.Object` | `Object(name string) (MapObject, bool)`: the first object with that name, such as the player's start, and whether there is one. |
+| `Map.Properties` | `Properties() Properties`: the map's custom properties. |
+| `Map.LayerProperties` | `LayerProperties(layer string) Properties`: a layer's custom properties, with those of the groups around it. |
+
+| Name | What it is |
+| --- | --- |
+| `Tile` | A tile: which one it is, and what its tileset says about it. |
+| `Tile.Tileset` | The name of its tileset; `""` for an empty cell. |
+| `Tile.ID` | Its ID in the tileset, as Tiled shows it. |
+| `Tile.Class` | Its class in the tileset. |
+| `Tile.Properties` | Its custom properties in the tileset. |
+| `Tile.Empty` | `Empty() bool`: the cell has no tile. |
+| `MapTile` | A `Tile` in a tile layer, with its cell: `MapTile.Column`, `MapTile.Row` and, embedded, the cell's `Rectangle` in the map's pixels, so `tile.X` and `tile.Overlaps` work. |
+| `MapObject` | An object of an object layer. Its `Rectangle` is embedded: X, Y is its top-left corner and Width, Height its size, in the map's pixels, before rotation. |
+| `MapObject.ID` | Tiled's ID for it, unique in the map. |
+| `MapObject.Name` | Its name. |
+| `MapObject.Class` | Its class (type in older files). A tile object without one has its tile's. |
+| `MapObject.Layer` | The name of its object layer. |
+| `MapObject.Shape` | `"rectangle"`, `"ellipse"`, `"point"`, `"polygon"`, `"polyline"`, `"text"` or `"tile"`. |
+| `MapObject.Rotation` | Degrees, clockwise, around the point Tiled shows as its position. |
+| `MapObject.Points` | A polygon's or a polyline's corners, from the object's X, Y. |
+| `MapObject.Text` | A text object's text. |
+| `MapObject.Tile` | A tile object's tile. |
+| `MapObject.Visible` | Whether it is visible in Tiled. Hidden tile objects aren't drawn. |
+| `MapObject.Properties` | Its custom properties. A tile object also has its tile's, and its own win. |
+| `Vector2` | A point in pixels, with `Vector2.X` and `Vector2.Y`. |
+| `Properties` | Custom properties by name, as the text Tiled saves (a `map[string]string`). Its methods read one as a value, and give the zero value when it is missing or isn't one. |
+| `Properties.String` | `String(name string) string` |
+| `Properties.Int` | `Int(name string) int` |
+| `Properties.Float` | `Float(name string) float32` |
+| `Properties.Bool` | `Bool(name string) bool` |
+| `Properties.Color` | `Color(name string) Color` |
+
+```go
+var level = golib.NewMap("maps/level1.tmx") // games/<game>/assets/maps/level1.tmx
+
+func newPlayScene() *playScene {
+	s := &playScene{}
+	if start, found := level.Object("start"); found { // a point object named start
+		s.player.x, s.player.y = start.X, start.Y
+	}
+	for _, coin := range level.Objects("coins") { // an object layer
+		s.coins = append(s.coins, coin.Rectangle)
+	}
+	return s
+}
+
+// solidTiles returns the solid tiles of the ground layer that box overlaps:
+// in Tiled, the tileset gives those tiles a bool property named solid.
+func solidTiles(box golib.Rectangle) []golib.MapTile {
+	var solid []golib.MapTile
+	for _, tile := range level.TilesIn("ground", box) {
+		if tile.Properties.Bool("solid") {
+			solid = append(solid, tile)
+		}
+	}
+	return solid
+}
+
+func (s *playScene) Draw(screen *golib.Screen) {
+	screen.Clear(golib.Black)
+	x, y := -s.cameraX, -s.cameraY
+	screen.DrawMapLayer(level, "background", x, y)
+	screen.DrawMapLayer(level, "ground", x, y)
+	screen.DrawSprite(hero, 0, s.player.x+x, s.player.y+y)
+	screen.DrawMapLayer(level, "leaves", x, y) // in front of the player
+}
+```
+
+- **Mark tiles in Tiled, not by ID in code.** Give tiles a class or a property in the tileset, such as a bool named `solid`, and read it from `Tile.Class` or `Tile.Properties`: the rules then survive a redrawn tileset.
+- **Objects are where the game's things go:** starts, enemies, doors, areas. `DrawMap` draws tile layers, image layers and tile objects, with Tiled's visibility, opacity, tint colors, offsets, parallax factors, flips and animated tiles, which follow the game's time. Other objects aren't drawn: the game decides what they mean.
+- An object's X, Y is its top-left corner, even for tile objects, which Tiled places by another corner. A point has no size.
+- Layers are named as Tiled names them. A layer in a group can also be named with its groups, `"level 1/ground"`; the plain name finds the first layer with that name.
+- The members of a class property are named `"property.member"`, such as `object.Properties.Bool("door.locked")`, for the members Tiled saved.
+- GoLib reads orthogonal maps saved as TMX, with the Tile Layer Format set to CSV or Base64 (uncompressed, zlib or gzip compressed), and PNG images. Zstandard compression, isometric and hexagonal maps, and Tiled's JSON files stop `Run` with an error that says what to change in Tiled. An infinite map is read as a fixed one that covers its tiles, moved so its top-left tile is at 0, 0.
+- Keep maps, tilesets, templates and images inside the assets folder: Tiled saves paths relative to each file, and a path out of the folder stops `Run`.
+- `DrawMap` draws only the tiles on the screen, so large maps are fine, and draws at whole pixels, rounding x and y, so tiles leave no gaps.
+- `Width`, `Height`, `Tile`, `TileAt`, `TilesIn`, `Objects` and the properties read the file, so they work in tests and before `Run`.
+
 ## Rectangles and collisions
 
 | Name | What it does |
@@ -330,7 +426,7 @@ var (
 | `Rectangle.Overlaps` | `Overlaps(other Rectangle) bool`: the two share some area. Rectangles that only touch along an edge don't overlap, so a player standing on a platform isn't inside it. |
 | `Rectangle.Contains` | `Contains(x, y float32) bool`: the point is inside, such as the mouse over a button. The left and top edges are inside; the right and bottom ones are not. |
 
-That is all the geometry GoLib has: no vectors, circles or physics. Check circles with their distance:
+With `Vector2`, which maps use for points, that is all the geometry GoLib has: no vector math, circles or physics. Check circles with their distance:
 
 ```go
 dx, dy := a.x-b.x, a.y-b.y
@@ -592,7 +688,7 @@ func main() {
 }
 ```
 
-Games read their own data files this way, such as levels in text or JSON; `NewSprite`, `NewSpriteSheet` and `NewMusic` read the assets folder the same way. Maps and fonts can't be loaded yet.
+Games read their own data files this way, such as levels in text or JSON; `NewSprite`, `NewSpriteSheet`, `NewMap` and `NewMusic` read the assets folder the same way. Fonts can't be loaded yet.
 
 ## Quitting
 
@@ -620,7 +716,7 @@ func TestJumpOnlyFromTheGround(t *testing.T) {
 }
 ```
 
-- `Rectangle`, the random numbers, `ReadAsset`, `Animation` and a sprite's `Width`, `Height`, `Frames` and `Animation` work in tests; `golib test` runs them in the game's folder.
+- `Rectangle`, the random numbers, `ReadAsset`, `Animation`, a sprite's `Width`, `Height`, `Frames` and `Animation`, and everything a `Map` has but drawing work in tests; `golib test` runs them in the game's folder, so a test can check that a level has a start and the player can reach the exit.
 - `Sound.Play` and `Music.Play` do nothing in tests.
 - `Run` and `Screen` need a window: check drawing with `golib shot` instead.
 
@@ -642,7 +738,7 @@ import rl "github.com/gen2brain/raylib-go/raylib"
 | Missing | Status | Meanwhile |
 | --- | --- | --- |
 | Parts of an image that aren't on a grid, Aseprite slices and tilemap layers | Not on the roadmap yet | Save each part as its own PNG file, or put the parts on a grid |
-| Maps (Tiled) | M4, in progress | Levels in code, or in a text file read with `ReadAsset` |
+| Isometric and hexagonal maps; drawing a map's shapes and text | Not on the roadmap yet | Orthogonal maps; draw what objects stand for with sprites and shapes |
 | Fonts | M4, in progress | The built-in font of `DrawText` |
 | Sound effects from files | M4, in progress | `NewSound` |
 | Looping sounds, stopping a sound | Not on the roadmap yet | Short sounds, played again |

@@ -320,6 +320,7 @@ func runShots(game Game, config Config, plan *shotPlan) error {
 		if quit {
 			return fmt.Errorf("golib.Run: the game called golib.Quit in update %d, so frame %d can't be captured: take screenshots of earlier frames", frame, plan.frames[next])
 		}
+		screen.time = float32(frame) * updateStep
 		if err := render.drawScene(scene, screen); err != nil {
 			return err
 		}

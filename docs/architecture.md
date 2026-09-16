@@ -2,7 +2,7 @@
 
 How GoLib keeps the framework apart from the games made with it, and where game content comes from.
 
-> **Status:** the framework and game split exists since M1, with `framework/` and the example game, `games/platformer`. Aseprite files and PNG images load since M4; Tiled maps are next, in M4, and 3D models from Blender come in M6, after it (see [roadmap.md](roadmap.md)).
+> **Status:** the framework and game split exists since M1, with `framework/` and the example game, `games/platformer`. Tiled maps, Aseprite files and PNG images load since M4, and 3D models from Blender come in M6, after it (see [roadmap.md](roadmap.md)).
 
 ## Framework and games
 
@@ -88,7 +88,7 @@ GoLib has no visual editor, scene designer, level editor or asset GUI, and won't
 
 | Content | Made with | What the game loads | Planned |
 | --- | --- | --- | --- |
-| 2D maps and levels | [Tiled](https://www.mapeditor.org) | TMX maps and TSX tilesets, Tiled's default formats | M4 |
+| 2D maps and levels | [Tiled](https://www.mapeditor.org) | TMX maps, TSX tilesets and TX templates, Tiled's default formats; orthogonal maps only | Done (M4): `golib.NewMap` |
 | Sprites and animations | [Aseprite](https://www.aseprite.org) | `.aseprite` and `.ase` files, with their layers combined as Aseprite shows them and their tags as animations | Done (M4): `golib.NewSprite` |
 | Images and sprite sheets | Any image tool | PNG; a sprite sheet is cut into a grid of frames of one size | Done (M4): `golib.NewSprite`, `golib.NewSpriteSheet` |
 | 3D models | [Blender](https://www.blender.org) | glTF (`.glb`) exported from Blender | M6, with 3D support |

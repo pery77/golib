@@ -33,6 +33,11 @@ type Sprite struct {
 	name                  string
 	gridWidth, gridHeight int // the frame size NewSpriteSheet was given; 0 for NewSprite
 
+	// A sprite that GoLib makes itself, such as a tileset of a map, has a
+	// label for messages and a function that fills in its frames and pixels.
+	label    string
+	generate func(*Sprite) error
+
 	mu         sync.Mutex
 	read       bool // the file has been read, successfully or not
 	err        error
@@ -143,8 +148,17 @@ func (s *Sprite) animationNames() string {
 	return "it has " + strings.Join(names, ", ")
 }
 
+// newGeneratedSprite returns a sprite whose frames and pixels generate fills
+// in, called label in messages.
+func newGeneratedSprite(label string, generate func(*Sprite) error) *Sprite {
+	return &Sprite{label: label, generate: generate}
+}
+
 // call returns how the game made the sprite, for messages.
 func (s *Sprite) call() string {
+	if s.label != "" {
+		return s.label
+	}
 	if s.gridWidth > 0 || s.gridHeight > 0 {
 		return fmt.Sprintf("golib.NewSpriteSheet(%q, %d, %d)", s.name, s.gridWidth, s.gridHeight)
 	}
@@ -168,6 +182,9 @@ func (s *Sprite) prepare() error {
 
 // readFile reads the sprite's file into its frames and pixels.
 func (s *Sprite) readFile() error {
+	if s.generate != nil {
+		return s.generate(s)
+	}
 	if s.gridWidth < 0 || s.gridHeight < 0 || (s.gridWidth == 0) != (s.gridHeight == 0) {
 		return errors.New("frames must be at least 1 by 1 pixels")
 	}
@@ -273,6 +290,16 @@ func (s *Sprite) frameTexture(frame int) (rl.Texture2D, image.Rectangle, error) 
 		loadedSprites.add(s)
 	}
 	return s.texture, s.frames[frame], nil
+}
+
+// frameCount returns how many frames s has, reading its file if needed.
+func (s *Sprite) frameCount() (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.prepare(); err != nil {
+		return 0, err
+	}
+	return len(s.frames), nil
 }
 
 // unload frees the texture, so that the file is read again if a game runs

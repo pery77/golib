@@ -74,6 +74,12 @@
 // [NewSpriteSheet] cuts a PNG image into a grid of frames. [Screen.DrawSprite]
 // draws a frame, and an [Animation] says which frame to show as time passes.
 //
+// # Maps
+//
+// [NewMap] reads a level made in Tiled. [Screen.DrawMap] draws it, and
+// [Map.TilesIn], [Map.Objects] and the [Properties] Tiled gives tiles and
+// objects tell the game what is where.
+//
 // # Sound and music
 //
 // [NewSound] makes a sound effect from a [SoundSpec], so games need no sound
@@ -247,6 +253,7 @@ func runWindow(game Game, config Config) error {
 		if err := audio.updateMusic(); err != nil {
 			return err
 		}
+		screen.time = float32(updates) * updateStep
 		if err := render.drawScene(scene, screen); err != nil {
 			return err
 		}
