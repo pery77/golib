@@ -18,18 +18,42 @@ Both shims find the project root from their own location, so they also work when
 
 ## Implementations
 
-`tools/bootstrap/golib.ps1` (Windows PowerShell 5.1 and PowerShell 7) and `tools/bootstrap/golib.sh` (POSIX sh) are twins: same commands, options, output format and exit codes.
+The command logic is moving from two twin scripts into one Go program, a command at a time (see [roadmap.md](roadmap.md#decisions)):
 
-This is going to change: the command logic will move into one Go program, one command at a time, and the scripts will keep only what has to work without it (see [roadmap.md](roadmap.md#decisions)). Until a command has moved, the rules below still apply to it.
+| Part | Commands |
+| --- | --- |
+| `tools/bootstrap/golib.ps1` (Windows PowerShell 5.1 and PowerShell 7) and `tools/bootstrap/golib.sh` (POSIX sh), twins with the same commands, options, output and exit codes | `help`, `setup`, `doctor`, `new`, `build`, `run`, `shot`, `test`, `go`, `clean`; they also build and start the Go program |
+| `tools/cli/`, the Go program | `dist` |
 
-Rules for both:
+The scripts will keep what has to work without Go, or while the Go program isn't running: downloading and checking Go in `setup`, building and starting the Go program, `clean` (on Windows a running program can't delete its own folder), and the checks of `doctor` that don't need Go.
 
-- Change both in the same commit, and test both.
-- Check output: one fact per line, prefixed `[ok]`, `[info]`, `[warn]` or `[fail]`, then a summary line such as `doctor: 0 failed, 1 warning(s)`. Plain ASCII, no colors: the reader is often an agent parsing logs.
-- Exit codes: `0` success, `1` failure, `2` usage error. Usage errors go to stderr.
+Rules for everything golib prints, in the scripts and the Go program:
+
+- Check output: one fact per line, prefixed `[ok]`, `[info]`, `[warn]` or `[fail]`, then a summary line such as `doctor: 0 failed, 1 warning(s)`. Plain ASCII, no colors: the reader is often an agent parsing logs. Text quoted from the user's files, such as a game's title, is printed as it is.
+- Exit codes: `0` success, `1` failure, `2` usage error. Usage errors go to stderr, followed by `Run "golib help" for usage.`
 - Never read or write anything outside the project folder, except downloading from pinned URLs. Every `go` command runs with the project environment described below.
 - `setup` must be idempotent: running it twice is safe and fast.
 - `doctor` only reads: it inspects files and never starts `go`.
+
+### The Go program
+
+`tools/cli` is a Go module of its own, `cli`, that uses only the standard library. For each command it implements, both scripts:
+
+1. check that the pinned Go is installed, and stop with `[fail] ... (run: golib setup)` if it isn't;
+2. build it with the project environment into `build/golib/golib.exe` (`build/golib/golib` on Linux and macOS). `go build` leaves an up-to-date executable alone, so this adds about 0.1 seconds; after a change to `tools/cli`, or after `golib clean`, it takes a few seconds. A build error stops with a `[fail]` line;
+3. start it with the command and its options, and with the user's own environment, and exit with its exit code: `Invoke-Cli` in `golib.ps1`, `run_cli` in `golib.sh`.
+
+The program finds the project from its own location, two folders above `build/golib/`, and sets the project environment for each `go` command it runs (`goEnv` in `tools/cli/project.go`), so the programs it starts otherwise get the user's environment. `golib test` vets and tests it; its tests replace the `go` command with a fake one that records its arguments.
+
+To move a command into it:
+
+1. Write the command in `tools/cli`, add it to `commands` in `main.go`, and test it.
+2. In both scripts, send the command to the Go program in the dispatcher, and delete the code that only that command used.
+3. Check that it prints what the scripts printed, on Windows and on Linux or macOS, then update the table above and [roadmap.md](roadmap.md).
+
+### Rules for the scripts
+
+Change both in the same commit, and test both.
 
 Rules for `golib.ps1`:
 
@@ -42,8 +66,6 @@ Rules for `golib.sh`:
 
 - POSIX sh only, so it runs under dash: no arrays, no `[[ ]]`, no `local`, no `function` keyword. Functions share one variable namespace, so prefix their variables.
 - Keep `set -eu`. Remember that a failing redirection on a special built-in such as `:` exits the shell; wrap probes in a subshell.
-
-`tools/shipping/` is a Go program for work that is easier in Go than in the scripts: today, the Windows icon and version information of [dist builds](#icon-and-version-information-windows), so only `golib.ps1` builds and runs it. It is a Go module of its own that uses only the standard library, and `golib test` vets and tests it in both scripts. It prints one fact per line, `ok`, `info` or `fail`, then a space and the message, which the script prints as its own check lines.
 
 ## Go toolchain and environment
 
@@ -61,6 +83,8 @@ Every `go` command that golib starts gets this environment, and so do the progra
 | `CGO_ENABLED` | `0` | raylib-go in purego mode: no C compiler |
 | `GOFLAGS` | `-tags=raylib_no_embed,ffi_no_embed` | Debug builds load raylib and libffi from files golib provides, instead of extracting embedded copies into the user's cache folder when a game starts. `golib dist` replaces these tags: see [Dist builds](#dist-builds) |
 | `APPDATA` (Windows), `XDG_CONFIG_HOME` (Linux), `HOME` (macOS) | `.tools/config` (`.tools/home` on macOS) | Go writes telemetry counters to the user's config folder; this keeps them in the project. `golib run` restores the real value before starting the game. |
+
+The scripts set these variables for themselves and the programs they start, except the Go program, which starts with the user's environment and sets them for each `go` command it runs. The three lists must stay the same: `Set-GoEnvironment` in `golib.ps1`, `set_go_environment` in `golib.sh` and `goEnv` in `tools/cli/project.go`.
 
 The variables exist only while golib runs; nothing is saved. Running `.tools/go/bin/go` or `gofmt` directly skips them, and Go then writes caches and telemetry into your user folders. Use `golib go <args>` instead.
 
@@ -171,9 +195,9 @@ Every field of `game.json` is optional:
 }
 ```
 
-A mistake in either file stops `dist` with a `[fail]` line that says what to fix: invalid JSON (with its line), an unknown field, a version that isn't major.minor.patch, an icon that isn't a square PNG of at least 16 pixels.
+A mistake in either file stops `dist` with a `[fail]` line that says what to fix: invalid JSON (with its line), an unknown field, a version that isn't major.minor.patch, an icon that isn't a square PNG of at least 16 pixels. `dist` checks both files on Linux and macOS too, so a mistake shows up wherever the game is built.
 
-How it works: `dist` builds `tools/shipping` into `build/golib/shipping.exe` and runs it. It resizes the icon to 16, 20, 24, 32, 40, 48, 64 and 256 pixels, averaging pixels to shrink and repeating them to grow, so pixel art stays sharp. It writes those images and the version information as Windows resources into a `.syso` file, the object file format the Go linker reads. The linker only picks up `.syso` files from the package's own folder, and `go build -overlay` doesn't cover them, so `dist` puts the file in the game's folder as `golib_dist_windows_<arch>.syso` while it builds, then deletes it, even when the build fails. `.gitignore` lists that name, in case a build is interrupted. The icon resource is named `GLFW_ICON`: GLFW, the library raylib opens windows with, gives an icon with that name to the game's window.
+How it works, in `tools/cli` (`dist.go`, `gameinfo.go`, `icon.go` and `winres.go`): `dist` resizes the icon to 16, 20, 24, 32, 40, 48, 64 and 256 pixels, averaging pixels to shrink and repeating them to grow, so pixel art stays sharp. It writes those images and the version information as Windows resources into a `.syso` file, the object file format the Go linker reads. The linker only picks up `.syso` files from the package's own folder, and `go build -overlay` doesn't cover them, so `dist` puts the file in the game's folder as `golib_dist_windows_<arch>.syso` while it builds, then deletes it, even when the build fails. `.gitignore` lists that name, in case a build is interrupted. The icon resource is named `GLFW_ICON`: GLFW, the library raylib opens windows with, gives an icon with that name to the game's window.
 
 Debug builds don't carry the icon or the details, and dist builds on Linux and macOS don't use the two files yet.
 
@@ -204,7 +228,7 @@ Windows PowerShell 5.1 splits arguments that start with `-` and contain a dot be
 | `build/<game>/` | A game's debug executable, next to its copies of the raylib libraries |
 | `build/<game>/shots/` | Screenshots from the latest `golib shot` |
 | `build/<game>/dist/` | The latest `golib dist` build: the game as a single file |
-| `build/golib/` | GoLib's own Go tools, built by `dist`: `shipping.exe` (`new` refuses `golib` as a game name, so no game's folder clashes with it) |
+| `build/golib/` | [The Go program](#the-go-program), `golib.exe` (`golib` on Linux and macOS), built by the scripts when a command needs it. `new` refuses `golib` as a game name, so no game's folder clashes with it. |
 
 `.tools/` and `build/` are git-ignored. `golib setup` creates `.tools/` and `golib clean --all` removes it; `golib build`, `run`, `shot` and `dist` create `build/` and `golib clean` removes it. `.tools/downloads/` only exists while setup is downloading.
 
@@ -212,8 +236,8 @@ Windows PowerShell 5.1 splits arguments that start with `-` and contain a dot be
 
 ## Adding a command
 
-1. Add `cmd_<name>` to `golib.sh` and `Invoke-<Name>` to `golib.ps1`.
-2. Register it in both dispatchers and both help texts.
+1. Write it in [the Go program](#the-go-program), `tools/cli`, and add it to `commands` in `main.go`. Only what has to work without Go goes in the scripts.
+2. Register it in both dispatchers, as `Invoke-Cli '<name>' $options` in `golib.ps1` and `run_cli <name> "$@"` in `golib.sh`, and in both help texts.
 3. If people run it often, add a task to `.vscode/tasks.json` and a button to `$Actions` in `tools/ui/golib-ui.ps1`.
 4. Document it in the Commands tables of `AGENTS.md` and `README.md`.
 5. Test on Windows (PowerShell, cmd and Git Bash) and on Linux or macOS.
@@ -251,4 +275,4 @@ Known limitation: every time the Go extension starts, and when you run **Go: Loc
 
 ## Planned architecture
 
-The shell scripts are meant to shrink to bootstrappers: provision the pinned Go toolchain into `.tools/`, then hand over to a Go program that implements every command once, for every platform. One piece is in Go so far, `tools/shipping`, which makes the Windows resources for `dist`; the rest of the logic lives in the twin scripts until then.
+The shell scripts are shrinking to bootstrappers: provision the pinned Go toolchain into `.tools/`, then hand over to [the Go program](#the-go-program), which implements every command once, for every platform. So far it has `dist`; the other commands live in the twin scripts until they move.

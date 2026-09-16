@@ -64,7 +64,7 @@ Loading Tiled maps and Aseprite sprites is planned for M4, which is postponed fo
 | `golib build [game]` | Builds a game into `build/`, for development. |
 | `golib dist [game]` | Builds a game as a single file to share, with everything inside and, on Windows, its icon and version details. |
 | `golib shot [game] [frame...]` | Saves screenshots of a game at the given frames, without opening a visible window. |
-| `golib test` | Checks and tests the framework, every game and GoLib's Go helper. |
+| `golib test` | Checks and tests the framework, every game and GoLib's own Go program. |
 | `golib go <args>` | Runs the project's own Go, for example `golib go version`. |
 | `golib clean` | Deletes build outputs. Add `--all` to also delete the downloaded tools. |
 | `golib help` | Lists all commands. |
@@ -77,7 +77,7 @@ Type `.\golib` on Windows (PowerShell or cmd) and `./golib` in bash or zsh. `[ga
 | --- | --- |
 | `golib`, `golib.cmd` | Command-line entry points |
 | `golib-ui.cmd`, `tools/ui/` | The GoLib window: a button for each command (Windows) |
-| `tools/bootstrap/` | The CLI itself: short, readable scripts |
+| `tools/bootstrap/`, `tools/cli/` | The CLI itself: short, readable scripts, and a Go program that is taking over their commands |
 | `framework/` | The GoLib framework (Go package `golib`), with its API guide, `README.md` |
 | `games/` | Games, one folder each; `platformer` is the example to learn from |
 | `AGENTS.md`, `CLAUDE.md` | Instructions for AI agents |

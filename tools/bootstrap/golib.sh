@@ -5,6 +5,8 @@
 #
 # tools/bootstrap/golib.ps1 is the Windows twin of this file. Both must expose the same
 # commands, options, output format and exit codes: change one, change the other.
+# Commands are moving into tools/cli, a Go program that both scripts build and start
+# (run_cli here); so far it runs dist.
 # POSIX sh only, so it runs under dash: no bash arrays, no [[ ]], no "local". Functions
 # share one variable namespace, so their variables carry a short prefix.
 #
@@ -40,8 +42,12 @@ raylib_dir="$tools_dir/raylib"
 framework_dir="$root/framework"
 games_dir="$root/games"
 template_dir="$root/tools/template/game"
+# The Go side of golib, and where run_cli builds it. build/golib/ can't clash with a game's build
+# folder: new refuses golib as a game name.
+cli_dir="$root/tools/cli"
+cli_exe="$build_dir/golib/golib"
 # GoLib's own Go programs, space-separated. test checks them too; they don't use raylib.
-tool_modules="tools/shipping"
+tool_modules="tools/cli"
 
 failures=0
 warnings=0
@@ -312,19 +318,38 @@ restore_user_environment() {
   fi
 }
 
-# Prints a failure and exits unless the pinned Go toolchain is installed; then sets up its environment.
-assert_toolchain() {
-  at_installed=$(installed_go_version)
-  if [ "$at_installed" != "$go_version" ]; then
-    if [ -n "$at_installed" ]; then
-      check fail "Go $at_installed is in .tools/go/, but GoLib needs $go_version (run: golib setup)"
+# Prints a failure and exits unless the pinned Go toolchain is installed.
+require_go() {
+  rg_installed=$(installed_go_version)
+  if [ "$rg_installed" != "$go_version" ]; then
+    if [ -n "$rg_installed" ]; then
+      check fail "Go $rg_installed is in .tools/go/, but GoLib needs $go_version (run: golib setup)"
     else
       check fail "the Go toolchain is not installed (run: golib setup)"
     fi
     summary "$1"
     exit 1
   fi
+}
+
+# Prints a failure and exits unless the pinned Go toolchain is installed; then sets up its environment.
+assert_toolchain() {
+  require_go "$1"
   set_go_environment
+}
+
+# run_cli <command> [options]: builds tools/cli into build/golib/ when its code has changed, then
+# replaces this shell with it. The CLI gives the go commands it runs GoLib's environment itself,
+# so it starts with the user's: the build gets the Go environment in a subshell.
+run_cli() {
+  require_go "$1"
+  # go build leaves an up-to-date executable alone, so this costs about a tenth of a second.
+  if ! (set_go_environment && "$go_exe" -C "$cli_dir" build -o "$cli_exe" .); then
+    check fail "could not build tools/cli, the part of golib written in Go (see the Go errors above)"
+    summary "$1"
+    exit 1
+  fi
+  exec "$cli_exe" "$@"
 }
 
 # --- Modules, games and raylib --------------------------------------------------------------
@@ -489,44 +514,6 @@ build_game() {
   check ok "built games/$1 into build/$1/$1"
 }
 
-# Builds games/<game> as a dist build: build/<game>/dist/<game>, a single file to share. It has no
-# debug symbols and no paths from this machine, and it embeds the raylib library (and libffi on
-# macOS) and the game's assets folder. Sets built_exe; prints a failure and returns 1 if something
-# goes wrong.
-dist_game() {
-  dg_dir="$games_dir/$1"
-  if [ -d "$dg_dir/assets" ]; then
-    # A game embeds its assets from assets.go (see golib.EmbedAssets). Without it, the file
-    # would build fine and fail on the player's machine.
-    if ! dg_patterns=$("$go_exe" -C "$dg_dir" list -tags=golib_dist -f '{{range .EmbedPatterns}}{{println .}}{{end}}' .); then
-      check fail "could not inspect games/$1 (see the Go errors above)"
-      return 1
-    fi
-    if ! printf '%s\n' "$dg_patterns" | grep -q -x -e 'all:assets' -e 'assets'; then
-      check fail "games/$1/assets/ would be missing from the dist build: add games/$1/assets.go, as the golib.EmbedAssets documentation shows"
-      return 1
-    fi
-  fi
-  dg_out="$build_dir/$1/dist"
-  built_exe="$dg_out/$1"
-  remove_tree "$dg_out"
-  mkdir -p "$dg_out"
-  # -tags replaces raylib_no_embed and ffi_no_embed from GOFLAGS, so the libraries are embedded.
-  if ! "$go_exe" -C "$dg_dir" build -trimpath -tags=golib_dist '-ldflags=-s -w' -o "$built_exe" .; then
-    check fail "dist build failed for games/$1 (see the Go errors above)"
-    return 1
-  fi
-  check ok "built games/$1 into build/$1/dist/$1"
-  if [ -f "$dg_dir/game.json" ] || [ -f "$dg_dir/icon.png" ]; then
-    check info "only Windows builds carry the icon from icon.png and the details from game.json so far"
-  fi
-  if [ "$goos" = darwin ]; then
-    check info "one file with raylib, libffi and the assets inside; it copies raylib and libffi into the player's ~/Library/Caches folder when it first starts"
-  else
-    check info "one file with raylib and the assets inside; it copies raylib into the player's ~/.cache folder when it first starts. Players need libX11.so.6, libGL.so.1 and libffi.so.8"
-  fi
-}
-
 # --- Commands -------------------------------------------------------------------------------
 
 cmd_setup() {
@@ -666,17 +653,6 @@ cmd_build() {
     exit 0
   fi
   summary build
-  exit 1
-}
-
-cmd_dist() {
-  resolve_game dist "$@"
-  assert_toolchain dist
-  if dist_game "$game"; then
-    summary dist
-    exit 0
-  fi
-  summary dist
   exit 1
 }
 
@@ -879,7 +855,7 @@ case "$command" in
   doctor) cmd_doctor "$@" ;;
   new) cmd_new "$@" ;;
   build) cmd_build "$@" ;;
-  dist) cmd_dist "$@" ;;
+  dist) run_cli dist "$@" ;;
   run) cmd_run "$@" ;;
   shot) cmd_shot "$@" ;;
   test) cmd_test "$@" ;;

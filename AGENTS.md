@@ -12,11 +12,12 @@ The promise: someone downloads the template, runs a couple of commands, and buil
 
 Keep this section true: update it in the same change that lands or removes a feature. Never describe planned work as if it existed.
 
-Last updated: 2026-09-16 (milestone M5, Shipping, in progress; M4, Content, postponed).
+Last updated: 2026-09-17 (milestone M5, Shipping, in progress; M4, Content, postponed).
 
 | Area | State |
 | --- | --- |
 | `golib` CLI: `setup`, `doctor`, `clean`, `help` | Done |
+| The CLI in Go, `tools/cli`: one program for every platform that takes over the twin scripts' commands one at a time | In progress (M5): `dist` has moved; the other commands are still in the scripts |
 | VS Code workspace: extensions, settings, tasks | Done |
 | AI instructions: this file, `CLAUDE.md`, Claude Code settings, `/make-game` skill | Done |
 | Go 1.27.1 downloaded into `.tools/` by `golib setup` | Done |
@@ -77,7 +78,7 @@ Run from the project root. The command name is the same everywhere; only the pre
 | `dist [game]` | Dist build, to share: builds `build/<game>/dist/<game>.exe` (no `.exe` on Linux and macOS), a single file with raylib and the game's `assets/` folder inside and, on Windows, no console window. A game with an `assets/` folder needs an `assets.go` file: see `golib.EmbedAssets`. On Windows the file also carries the game's icon, from `icon.png`, and its title, version and author, from `game.json` (see [docs/tooling.md](docs/tooling.md#icon-and-version-information-windows)). |
 | `run [game]` | Builds the game, then runs it with `games/<game>/` as the working directory. |
 | `shot [game] [frame...] [--input "<script>"]` | Builds the game, runs it in a hidden window and saves screenshots of the given frames (default: 60) as `build/<game>/shots/frame-NNNNNN.png`. Frame N shows the game after N updates. `--input "Enter@1 Right@30-90 Mouse@100:640,360 MouseLeft@101"` presses Enter in update 1, holds Right from update 30 to 90, moves the mouse pointer to 640, 360 and clicks (see [docs/tooling.md](docs/tooling.md#screenshots)). Random numbers start from the same seed, so shots repeat. Open the files to see the game. |
-| `test` | Runs `go vet` and `go test` for the framework, every game and `tools/shipping`. |
+| `test` | Runs `go vet` and `go test` for the framework, every game and `tools/cli`. |
 | `go <args>` | Runs the project's Go toolchain with GoLib's environment, for example `go -C games/platformer mod tidy`. |
 | `clean` | Deletes `build/`. |
 | `clean --all` | Also deletes `.tools/`. Run `setup` again afterwards. |
@@ -98,10 +99,10 @@ README.md            Human quick start
 LICENSE              zlib license; games made in games/ are their authors'
 golib, golib.cmd     CLI entry points for POSIX shells and Windows; thin shims, no logic
 golib-ui.cmd         Double-click to open the GoLib window (Windows); a thin shim too
-tools/bootstrap/     CLI implementations: golib.sh (Linux, macOS), golib.ps1 (Windows)
+tools/bootstrap/     CLI scripts: golib.sh (Linux, macOS), golib.ps1 (Windows); they install Go, run most commands, and build and start tools/cli for the rest
+tools/cli/           The CLI in Go, built into build/golib/: dist so far
 tools/ui/            The GoLib window: golib-ui.ps1, buttons that run the CLI
 tools/template/game/ The files golib new copies into games/<name>/
-tools/shipping/      A Go helper for golib dist: the Windows icon and version information
 framework/           The framework: Go module and package "golib"; README.md is its API guide
 games/               One folder per game, each its own Go module
   platformer/        The example game: tests each framework feature and shows how to use it

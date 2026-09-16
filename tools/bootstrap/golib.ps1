@@ -7,6 +7,8 @@
 #
 # tools/bootstrap/golib.sh is the Linux/macOS twin of this file. Both must expose the same
 # commands, options, output format and exit codes: change one, change the other.
+# Commands are moving into tools/cli, a Go program that both scripts build and start
+# (Invoke-Cli here); so far it runs dist.
 # Keep this file ASCII-only: Windows PowerShell 5.1 reads files without a BOM as ANSI.
 #
 # Exit codes: 0 success, 1 failure, 2 usage error.
@@ -43,13 +45,21 @@ $RaylibDir = Join-Path $ToolsDir 'raylib'
 $FrameworkDir = Join-Path $Root 'framework'
 $GamesDir = Join-Path $Root 'games'
 $TemplateDir = Join-Path $Root 'tools\template\game'
-$ShippingDir = Join-Path $Root 'tools\shipping'
+# The Go side of golib, and where Invoke-Cli builds it. build/golib/ can't clash with a game's
+# build folder: new refuses golib as a game name.
+$CliDir = Join-Path $Root 'tools\cli'
+$CliExe = Join-Path $BuildDir 'golib\golib.exe'
 # GoLib's own Go programs. test checks them too; they don't use raylib.
-$ToolModules = @('tools/shipping')
+$ToolModules = @('tools/cli')
 
 $script:Failures = 0
 $script:Warnings = 0
 $script:UserAppData = $env:APPDATA
+# The user's values of the variables Set-GoEnvironment changes, for Restore-UserEnvironment.
+$script:UserEnvironment = @{}
+foreach ($name in @('GOROOT', 'GOPATH', 'GOMODCACHE', 'GOCACHE', 'GOENV', 'GOTOOLCHAIN', 'CGO_ENABLED', 'GOFLAGS', 'PATH', 'APPDATA')) {
+    $script:UserEnvironment[$name] = [Environment]::GetEnvironmentVariable($name)
+}
 
 function Show-Help {
     Write-Host @'
@@ -243,6 +253,13 @@ function Set-GoEnvironment {
     $env:APPDATA = Join-Path $ToolsDir 'config'
 }
 
+# Undoes Set-GoEnvironment: puts back the user's values, and removes the variables the user didn't have.
+function Restore-UserEnvironment {
+    foreach ($name in $script:UserEnvironment.Keys) {
+        [Environment]::SetEnvironmentVariable($name, $script:UserEnvironment[$name])
+    }
+}
+
 # Prints a failure and exits unless the pinned Go toolchain is installed; then sets up its environment.
 function Assert-Toolchain([string]$Command) {
     $installed = Get-InstalledGoVersion
@@ -376,79 +393,21 @@ function New-GameBuild([string]$Game) {
     return $exe
 }
 
-# Writes the Windows resources of games/<Game>, its icon from icon.png and the details Explorer
-# shows from game.json, into the .syso file at Path, using tools/shipping, and prints what it
-# found. Returns $false after printing a failure.
-function Write-WindowsResources([string]$Game, [string]$Path) {
-    if (Test-Path -LiteralPath $Path) { Remove-Item -LiteralPath $Path -Force }
-    # build/golib/ can't clash with a game's build folder: new refuses golib as a game name.
-    $tool = Join-Path $BuildDir 'golib\shipping.exe'
-    & $GoExe -C $ShippingDir build -o $tool . | Out-Host
+# Builds tools/cli into build/golib/ when its code has changed, then runs it with the command and
+# its options, and exits with its exit code. The CLI gives the go commands it runs GoLib's
+# environment itself, so it starts with the user's.
+function Invoke-Cli([string]$Command, [string[]]$Options) {
+    Assert-Toolchain $Command
+    # go build leaves an up-to-date executable alone, so this costs about a tenth of a second.
+    & $GoExe -C $CliDir build -o $CliExe . | Out-Host
     if ($LASTEXITCODE -ne 0) {
-        Write-Check fail 'could not build tools/shipping (see the Go errors above)'
-        return $false
+        Write-Check fail 'could not build tools/cli, the part of golib written in Go (see the Go errors above)'
+        Write-Summary $Command
+        exit 1
     }
-    # It prints one fact per line: a check level, a space, then the message.
-    $lines = @(& $tool windows-resources -game (Join-Path $GamesDir $Game) -arch (Get-GoArch) -out $Path)
-    $code = $LASTEXITCODE
-    $failed = $false
-    foreach ($line in $lines) {
-        $level, $message = ([string]$line) -split ' ', 2
-        if (@('ok', 'info', 'warn', 'fail') -notcontains $level -or -not $message) {
-            $level = 'info'
-            $message = [string]$line
-        }
-        Write-Check $level $message
-        if ($level -eq 'fail') { $failed = $true }
-    }
-    if ($code -ne 0 -and -not $failed) {
-        Write-Check fail "tools/shipping stopped with exit code $code while making the icon and version information for games/$Game"
-    }
-    return ($code -eq 0)
-}
-
-# Builds games/<Game> as a dist build: build/<Game>/dist/<Game>.exe, a single file to share. It has
-# no console window, no debug symbols and no paths from this machine, and it embeds raylib,
-# libffi, the game's assets folder, and its icon and version information. Returns the executable
-# path, or $null after printing a failure.
-function New-GameDist([string]$Game) {
-    $gameDir = Join-Path $GamesDir $Game
-    if (Test-Path -LiteralPath (Join-Path $gameDir 'assets') -PathType Container) {
-        # A game embeds its assets from assets.go (see golib.EmbedAssets). Without it, the file
-        # would build fine and fail on the player's machine.
-        $patterns = @(& $GoExe -C $gameDir list -tags=golib_dist -f '{{range .EmbedPatterns}}{{println .}}{{end}}' .)
-        if ($LASTEXITCODE -ne 0) {
-            Write-Check fail "could not inspect games/$Game (see the Go errors above)"
-            return $null
-        }
-        if (-not ($patterns -contains 'all:assets' -or $patterns -contains 'assets')) {
-            Write-Check fail "games/$Game/assets/ would be missing from the dist build: add games/$Game/assets.go, as the golib.EmbedAssets documentation shows"
-            return $null
-        }
-    }
-    $outDir = Join-Path (Join-Path $BuildDir $Game) 'dist'
-    $exe = Join-Path $outDir "$Game.exe"
-    Remove-Tree $outDir
-    New-Item -ItemType Directory -Force -Path $outDir | Out-Null
-    # Go links the .syso files in a package's folder into the program, and only from there, so the
-    # resources sit next to main.go for the length of the build. .gitignore lists the name.
-    $resources = Join-Path $gameDir "golib_dist_windows_$(Get-GoArch).syso"
-    if (-not (Write-WindowsResources $Game $resources)) { return $null }
-    try {
-        # -tags replaces raylib_no_embed and ffi_no_embed from GOFLAGS, so both libraries are embedded.
-        # -H=windowsgui makes a program that opens no console window.
-        & $GoExe -C $gameDir build -trimpath -tags=golib_dist '-ldflags=-s -w -H=windowsgui' -o $exe . | Out-Host
-        $code = $LASTEXITCODE
-    } finally {
-        if (Test-Path -LiteralPath $resources) { Remove-Item -LiteralPath $resources -Force }
-    }
-    if ($code -ne 0) {
-        Write-Check fail "dist build failed for games/$Game (see the Go errors above)"
-        return $null
-    }
-    Write-Check ok "built games/$Game into build/$Game/dist/$Game.exe"
-    Write-Check info 'one file with raylib, libffi and the assets inside; it copies raylib and libffi into the player''s %LOCALAPPDATA% folder when it first starts'
-    return $exe
+    Restore-UserEnvironment
+    & $CliExe $Command @Options
+    exit $LASTEXITCODE
 }
 
 # --- Commands -------------------------------------------------------------------------------
@@ -594,15 +553,6 @@ function Invoke-Build([string[]]$Options) {
     Assert-Toolchain 'build'
     $exe = New-GameBuild $game
     Write-Summary 'build'
-    if (-not $exe) { exit 1 }
-    exit 0
-}
-
-function Invoke-Dist([string[]]$Options) {
-    $game = Resolve-Game 'dist' $Options
-    Assert-Toolchain 'dist'
-    $exe = New-GameDist $game
-    Write-Summary 'dist'
     if (-not $exe) { exit 1 }
     exit 0
 }
@@ -771,7 +721,7 @@ switch -CaseSensitive ($command) {
     'doctor' { Invoke-Doctor $options }
     'new'    { Invoke-New $options }
     'build'  { Invoke-Build $options }
-    'dist'   { Invoke-Dist $options }
+    'dist'   { Invoke-Cli 'dist' $options }
     'run'    { Invoke-Run $options }
     'shot'   { Invoke-Shot $options }
     'test'   { Invoke-Test $options }
