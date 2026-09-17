@@ -1,14 +1,19 @@
 package main
 
 import (
-	"math"
 	"testing"
+
+	"golib"
 )
 
 // distanceToShip returns how far enemy i is from the ship.
 func distanceToShip(w *world, i int) float32 {
-	e := w.enemies[i]
-	return float32(math.Sqrt(float64(distanceSquared(e.x, e.y, w.ship.x, w.ship.y))))
+	return w.enemies[i].position.Distance(w.ship.position)
+}
+
+// at returns the arena point the ship's distance x, y away.
+func (w *world) at(x, y float32) golib.Vector2 {
+	return w.ship.position.Add(golib.Vector2{X: x, Y: y})
 }
 
 // untouchable keeps the ship from being hurt, for tests about the enemies.
@@ -19,7 +24,7 @@ func untouchable(w *world) {
 func TestScoutsChaseTheShip(t *testing.T) {
 	w := quietWorld()
 	untouchable(&w)
-	w.enemies = append(w.enemies, w.newEnemy(scout, w.ship.x-600, w.ship.y-100))
+	w.enemies = append(w.enemies, w.newEnemy(scout, w.at(-600, -100)))
 	before := distanceToShip(&w, 0)
 	run(&w, controls{}, 1)
 	if after := distanceToShip(&w, 0); after > before-120 {
@@ -33,7 +38,7 @@ func TestShootersKeepTheirDistance(t *testing.T) {
 		for _, start := range []float32{120, 900} {
 			w := quietWorld()
 			untouchable(&w)
-			w.enemies = append(w.enemies, w.newEnemy(kind, w.ship.x+start, w.ship.y))
+			w.enemies = append(w.enemies, w.newEnemy(kind, w.at(start, 0)))
 			run(&w, controls{}, 12)
 			d := distanceToShip(&w, 0)
 			if d < k.keepAway*0.7 || d > k.keepAway*1.3 {
@@ -46,7 +51,7 @@ func TestShootersKeepTheirDistance(t *testing.T) {
 func TestEnemiesFireAtTheShip(t *testing.T) {
 	w := quietWorld()
 	untouchable(&w)
-	w.enemies = append(w.enemies, w.newEnemy(gunship, w.ship.x-500, w.ship.y))
+	w.enemies = append(w.enemies, w.newEnemy(gunship, w.at(-500, 0)))
 	limit := firstShotDelay + enemyKinds[gunship].fireEvery + 0.1
 	for elapsed := float32(0); elapsed < limit && len(w.enemyShots) == 0; elapsed += dt {
 		w.step(controls{}, dt)
@@ -55,24 +60,24 @@ func TestEnemiesFireAtTheShip(t *testing.T) {
 		t.Fatalf("a gunship in range fired %d bullets, want a volley of %d", len(w.enemyShots), enemyKinds[gunship].volley)
 	}
 	for _, b := range w.enemyShots {
-		if b.vx <= 0 {
-			t.Errorf("a gunship to the left of the ship fired a bullet at %v, %v, away from it", b.vx, b.vy)
+		if b.velocity.X <= 0 {
+			t.Errorf("a gunship to the left of the ship fired a bullet at %v, away from it", b.velocity)
 		}
 	}
 	// The middle bullet of the fan flies straight at the ship, from wherever
 	// the gunship has circled to.
 	middle := w.enemyShots[len(w.enemyShots)/2]
-	toX, toY := normalize(w.ship.x-middle.x, w.ship.y-middle.y)
-	flyX, flyY := normalize(middle.vx, middle.vy)
-	if toX*flyX+toY*flyY < 0.999 {
-		t.Errorf("the middle bullet flies along %v, %v, but the ship is along %v, %v", flyX, flyY, toX, toY)
+	to := w.ship.position.Sub(middle.position).Normalize()
+	fly := middle.velocity.Normalize()
+	if to.Dot(fly) < 0.999 {
+		t.Errorf("the middle bullet flies along %v, but the ship is along %v", fly, to)
 	}
 }
 
 func TestFarEnemiesHoldFire(t *testing.T) {
 	w := quietWorld()
 	untouchable(&w)
-	w.enemies = append(w.enemies, w.newEnemy(heavy, w.ship.x+1500, w.ship.y))
+	w.enemies = append(w.enemies, w.newEnemy(heavy, w.at(1500, 0)))
 	run(&w, controls{}, firstShotDelay+enemyKinds[heavy].fireEvery+0.1)
 	if len(w.enemyShots) != 0 {
 		t.Errorf("a heavy %v pixels away fired", distanceToShip(&w, 0))
@@ -81,7 +86,7 @@ func TestFarEnemiesHoldFire(t *testing.T) {
 
 func TestEnemiesHoldFireOnceTheShipIsGone(t *testing.T) {
 	w := quietWorld()
-	w.enemies = append(w.enemies, w.newEnemy(scout, w.ship.x+400, w.ship.y))
+	w.enemies = append(w.enemies, w.newEnemy(scout, w.at(400, 0)))
 	w.ship.alive = false
 	w.over = true
 	run(&w, controls{}, 6)
@@ -92,7 +97,7 @@ func TestEnemiesHoldFireOnceTheShipIsGone(t *testing.T) {
 
 func TestVolleysAreFansAroundTheAim(t *testing.T) {
 	w := quietWorld()
-	e := w.newEnemy(heavy, 100, 100)
+	e := w.newEnemy(heavy, golib.Vector2{X: 100, Y: 100})
 	e.angle = 0
 	w.enemyFire(&e)
 	k := enemyKinds[heavy]
@@ -100,11 +105,11 @@ func TestVolleysAreFansAroundTheAim(t *testing.T) {
 		t.Fatalf("a heavy fired %d bullets, want %d", len(w.enemyShots), k.volley)
 	}
 	first, last := w.enemyShots[0], w.enemyShots[k.volley-1]
-	spread := angleOf(last.vx, last.vy) - angleOf(first.vx, first.vy)
+	spread := last.velocity.Angle() - first.velocity.Angle()
 	if want := k.fan * float32(k.volley-1); !near(spread, want, 0.001) {
-		t.Errorf("the fan spreads %v radians, want %v", spread, want)
+		t.Errorf("the fan spreads %v degrees, want %v", spread, want)
 	}
-	if !near(angleOf(first.vx, first.vy), -angleOf(last.vx, last.vy), 0.001) {
+	if !near(first.velocity.Angle(), -last.velocity.Angle(), 0.001) {
 		t.Error("the fan isn't centered on the aim")
 	}
 }
@@ -113,12 +118,12 @@ func TestEnemiesKeepApart(t *testing.T) {
 	w := quietWorld()
 	untouchable(&w)
 	w.enemies = append(w.enemies,
-		w.newEnemy(scout, w.ship.x+2000, w.ship.y),
-		w.newEnemy(scout, w.ship.x+2001, w.ship.y),
+		w.newEnemy(scout, w.at(2000, 0)),
+		w.newEnemy(scout, w.at(2001, 0)),
 	)
 	run(&w, controls{}, 1)
 	a, b := w.enemies[0], w.enemies[1]
-	d := float32(math.Sqrt(float64(distanceSquared(a.x, a.y, b.x, b.y))))
+	d := a.position.Distance(b.position)
 	if d < 2*enemyKinds[scout].radius {
 		t.Errorf("two scouts that started on top of each other are %v pixels apart after a second", d)
 	}
@@ -126,7 +131,7 @@ func TestEnemiesKeepApart(t *testing.T) {
 
 func TestWarpsTurnIntoEnemies(t *testing.T) {
 	w := quietWorld()
-	w.warps = []warp{{kind: gunship, x: 300, y: 300, left: warpTime}}
+	w.warps = []warp{{kind: gunship, position: golib.Vector2{X: 300, Y: 300}, left: warpTime}}
 	run(&w, controls{}, warpTime-0.1)
 	if len(w.enemies) != 0 {
 		t.Fatal("an enemy arrived before its warp ended")

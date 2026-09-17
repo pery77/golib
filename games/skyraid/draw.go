@@ -15,7 +15,6 @@ const (
 	nebulaDepth   = 0.5 // how far nebulae move for each pixel the camera moves
 	shipNose      = 22  // pixels from the ship's center to its nose, where bullets start
 	shotStreak    = 0.022
-	ringSegments  = 24 // straight lines in a drawn ring
 	blinkRate     = 16 // blinks per second of a hurt ship or an old repair kit
 	enemyBarWidth = 36 // pixels, for the hull bar over a damaged enemy
 )
@@ -37,7 +36,7 @@ type star struct {
 }
 
 type nebula struct {
-	x, y   float32 // where it is when the camera is at 0, 0
+	x, y   float32 // where it is when the camera's view starts at 0, 0
 	radius float32
 	color  golib.Color
 }
@@ -69,12 +68,14 @@ func newBackdrop() *backdrop {
 	return b
 }
 
-// draw draws the backdrop as the camera sees it.
-func (b *backdrop) draw(screen *golib.Screen, c camera) {
+// draw draws the backdrop in screen pixels, behind the arena. Parallax is the
+// game's own: each layer moves by a share of the camera's view, so the
+// nearest stars keep up with the arena and the farthest barely move.
+func (b *backdrop) draw(screen *golib.Screen, camera *golib.Camera) {
+	view := camera.View()
 	screen.Clear(spaceColor)
 	for _, n := range b.nebulae {
-		x := n.x - c.x*nebulaDepth + c.shakeX*nebulaDepth
-		y := n.y - c.y*nebulaDepth + c.shakeY*nebulaDepth
+		x, y := n.x-view.X*nebulaDepth, n.y-view.Y*nebulaDepth
 		if x+n.radius < 0 || x-n.radius > screenWidth || y+n.radius < 0 || y-n.radius > screenHeight {
 			continue
 		}
@@ -88,104 +89,110 @@ func (b *backdrop) draw(screen *golib.Screen, c camera) {
 		depth := starDepths[layer]
 		shade := withAlpha(starColor, 0.35+0.3*float32(layer))
 		for _, s := range stars {
-			x := wrap(s.x-c.x*depth, fieldW) - starMargin
-			y := wrap(s.y-c.y*depth, fieldH) - starMargin
+			x := wrap(s.x-view.X*depth, fieldW) - starMargin
+			y := wrap(s.y-view.Y*depth, fieldH) - starMargin
 			screen.DrawCircle(x, y, s.size, shade)
 		}
 	}
 }
 
-// drawWorld draws the arena and everything in it, from back to front, as the
-// camera sees it. It reads the state and never changes it.
-func drawWorld(screen *golib.Screen, w *world, b *backdrop, c camera) {
-	b.draw(screen, c)
-	drawGrid(screen, c)
-	drawBorder(screen, c)
+// drawWorld draws the arena and everything in it, from back to front, through
+// the camera: every position below is in the arena, not on the screen. It
+// reads the state and never changes it.
+func drawWorld(screen *golib.Screen, w *world, b *backdrop, camera *golib.Camera) {
+	b.draw(screen, camera) // in screen pixels, behind the arena
+	view := camera.View()
+	screen.SetCamera(camera)
+	drawGrid(screen, view)
+	drawBorder(screen)
 	for _, wp := range w.warps {
-		drawWarp(screen, wp, c)
+		drawWarp(screen, wp, view)
 	}
 	for _, r := range w.repairs {
-		drawRepair(screen, r, w.time, c)
+		drawRepair(screen, r, w.time, view)
 	}
 	for _, p := range w.particles {
-		if !c.sees(p.x, p.y, p.size*4) {
+		if !inView(view, p.position, p.size*4) {
 			continue
 		}
 		share := p.life / p.lifetime
-		x, y := c.toScreen(p.x, p.y)
 		if p.blast {
 			// A white flash that shrinks inside a ring that grows. GoLib has no
 			// additive blending, so see-through colors can only darken: the
 			// flash is white to read as light.
 			grown := p.size * (1 + 2.5*(1-share))
-			screen.DrawCircle(x, y, p.size*share*share, withAlpha(golib.White, share))
-			drawRing(screen, x, y, grown, 1+4*share, withAlpha(p.color, share))
+			screen.DrawCircle(p.position.X, p.position.Y, p.size*share*share, withAlpha(golib.White, share))
+			screen.DrawCircleOutline(p.position.X, p.position.Y, grown, 1+4*share, withAlpha(p.color, share))
 			continue
 		}
-		screen.DrawCircle(x, y, p.size*(0.3+0.7*share), withAlpha(p.color, share))
+		screen.DrawCircle(p.position.X, p.position.Y, p.size*(0.3+0.7*share), withAlpha(p.color, share))
 	}
 	for _, b := range w.shots {
-		if !c.sees(b.x, b.y, 20) {
+		if !inView(view, b.position, 20) {
 			continue
 		}
-		x, y := c.toScreen(b.x, b.y)
-		screen.DrawLine(x-b.vx*shotStreak, y-b.vy*shotStreak, x, y, b.radius, shotColor)
+		back := b.position.Sub(b.velocity.Scale(shotStreak))
+		screen.DrawLine(back.X, back.Y, b.position.X, b.position.Y, b.radius, shotColor)
 	}
 	for _, e := range w.enemies {
-		if c.sees(e.x, e.y, enemyKinds[e.kind].radius+4) {
-			drawEnemy(screen, e, c)
+		if inView(view, e.position, enemyKinds[e.kind].radius+4) {
+			drawEnemy(screen, e)
 		}
 	}
 	if w.ship.alive {
-		drawShip(screen, &w.ship, w.time, c)
+		drawShip(screen, &w.ship, w.time)
 	}
 	// Enemy bullets go on top of everything, so they are never hidden.
 	for _, b := range w.enemyShots {
-		if !c.sees(b.x, b.y, b.radius*2) {
+		if !inView(view, b.position, b.radius*2) {
 			continue
 		}
-		x, y := c.toScreen(b.x, b.y)
-		screen.DrawCircle(x, y, b.radius*1.9, withAlpha(enemyShotColor, 0.3))
-		screen.DrawCircle(x, y, b.radius, enemyShotColor)
-		screen.DrawCircle(x, y, b.radius*0.5, enemyShotCore)
+		screen.DrawCircle(b.position.X, b.position.Y, b.radius*1.9, withAlpha(enemyShotColor, 0.3))
+		screen.DrawCircle(b.position.X, b.position.Y, b.radius, enemyShotColor)
+		screen.DrawCircle(b.position.X, b.position.Y, b.radius*0.5, enemyShotCore)
 	}
+	screen.SetCamera(nil) // screen pixels again, for the HUD
+}
+
+// inView reports whether a circle in the arena is at least partly in the
+// camera's view, so drawing can skip what isn't.
+func inView(view golib.Rectangle, at golib.Vector2, radius float32) bool {
+	return view.Overlaps(golib.Rectangle{X: at.X - radius, Y: at.Y - radius, Width: 2 * radius, Height: 2 * radius})
 }
 
 // drawGrid draws faint lines across the arena, so movement shows even where
-// there is nothing else.
-func drawGrid(screen *golib.Screen, c camera) {
-	left, top := c.toScreen(0, 0)
-	right, bottom := c.toScreen(worldWidth, worldHeight)
-	firstX := float32(math.Floor(float64(c.x/gridSpacing))) * gridSpacing
-	for x := firstX; x <= c.x+screenWidth+gridSpacing; x += gridSpacing {
-		sx, _ := c.toScreen(x, 0)
-		screen.DrawLine(sx, max(top, 0), sx, min(bottom, screenHeight), 1, gridColor)
+// there is nothing else. Only the lines in view are drawn.
+func drawGrid(screen *golib.Screen, view golib.Rectangle) {
+	left, right := max(view.X, 0), min(view.X+view.Width, worldWidth)
+	top, bottom := max(view.Y, 0), min(view.Y+view.Height, worldHeight)
+	for x := gridBefore(view.X); x <= view.X+view.Width; x += gridSpacing {
+		screen.DrawLine(x, top, x, bottom, 1, gridColor)
 	}
-	firstY := float32(math.Floor(float64(c.y/gridSpacing))) * gridSpacing
-	for y := firstY; y <= c.y+screenHeight+gridSpacing; y += gridSpacing {
-		_, sy := c.toScreen(0, y)
-		screen.DrawLine(max(left, 0), sy, min(right, screenWidth), sy, 1, gridColor)
+	for y := gridBefore(view.Y); y <= view.Y+view.Height; y += gridSpacing {
+		screen.DrawLine(left, y, right, y, 1, gridColor)
 	}
 }
 
-// drawBorder draws the arena's edge as a glowing line.
-func drawBorder(screen *golib.Screen, c camera) {
-	left, top := c.toScreen(0, 0)
-	right, bottom := c.toScreen(worldWidth, worldHeight)
-	for _, line := range [...][4]float32{
-		{left, top, right, top},
-		{right, top, right, bottom},
-		{right, bottom, left, bottom},
-		{left, bottom, left, top},
-	} {
-		screen.DrawLine(line[0], line[1], line[2], line[3], 24, borderGlow)
-		screen.DrawLine(line[0], line[1], line[2], line[3], 10, borderGlow)
-		screen.DrawLine(line[0], line[1], line[2], line[3], 3, borderColor)
+// gridBefore returns the last grid line at or before value.
+func gridBefore(value float32) float32 {
+	return float32(math.Floor(float64(value/gridSpacing))) * gridSpacing
+}
+
+// drawBorder draws the arena's edge as a glowing line: three lines of
+// different widths, centered on the edge.
+func drawBorder(screen *golib.Screen) {
+	for _, line := range [...]struct {
+		thickness float32
+		color     golib.Color
+	}{{24, borderGlow}, {10, borderGlow}, {3, borderColor}} {
+		out := line.thickness / 2 // an outline is drawn inside its rectangle
+		edge := golib.Rectangle{X: -out, Y: -out, Width: worldWidth + line.thickness, Height: worldHeight + line.thickness}
+		screen.DrawRectangleOutline(edge, line.thickness, line.color)
 	}
 }
 
-// Shapes, pointing right, in pixels from their center. Each is drawn as a fan
-// of triangles from the center, so every corner must be visible from it.
+// Shapes, pointing right, in pixels from their center. Screen.DrawPolygon
+// fills each from its middle, so every corner must be visible from there.
 var (
 	shipShape    = []golib.Vector2{{X: shipNose, Y: 0}, {X: -8, Y: 7}, {X: -14, Y: 15}, {X: -10, Y: 0}, {X: -14, Y: -15}, {X: -8, Y: -7}}
 	scoutShape   = []golib.Vector2{{X: 17, Y: 0}, {X: -10, Y: 11}, {X: -5, Y: 0}, {X: -10, Y: -11}}
@@ -194,68 +201,62 @@ var (
 	enemyShapes  = [...][]golib.Vector2{scout: scoutShape, gunship: gunshipShape, heavy: heavyShape}
 )
 
-// drawShape draws a shape centered at the screen point x, y, turned by angle,
+// drawShape draws a shape centered at a point, turned by angle degrees,
 // filled with one color and outlined with another.
-func drawShape(screen *golib.Screen, shape []golib.Vector2, x, y, angle float32, fill, outline golib.Color) {
+func drawShape(screen *golib.Screen, shape []golib.Vector2, at golib.Vector2, angle float32, fill, outline golib.Color) {
 	corners := make([]golib.Vector2, len(shape))
-	for i, p := range shape {
-		rx, ry := rotate(p.X, p.Y, angle)
-		corners[i] = golib.Vector2{X: x + rx, Y: y + ry}
+	for i, corner := range shape {
+		corners[i] = corner.Rotate(angle).Add(at)
 	}
-	for i, a := range corners {
-		b := corners[(i+1)%len(corners)]
-		screen.DrawTriangle(x, y, a.X, a.Y, b.X, b.Y, fill)
-	}
-	for i, a := range corners {
-		b := corners[(i+1)%len(corners)]
-		screen.DrawLine(a.X, a.Y, b.X, b.Y, 2, outline)
-	}
+	screen.DrawPolygon(corners, fill)
+	screen.DrawPolygonOutline(corners, 2, outline)
 }
 
 // drawShip draws the player's ship, blinking while it can't be hurt.
-func drawShip(screen *golib.Screen, s *ship, time float32, c camera) {
-	x, y := c.toScreen(s.x, s.y)
+func drawShip(screen *golib.Screen, s *ship, time float32) {
+	at := s.position
 	if s.dashLeft > 0 {
-		screen.DrawCircle(x, y, shipRadius+10, withAlpha(shipColor, 0.25))
+		screen.DrawCircle(at.X, at.Y, shipRadius+10, withAlpha(shipColor, 0.25))
 	}
 	if s.hurt > 0 && int(time*blinkRate)%2 == 0 {
 		return
 	}
-	if s.thrusting && length(s.vx, s.vy) > 40 {
+	if s.thrusting && s.velocity.Length() > 40 {
 		// The flame flickers against the way the ship flies, which isn't
 		// always where it aims.
 		flame := 12 + 5*float32(math.Sin(float64(s.flameFlicker)*50))
-		back := angleOf(s.vx, s.vy)
-		ax, ay := rotate(-8, -5, back)
-		bx, by := rotate(-8, 5, back)
-		tx, ty := rotate(-8-flame, 0, back)
-		screen.DrawTriangle(x+ax, y+ay, x+bx, y+by, x+tx, y+ty, flameColor)
+		back := s.velocity.Angle()
+		a := golib.Vector2{X: -8, Y: -5}.Rotate(back).Add(at)
+		b := golib.Vector2{X: -8, Y: 5}.Rotate(back).Add(at)
+		tip := golib.Vector2{X: -8 - flame}.Rotate(back).Add(at)
+		screen.DrawTriangle(a.X, a.Y, b.X, b.Y, tip.X, tip.Y, flameColor)
 	}
-	drawShape(screen, shipShape, x, y, s.angle, shipDarkColor, shipColor)
-	screen.DrawCircle(x+2*float32(math.Cos(float64(s.angle))), y+2*float32(math.Sin(float64(s.angle))), 4, shipColor)
+	drawShape(screen, shipShape, at, s.angle, shipDarkColor, shipColor)
+	aim := golib.Vector2FromAngle(s.angle)
+	eye := at.Add(aim.Scale(2))
+	screen.DrawCircle(eye.X, eye.Y, 4, shipColor)
 	if s.flash > 0 {
-		nx, ny := direction(s.angle)
-		screen.DrawCircle(x+nx*(shipNose+4), y+ny*(shipNose+4), 7, shotColor)
+		muzzle := at.Add(aim.Scale(shipNose + 4))
+		screen.DrawCircle(muzzle.X, muzzle.Y, 7, shotColor)
 	}
 }
 
 // drawEnemy draws an enemy facing the ship, white for a moment when hit, with
 // a hull bar once it is damaged.
-func drawEnemy(screen *golib.Screen, e enemy, c camera) {
+func drawEnemy(screen *golib.Screen, e enemy) {
 	k := enemyKinds[e.kind]
-	x, y := c.toScreen(e.x, e.y)
 	color := enemyColors[e.kind]
 	fill := darker(color, 0.35)
 	if e.flash > 0 {
 		fill, color = golib.White, golib.White
 	}
-	drawShape(screen, enemyShapes[e.kind], x, y, e.angle, fill, color)
+	drawShape(screen, enemyShapes[e.kind], e.position, e.angle, fill, color)
 	if e.kind == heavy {
-		screen.DrawCircle(x, y, 9, color)
+		screen.DrawCircle(e.position.X, e.position.Y, 9, color)
 	}
 	if e.hull < k.hull && k.hull > 1 {
-		top := y - k.radius - 12
-		bar := golib.Rectangle{X: x - enemyBarWidth/2, Y: top, Width: enemyBarWidth, Height: 4}
+		top := e.position.Y - k.radius - 12
+		bar := golib.Rectangle{X: e.position.X - enemyBarWidth/2, Y: top, Width: enemyBarWidth, Height: 4}
 		screen.DrawRectangle(bar, panelColor)
 		bar.Width *= float32(e.hull) / float32(k.hull)
 		screen.DrawRectangle(bar, color)
@@ -263,61 +264,50 @@ func drawEnemy(screen *golib.Screen, e enemy, c camera) {
 }
 
 // drawWarp draws the ring that shows where an enemy is about to arrive.
-func drawWarp(screen *golib.Screen, wp warp, c camera) {
+func drawWarp(screen *golib.Screen, wp warp, view golib.Rectangle) {
 	k := enemyKinds[wp.kind]
-	if !c.sees(wp.x, wp.y, k.radius+80) {
+	if !inView(view, wp.position, k.radius+80) {
 		return
 	}
-	x, y := c.toScreen(wp.x, wp.y)
 	share := wp.left / warpTime // 1 when it starts, 0 when the enemy arrives
-	drawRing(screen, x, y, k.radius+70*share, 3, withAlpha(warpColor, 1-share*0.7))
-	screen.DrawCircle(x, y, k.radius*(1-share), withAlpha(warpColor, 0.4))
+	screen.DrawCircleOutline(wp.position.X, wp.position.Y, k.radius+70*share, 3, withAlpha(warpColor, 1-share*0.7))
+	screen.DrawCircle(wp.position.X, wp.position.Y, k.radius*(1-share), withAlpha(warpColor, 0.4))
 }
 
 // drawRepair draws a repair kit: a green cross in a ring that pulses, and
 // blinks when it is about to go.
-func drawRepair(screen *golib.Screen, r repairKit, time float32, c camera) {
-	if !c.sees(r.x, r.y, repairRadius+6) {
+func drawRepair(screen *golib.Screen, r repairKit, time float32, view golib.Rectangle) {
+	if !inView(view, r.position, repairRadius+6) {
 		return
 	}
 	if r.life < repairLifetime-repairBlinkAfter && int(time*blinkRate/2)%2 == 0 {
 		return
 	}
-	x, y := c.toScreen(r.x, r.y)
+	at := r.position
 	pulse := 1 + 0.12*float32(math.Sin(float64(time)*8))
 	radius := repairRadius * pulse
-	screen.DrawCircle(x, y, radius, withAlpha(repairColor, 0.2))
-	drawRing(screen, x, y, radius, 2, repairColor)
+	screen.DrawCircle(at.X, at.Y, radius, withAlpha(repairColor, 0.2))
+	screen.DrawCircleOutline(at.X, at.Y, radius, 2, repairColor)
 	arm, thick := radius*0.6, radius*0.28
-	screen.DrawRectangle(golib.Rectangle{X: x - arm, Y: y - thick/2, Width: 2 * arm, Height: thick}, repairColor)
-	screen.DrawRectangle(golib.Rectangle{X: x - thick/2, Y: y - arm, Width: thick, Height: 2 * arm}, repairColor)
+	screen.DrawRectangle(golib.Rectangle{X: at.X - arm, Y: at.Y - thick/2, Width: 2 * arm, Height: thick}, repairColor)
+	screen.DrawRectangle(golib.Rectangle{X: at.X - thick/2, Y: at.Y - arm, Width: thick, Height: 2 * arm}, repairColor)
 }
 
-// drawRing draws a circle's outline, which GoLib doesn't have, as straight
-// lines.
-func drawRing(screen *golib.Screen, x, y, radius, thickness float32, color golib.Color) {
-	lastX, lastY := x+radius, y
-	for i := 1; i <= ringSegments; i++ {
-		dx, dy := direction(2 * math.Pi * float32(i) / ringSegments)
-		nextX, nextY := x+dx*radius, y+dy*radius
-		screen.DrawLine(lastX, lastY, nextX, nextY, thickness, color)
-		lastX, lastY = nextX, nextY
+// drawCrosshair draws the mouse aim at a screen point.
+func drawCrosshair(screen *golib.Screen, at golib.Vector2) {
+	screen.DrawCircleOutline(at.X, at.Y, 11, 2, textColor)
+	for _, way := range [...]golib.Vector2{{X: 1}, {X: -1}, {Y: 1}, {Y: -1}} {
+		from, to := at.Add(way.Scale(6)), at.Add(way.Scale(17))
+		screen.DrawLine(from.X, from.Y, to.X, to.Y, 2, textColor)
 	}
+	screen.DrawCircle(at.X, at.Y, 1.5, textColor)
 }
 
-// drawCrosshair draws the mouse aim at the screen point x, y.
-func drawCrosshair(screen *golib.Screen, x, y float32) {
-	drawRing(screen, x, y, 11, 2, textColor)
-	for _, d := range [...][2]float32{{1, 0}, {-1, 0}, {0, 1}, {0, -1}} {
-		screen.DrawLine(x+d[0]*6, y+d[1]*6, x+d[0]*17, y+d[1]*17, 2, textColor)
-	}
-	screen.DrawCircle(x, y, 1.5, textColor)
-}
-
-// withAlpha returns color made see-through: alpha 0 is invisible, 1 unchanged.
-func withAlpha(color golib.Color, alpha float32) golib.Color {
-	color.A = uint8(float32(color.A) * clamp(alpha, 0, 1))
-	return color
+// withAlpha returns color faded by share: 0 is invisible, 1 unchanged.
+// golib.WithOpacity sets an opacity outright; this scales the color's own, so
+// that colors already see-through, such as dashTrailColor, stay that way.
+func withAlpha(color golib.Color, share float32) golib.Color {
+	return golib.WithOpacity(color, float32(color.A)/255*clamp(share, 0, 1))
 }
 
 // darker returns color with its red, green and blue scaled by share.

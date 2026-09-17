@@ -1,10 +1,6 @@
 package main
 
-import (
-	"math"
-
-	"golib"
-)
+import "golib"
 
 // Wave tuning.
 const (
@@ -138,20 +134,19 @@ func (w *world) endWave() {
 // away from the ship.
 func (w *world) spawnGroup() {
 	count := min(groupSize(w.wave), len(w.queue))
-	x, y := w.spawnSpot()
+	at := w.spawnSpot()
 	for n := range count {
 		k := enemyKinds[w.queue[n]]
-		angle := 2 * math.Pi * float32(n) / float32(count)
-		dx, dy := direction(angle)
 		spread := float32(0)
 		if count > 1 {
 			spread = groupSpread
 		}
+		// The group stands in a ring around the spot.
+		away := golib.Vector2FromAngle(360 * float32(n) / float32(count)).Scale(spread)
 		w.warps = append(w.warps, warp{
-			kind: w.queue[n],
-			x:    clamp(x+dx*spread, k.radius, worldWidth-k.radius),
-			y:    clamp(y+dy*spread, k.radius, worldHeight-k.radius),
-			left: warpTime,
+			kind:     w.queue[n],
+			position: insideArena(at.Add(away), k.radius),
+			left:     warpTime,
 		})
 	}
 	w.queue = w.queue[count:]
@@ -161,20 +156,22 @@ func (w *world) spawnGroup() {
 // spawnSpot returns a random place in the arena at least spawnMinDistance
 // from the ship. The arena is big enough that one of a few tries always is;
 // the last resort is the corner farthest from the ship.
-func (w *world) spawnSpot() (float32, float32) {
+func (w *world) spawnSpot() golib.Vector2 {
 	for range 30 {
-		x := golib.RandomFloat(spawnMargin, worldWidth-spawnMargin)
-		y := golib.RandomFloat(spawnMargin, worldHeight-spawnMargin)
-		if distanceSquared(x, y, w.ship.x, w.ship.y) >= spawnMinDistance*spawnMinDistance {
-			return x, y
+		at := golib.Vector2{
+			X: golib.RandomFloat(spawnMargin, worldWidth-spawnMargin),
+			Y: golib.RandomFloat(spawnMargin, worldHeight-spawnMargin),
+		}
+		if at.Distance(w.ship.position) >= spawnMinDistance {
+			return at
 		}
 	}
-	x, y := float32(spawnMargin), float32(spawnMargin)
-	if w.ship.x < worldWidth/2 {
-		x = worldWidth - spawnMargin
+	corner := golib.Vector2{X: spawnMargin, Y: spawnMargin}
+	if w.ship.position.X < worldWidth/2 {
+		corner.X = worldWidth - spawnMargin
 	}
-	if w.ship.y < worldHeight/2 {
-		y = worldHeight - spawnMargin
+	if w.ship.position.Y < worldHeight/2 {
+		corner.Y = worldHeight - spawnMargin
 	}
-	return x, y
+	return corner
 }

@@ -21,11 +21,14 @@ const (
 	dashBarWidth  = 120
 )
 
+// centered puts the middle of each line at the x that DrawText is given.
+var centered = golib.TextOptions{Align: golib.AlignCenter}
+
 // drawHUD draws everything that stays in place over the arena: the score, the
 // hull, the wave, the dash charge, the radar and the arrows to enemies off the
-// screen.
-func drawHUD(screen *golib.Screen, w *world, c camera) {
-	drawArrows(screen, w, c)
+// screen. It draws in screen pixels, so the camera must be off.
+func drawHUD(screen *golib.Screen, w *world, camera *golib.Camera) {
+	drawArrows(screen, w, camera)
 	drawDanger(screen, w)
 
 	// Score and hull, top left.
@@ -61,7 +64,7 @@ func drawHUD(screen *golib.Screen, w *world, c camera) {
 	bar.Width *= clamp(charge, 0, 1)
 	screen.DrawRectangle(bar, labelColor)
 
-	drawRadar(screen, w, c)
+	drawRadar(screen, w, camera.View())
 	drawBanner(screen, w)
 }
 
@@ -82,72 +85,86 @@ func drawBanner(screen *golib.Screen, w *world) {
 	drawCentered(screen, fmt.Sprintf("%d enemies incoming", len(waveEnemies(w.wave+1))), top+150, 20, dimTextColor)
 }
 
-// drawRadar draws the whole arena, scaled down, in the bottom-right corner.
-func drawRadar(screen *golib.Screen, w *world, c camera) {
+// drawRadar draws the whole arena, scaled down, in the bottom-right corner,
+// with a frame around the part of it the camera shows.
+func drawRadar(screen *golib.Screen, w *world, view golib.Rectangle) {
 	left := float32(screenWidth - hudMargin - radarWidth)
 	top := float32(screenHeight-hudMargin) - radarHeight
-	screen.DrawRectangle(golib.Rectangle{X: left, Y: top, Width: radarWidth, Height: radarHeight}, radarColor)
-	outline(screen, golib.Rectangle{X: left, Y: top, Width: radarWidth, Height: radarHeight}, 1, withAlpha(borderColor, 0.7))
-	outline(screen, golib.Rectangle{
-		X: left + c.x*radarScale, Y: top + c.y*radarScale,
-		Width: screenWidth * radarScale, Height: screenHeight * radarScale,
+	panel := golib.Rectangle{X: left, Y: top, Width: radarWidth, Height: radarHeight}
+	screen.DrawRectangle(panel, radarColor)
+	screen.DrawRectangleOutline(panel, 1, withAlpha(borderColor, 0.7))
+	screen.DrawRectangleOutline(golib.Rectangle{
+		X: left + view.X*radarScale, Y: top + view.Y*radarScale,
+		Width: view.Width * radarScale, Height: view.Height * radarScale,
 	}, 1, withAlpha(textColor, 0.35))
 
-	dot := func(x, y, radius float32, color golib.Color) {
-		screen.DrawCircle(left+x*radarScale, top+y*radarScale, radius, color)
+	dot := func(at golib.Vector2, radius float32, color golib.Color) {
+		screen.DrawCircle(left+at.X*radarScale, top+at.Y*radarScale, radius, color)
 	}
 	for _, r := range w.repairs {
-		dot(r.x, r.y, 3, repairColor)
+		dot(r.position, 3, repairColor)
 	}
 	if int(w.time*4)%2 == 0 {
 		for _, wp := range w.warps {
-			dot(wp.x, wp.y, 2, warpColor)
+			dot(wp.position, 2, warpColor)
 		}
 	}
 	for _, e := range w.enemies {
-		dot(e.x, e.y, 1.5+float32(e.kind), enemyColors[e.kind])
+		dot(e.position, 1.5+float32(e.kind), enemyColors[e.kind])
 	}
 	if w.ship.alive {
-		dot(w.ship.x, w.ship.y, 3, shipColor)
+		dot(w.ship.position, 3, shipColor)
 	}
 }
 
 // drawArrows points at every enemy and repair kit off the screen, from the
 // screen's edge. Nearer ones have stronger arrows.
-func drawArrows(screen *golib.Screen, w *world, c camera) {
+func drawArrows(screen *golib.Screen, w *world, camera *golib.Camera) {
 	if !w.ship.alive {
 		return
 	}
+	view := camera.View()
 	radarLeft := float32(screenWidth-hudMargin-radarWidth) - arrowSize*2
 	radarTop := float32(screenHeight-hudMargin) - radarHeight - arrowSize*2
-	arrow := func(x, y float32, color golib.Color) {
-		ex, ey, ok := c.edgePoint(x, y, arrowInset)
-		if !ok {
+	arrow := func(at golib.Vector2, color golib.Color) {
+		if view.Contains(at.X, at.Y) {
 			return
 		}
-		if ex > radarLeft && ey > radarTop {
+		on := camera.ToScreen(at) // outside the screen, so the arrow has a direction
+		edge := edgePoint(on, arrowInset)
+		if edge.X > radarLeft && edge.Y > radarTop {
 			// Keep arrows off the radar: slide them along the edge to its side.
-			if ex-radarLeft < ey-radarTop {
-				ex = radarLeft
+			if edge.X-radarLeft < edge.Y-radarTop {
+				edge.X = radarLeft
 			} else {
-				ey = radarTop
+				edge.Y = radarTop
 			}
 		}
-		distance := float32(math.Sqrt(float64(distanceSquared(x, y, w.ship.x, w.ship.y))))
-		strength := clamp(1-distance/arrowFarAway, 0.25, 1)
-		sx, sy := c.toScreen(x, y)
-		angle := angleOf(sx-ex, sy-ey)
-		tipX, tipY := rotate(arrowSize, 0, angle)
-		leftX, leftY := rotate(-arrowSize, arrowSize*0.8, angle)
-		rightX, rightY := rotate(-arrowSize, -arrowSize*0.8, angle)
-		screen.DrawTriangle(ex+tipX, ey+tipY, ex+leftX, ey+leftY, ex+rightX, ey+rightY, withAlpha(color, strength))
+		strength := clamp(1-at.Distance(w.ship.position)/arrowFarAway, 0.25, 1)
+		angle := on.Sub(edge).Angle()
+		tip := golib.Vector2{X: arrowSize}.Rotate(angle).Add(edge)
+		left := golib.Vector2{X: -arrowSize, Y: arrowSize * 0.8}.Rotate(angle).Add(edge)
+		right := golib.Vector2{X: -arrowSize, Y: -arrowSize * 0.8}.Rotate(angle).Add(edge)
+		screen.DrawTriangle(tip.X, tip.Y, left.X, left.Y, right.X, right.Y, withAlpha(color, strength))
 	}
 	for _, e := range w.enemies {
-		arrow(e.x, e.y, enemyColors[e.kind])
+		arrow(e.position, enemyColors[e.kind])
 	}
 	for _, r := range w.repairs {
-		arrow(r.x, r.y, repairColor)
+		arrow(r.position, repairColor)
 	}
+}
+
+// edgePoint returns where an arrow to a point off the screen goes: on a frame
+// inset pixels inside the screen's edge, on the line from the screen's middle
+// to the point. GoLib has no such edge maths, so this stays the game's.
+func edgePoint(on golib.Vector2, inset float32) golib.Vector2 {
+	middle := golib.Vector2{X: screenWidth / 2, Y: screenHeight / 2}
+	away := on.Sub(middle)
+	half := middle.Sub(golib.Vector2{X: inset, Y: inset})
+	// Scale the line down until it touches the frame.
+	scale := min(half.X/max(abs(away.X), 0.001), half.Y/max(abs(away.Y), 0.001))
+	return middle.Add(away.Scale(scale))
 }
 
 // drawDanger pulses red at the screen's edges while the ship has one hull
@@ -165,16 +182,7 @@ func drawDanger(screen *golib.Screen, w *world) {
 	screen.DrawRectangle(golib.Rectangle{X: screenWidth - edge, Y: edge, Width: edge, Height: screenHeight - 2*edge}, color)
 }
 
-// outline draws a rectangle's edges, which GoLib doesn't have, as lines.
-func outline(screen *golib.Screen, r golib.Rectangle, thickness float32, color golib.Color) {
-	right, bottom := r.X+r.Width, r.Y+r.Height
-	screen.DrawLine(r.X, r.Y, right, r.Y, thickness, color)
-	screen.DrawLine(right, r.Y, right, bottom, thickness, color)
-	screen.DrawLine(right, bottom, r.X, bottom, thickness, color)
-	screen.DrawLine(r.X, bottom, r.X, r.Y, thickness, color)
-}
-
 // drawCentered draws text centered across the screen, with its top at y.
 func drawCentered(screen *golib.Screen, text string, y, size float32, color golib.Color) {
-	screen.DrawText(text, (screen.Width()-screen.TextWidth(text, size))/2, y, size, color)
+	screen.DrawText(text, screen.Width()/2, y, size, color, centered)
 }

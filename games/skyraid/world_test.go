@@ -29,44 +29,56 @@ func near(got, want, tolerance float32) bool {
 	return math.Abs(float64(got-want)) <= float64(tolerance)
 }
 
+// moving returns controls that fly the ship the way x, y points.
+func moving(x, y float32) controls {
+	return controls{move: golib.Vector2{X: x, Y: y}}
+}
+
+// aiming returns controls that aim the ship the way x, y points.
+func aiming(x, y float32) controls {
+	return controls{aim: golib.Vector2{X: x, Y: y}}
+}
+
 func TestShipFliesAtItsSpeed(t *testing.T) {
 	w := quietWorld()
-	start := w.ship.x
-	run(&w, controls{moveX: 1}, 2)
-	if !near(w.ship.vx, shipSpeed, 1) {
-		t.Errorf("after two seconds flying right, speed is %v, want %v", w.ship.vx, shipSpeed)
+	start := w.ship.position.X
+	run(&w, moving(1, 0), 2)
+	if !near(w.ship.velocity.X, shipSpeed, 1) {
+		t.Errorf("after two seconds flying right, speed is %v, want %v", w.ship.velocity.X, shipSpeed)
 	}
-	if moved := w.ship.x - start; moved < shipSpeed*1.5 || moved > shipSpeed*2 {
+	if moved := w.ship.position.X - start; moved < shipSpeed*1.5 || moved > shipSpeed*2 {
 		t.Errorf("in two seconds the ship flew %v pixels, want between %v and %v", moved, shipSpeed*1.5, shipSpeed*2)
 	}
 }
 
 func TestFlyingDiagonallyIsNotFaster(t *testing.T) {
 	w := quietWorld()
-	run(&w, controls{moveX: 1, moveY: 1}, 2)
-	if speed := length(w.ship.vx, w.ship.vy); !near(speed, shipSpeed, 1) {
+	run(&w, moving(1, 1), 2)
+	if speed := w.ship.velocity.Length(); !near(speed, shipSpeed, 1) {
 		t.Errorf("flying diagonally, speed is %v, want %v", speed, shipSpeed)
 	}
 }
 
 func TestShipStaysInTheArena(t *testing.T) {
 	w := quietWorld()
-	run(&w, controls{moveX: -1, moveY: -1}, 20)
-	if w.ship.x != shipRadius || w.ship.y != shipRadius {
-		t.Errorf("after flying into the top-left corner, the ship is at %v, %v, want %v, %v", w.ship.x, w.ship.y, shipRadius, shipRadius)
+	run(&w, moving(-1, -1), 20)
+	if w.ship.position != (golib.Vector2{X: shipRadius, Y: shipRadius}) {
+		t.Errorf("after flying into the top-left corner, the ship is at %v, want %v, %v", w.ship.position, shipRadius, shipRadius)
 	}
-	run(&w, controls{moveX: 1, moveY: 1}, 30)
-	if w.ship.x != worldWidth-shipRadius || w.ship.y != worldHeight-shipRadius {
-		t.Errorf("after flying into the bottom-right corner, the ship is at %v, %v", w.ship.x, w.ship.y)
+	run(&w, moving(1, 1), 30)
+	if w.ship.position != (golib.Vector2{X: worldWidth - shipRadius, Y: worldHeight - shipRadius}) {
+		t.Errorf("after flying into the bottom-right corner, the ship is at %v", w.ship.position)
 	}
 }
 
 func TestHoldingFireShootsAtTheFireRate(t *testing.T) {
 	w := quietWorld()
 	fired := 0
+	down := aiming(0, 1)
+	down.fire = true
 	for range 60 {
 		before := len(w.shots)
-		w.step(controls{fire: true, aimX: 0, aimY: 1}, dt)
+		w.step(down, dt)
 		if len(w.shots) > before {
 			fired++
 		}
@@ -76,35 +88,37 @@ func TestHoldingFireShootsAtTheFireRate(t *testing.T) {
 		t.Errorf("holding fire for a second shot %d times, want %d", fired, want)
 	}
 	for _, b := range w.shots {
-		if b.vy <= 0 || math.Abs(float64(b.vx)) > float64(b.vy)/10 {
-			t.Fatalf("aiming down, a shot flies at %v, %v", b.vx, b.vy)
+		if b.velocity.Y <= 0 || math.Abs(float64(b.velocity.X)) > float64(b.velocity.Y)/10 {
+			t.Fatalf("aiming down, a shot flies at %v", b.velocity)
 		}
 	}
 }
 
 func TestAimStaysWithoutAimInput(t *testing.T) {
 	w := quietWorld()
-	w.step(controls{aimX: -1}, dt)
+	w.step(aiming(-1, 0), dt)
 	run(&w, controls{}, 1)
-	if !near(w.ship.angle, math.Pi, 0.001) && !near(w.ship.angle, -math.Pi, 0.001) {
-		t.Errorf("after aiming left and letting go, the angle is %v, want pi", w.ship.angle)
+	if !near(abs(w.ship.angle), 180, 0.001) {
+		t.Errorf("after aiming left and letting go, the angle is %v, want 180", w.ship.angle)
 	}
 }
 
 func TestShipAimsWhereItFliesWithNothingToAimWith(t *testing.T) {
 	w := quietWorld()
-	w.step(controls{moveY: 1}, dt)
-	if !near(w.ship.angle, math.Pi/2, 0.001) {
-		t.Errorf("flying down with no aim, the angle is %v, want pi/2", w.ship.angle)
+	w.step(moving(0, 1), dt)
+	if !near(w.ship.angle, 90, 0.001) {
+		t.Errorf("flying down with no aim, the angle is %v, want 90", w.ship.angle)
 	}
 }
 
 func TestShotsDestroyAScoutAndScore(t *testing.T) {
 	w := quietWorld()
-	w.enemies = append(w.enemies, w.newEnemy(scout, w.ship.x+150, w.ship.y))
+	w.enemies = append(w.enemies, w.newEnemy(scout, w.ship.position.Add(golib.Vector2{X: 150})))
+	right := aiming(1, 0)
+	right.fire = true
 	for i := 0; i < 60 && len(w.enemies) > 0; i++ {
 		w.ship.hurt = 1 // the scout may fire back; this test is about shooting it
-		w.step(controls{fire: true, aimX: 1}, dt)
+		w.step(right, dt)
 	}
 	if len(w.enemies) != 0 {
 		t.Fatal("the scout in front of the ship survived a second of fire")
@@ -117,7 +131,7 @@ func TestShotsDestroyAScoutAndScore(t *testing.T) {
 func TestPointsGrowWithTheWave(t *testing.T) {
 	w := quietWorld()
 	w.wave = 3
-	w.enemies = append(w.enemies, w.newEnemy(gunship, 100, 100))
+	w.enemies = append(w.enemies, w.newEnemy(gunship, golib.Vector2{X: 100, Y: 100}))
 	w.destroyEnemy(0, true)
 	if want := 3 * enemyKinds[gunship].points; w.score != want {
 		t.Errorf("a gunship in wave 3 scored %d, want %d", w.score, want)
@@ -127,10 +141,10 @@ func TestPointsGrowWithTheWave(t *testing.T) {
 func TestEnemiesTakeAsManyHitsAsTheirHull(t *testing.T) {
 	for kind, k := range enemyKinds {
 		w := quietWorld()
-		w.enemies = append(w.enemies, w.newEnemy(kind, 500, 500))
+		w.enemies = append(w.enemies, w.newEnemy(kind, golib.Vector2{X: 500, Y: 500}))
 		for hit := 1; hit <= k.hull; hit++ {
 			e := w.enemies[0]
-			w.shots = append(w.shots, shot{x: e.x, y: e.y, radius: shotRadius, life: 1})
+			w.shots = append(w.shots, shot{position: e.position, radius: shotRadius, life: 1})
 			w.hitEnemies()
 			if hit < k.hull && len(w.enemies) != 1 {
 				t.Fatalf("a %s broke after %d hits, want %d", k.name, hit, k.hull)
@@ -144,10 +158,10 @@ func TestEnemiesTakeAsManyHitsAsTheirHull(t *testing.T) {
 
 func TestEnemyShotHurtsOnceThenTheShipIsSafeForAWhile(t *testing.T) {
 	w := quietWorld()
-	s := w.ship
+	at := w.ship.position
 	w.enemyShots = []shot{
-		{x: s.x, y: s.y, radius: 5, life: 2},
-		{x: s.x + 1, y: s.y, radius: 5, life: 2},
+		{position: at, radius: 5, life: 2},
+		{position: at.Add(golib.Vector2{X: 1}), radius: 5, life: 2},
 	}
 	w.step(controls{}, dt)
 	if w.ship.hull != shipHull-1 {
@@ -156,14 +170,14 @@ func TestEnemyShotHurtsOnceThenTheShipIsSafeForAWhile(t *testing.T) {
 	if !w.ship.hitThisWave || w.ship.hurt <= 0 {
 		t.Error("a hit ship isn't marked as hit, or can be hurt again at once")
 	}
-	w.enemyShots = []shot{{x: w.ship.x, y: w.ship.y, radius: 5, life: 2}}
+	w.enemyShots = []shot{{position: w.ship.position, radius: 5, life: 2}}
 	w.step(controls{}, dt)
 	if w.ship.hull != shipHull-1 {
 		t.Errorf("a bullet right after a hit took the hull to %d", w.ship.hull)
 	}
 	w.enemyShots = nil
 	run(&w, controls{}, hurtTime)
-	w.enemyShots = []shot{{x: w.ship.x, y: w.ship.y, radius: 5, life: 2}}
+	w.enemyShots = []shot{{position: w.ship.position, radius: 5, life: 2}}
 	w.step(controls{}, dt)
 	if w.ship.hull != shipHull-2 {
 		t.Errorf("a bullet after the safe time left the hull at %d, want %d", w.ship.hull, shipHull-2)
@@ -173,12 +187,14 @@ func TestEnemyShotHurtsOnceThenTheShipIsSafeForAWhile(t *testing.T) {
 func TestTheGameEndsWithTheLastHullPoint(t *testing.T) {
 	w := quietWorld()
 	w.ship.hull = 1
-	w.enemyShots = []shot{{x: w.ship.x, y: w.ship.y, radius: 5, life: 2}}
+	w.enemyShots = []shot{{position: w.ship.position, radius: 5, life: 2}}
 	w.step(controls{}, dt)
 	if w.ship.alive || !w.over {
 		t.Fatal("the ship survived losing its last hull point")
 	}
-	run(&w, controls{fire: true, moveX: 1}, 1)
+	flyingAndFiring := moving(1, 0)
+	flyingAndFiring.fire = true
+	run(&w, flyingAndFiring, 1)
 	if len(w.shots) != 0 {
 		t.Error("a destroyed ship still fires")
 	}
@@ -187,14 +203,21 @@ func TestTheGameEndsWithTheLastHullPoint(t *testing.T) {
 	}
 }
 
+// dashingRight flies right and asks for a dash.
+func dashingRight() controls {
+	c := moving(1, 0)
+	c.dash = true
+	return c
+}
+
 func TestDashingPassesThroughBullets(t *testing.T) {
 	w := quietWorld()
-	w.step(controls{moveX: 1, dash: true}, dt)
+	w.step(dashingRight(), dt)
 	if w.ship.dashLeft <= 0 {
 		t.Fatal("dash didn't start")
 	}
-	w.enemyShots = []shot{{x: w.ship.x, y: w.ship.y, radius: 5, life: 2}}
-	w.step(controls{moveX: 1}, dt)
+	w.enemyShots = []shot{{position: w.ship.position, radius: 5, life: 2}}
+	w.step(moving(1, 0), dt)
 	if w.ship.hull != shipHull {
 		t.Errorf("a bullet hurt the ship while it dashed: hull %d", w.ship.hull)
 	}
@@ -202,13 +225,13 @@ func TestDashingPassesThroughBullets(t *testing.T) {
 
 func TestDashMovesFarAndRecharges(t *testing.T) {
 	w := quietWorld()
-	start := w.ship.x
-	w.step(controls{moveX: 1, dash: true}, dt)
-	run(&w, controls{moveX: 1}, dashTime)
-	if moved := w.ship.x - start; moved < dashSpeed*dashTime*0.9 {
+	start := w.ship.position.X
+	w.step(dashingRight(), dt)
+	run(&w, moving(1, 0), dashTime)
+	if moved := w.ship.position.X - start; moved < dashSpeed*dashTime*0.9 {
 		t.Errorf("a dash moved the ship %v pixels, want at least %v", moved, dashSpeed*dashTime*0.9)
 	}
-	w.step(controls{moveX: 1, dash: true}, dt)
+	w.step(dashingRight(), dt)
 	if w.ship.dashLeft > 0 {
 		t.Error("a second dash started before the first recharged")
 	}
@@ -217,15 +240,15 @@ func TestDashMovesFarAndRecharges(t *testing.T) {
 	if w.ship.dashLeft <= 0 {
 		t.Error("no dash after recharging")
 	}
-	if w.ship.dashX != 1 || w.ship.dashY != 0 {
+	if w.ship.dashWay != (golib.Vector2{X: 1}) {
 		// Standing still, the ship dashes where it aims, which is still right.
-		t.Errorf("standing still, the dash goes %v, %v, want 1, 0", w.ship.dashX, w.ship.dashY)
+		t.Errorf("standing still, the dash goes %v, want 1, 0", w.ship.dashWay)
 	}
 }
 
 func TestRammingScoutBreaksAndHurts(t *testing.T) {
 	w := quietWorld()
-	w.enemies = append(w.enemies, w.newEnemy(scout, w.ship.x+5, w.ship.y))
+	w.enemies = append(w.enemies, w.newEnemy(scout, w.ship.position.Add(golib.Vector2{X: 5})))
 	w.step(controls{}, dt)
 	if len(w.enemies) != 0 {
 		t.Error("a scout that rammed the ship is still there")
@@ -241,18 +264,21 @@ func TestRammingScoutBreaksAndHurts(t *testing.T) {
 func TestRepairKitsHealUpToFullAndExpire(t *testing.T) {
 	w := quietWorld()
 	w.ship.hull = 3
-	w.repairs = []repairKit{{x: w.ship.x, y: w.ship.y, life: repairLifetime}, {x: w.ship.x + 2, y: w.ship.y, life: repairLifetime}}
+	w.repairs = []repairKit{
+		{position: w.ship.position, life: repairLifetime},
+		{position: w.ship.position.Add(golib.Vector2{X: 2}), life: repairLifetime},
+	}
 	w.step(controls{}, dt)
 	if w.ship.hull != 5 || len(w.repairs) != 0 {
 		t.Fatalf("two kits left the hull at %d with %d kits left, want 5 and 0", w.ship.hull, len(w.repairs))
 	}
-	w.repairs = []repairKit{{x: w.ship.x, y: w.ship.y, life: repairLifetime}}
+	w.repairs = []repairKit{{position: w.ship.position, life: repairLifetime}}
 	w.step(controls{}, dt)
 	if w.ship.hull != shipHull {
 		t.Errorf("a kit took the hull past full, to %d", w.ship.hull)
 	}
 
-	w.repairs = []repairKit{{x: 100, y: 100, life: repairLifetime}}
+	w.repairs = []repairKit{{position: golib.Vector2{X: 100, Y: 100}, life: repairLifetime}}
 	run(&w, controls{}, repairLifetime+dt)
 	if len(w.repairs) != 0 {
 		t.Error("a repair kit outlived its lifetime")
@@ -261,8 +287,8 @@ func TestRepairKitsHealUpToFullAndExpire(t *testing.T) {
 
 func TestShotsVanishAtTheArenaEdge(t *testing.T) {
 	w := quietWorld()
-	w.shots = []shot{{x: 5, y: 500, vx: -shotSpeed, radius: shotRadius, life: 10}}
-	w.enemyShots = []shot{{x: worldWidth - 5, y: 500, vx: 400, radius: 5, life: 10}}
+	w.shots = []shot{{position: golib.Vector2{X: 5, Y: 500}, velocity: golib.Vector2{X: -shotSpeed}, radius: shotRadius, life: 10}}
+	w.enemyShots = []shot{{position: golib.Vector2{X: worldWidth - 5, Y: 500}, velocity: golib.Vector2{X: 400}, radius: 5, life: 10}}
 	run(&w, controls{}, 0.1)
 	if len(w.shots)+len(w.enemyShots) != 0 {
 		t.Error("bullets flew out of the arena")

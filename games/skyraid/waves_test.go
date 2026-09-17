@@ -87,24 +87,24 @@ func TestTheFirstWaveStartsAfterTheBreak(t *testing.T) {
 func TestSpawnsAreFarFromTheShipAndInTheArena(t *testing.T) {
 	golib.SetRandomSeed(7)
 	w := newWorld()
-	spots := [][2]float32{
-		{worldWidth / 2, worldHeight / 2},
-		{0, 0},
-		{worldWidth, worldHeight},
-		{worldWidth / 2, 0},
+	spots := []golib.Vector2{
+		{X: worldWidth / 2, Y: worldHeight / 2},
+		{},
+		{X: worldWidth, Y: worldHeight},
+		{X: worldWidth / 2},
 	}
 	for range 50 {
-		spots = append(spots, [2]float32{golib.RandomFloat(0, worldWidth), golib.RandomFloat(0, worldHeight)})
+		spots = append(spots, golib.Vector2{X: golib.RandomFloat(0, worldWidth), Y: golib.RandomFloat(0, worldHeight)})
 	}
 	for _, spot := range spots {
-		w.ship.x, w.ship.y = spot[0], spot[1]
+		w.ship.position = spot
 		for range 20 {
-			x, y := w.spawnSpot()
-			if distanceSquared(x, y, w.ship.x, w.ship.y) < spawnMinDistance*spawnMinDistance {
-				t.Fatalf("with the ship at %v, an enemy spawns at %v, %v, too close", spot, x, y)
+			at := w.spawnSpot()
+			if at.Distance(w.ship.position) < spawnMinDistance {
+				t.Fatalf("with the ship at %v, an enemy spawns at %v, too close", spot, at)
 			}
-			if x < spawnMargin || y < spawnMargin || x > worldWidth-spawnMargin || y > worldHeight-spawnMargin {
-				t.Fatalf("with the ship at %v, an enemy spawns at %v, %v, outside the arena", spot, x, y)
+			if at.X < spawnMargin || at.Y < spawnMargin || at.X > worldWidth-spawnMargin || at.Y > worldHeight-spawnMargin {
+				t.Fatalf("with the ship at %v, an enemy spawns at %v, outside the arena", spot, at)
 			}
 		}
 	}
@@ -124,8 +124,8 @@ func TestSpawnedGroupsStayInTheArena(t *testing.T) {
 	}
 	for _, wp := range w.warps {
 		r := enemyKinds[wp.kind].radius
-		if wp.x < r || wp.y < r || wp.x > worldWidth-r || wp.y > worldHeight-r {
-			t.Errorf("a %s warps in at %v, %v, outside the arena", enemyKinds[wp.kind].name, wp.x, wp.y)
+		if wp.position.X < r || wp.position.Y < r || wp.position.X > worldWidth-r || wp.position.Y > worldHeight-r {
+			t.Errorf("a %s warps in at %v, outside the arena", enemyKinds[wp.kind].name, wp.position)
 		}
 	}
 }
@@ -167,7 +167,7 @@ func TestAWaveDoesntEndWhileEnemiesAreLeft(t *testing.T) {
 	w := newWorld()
 	w.breakLeft, w.wave = 0, 1
 	untouchable(&w)
-	w.warps = []warp{{kind: scout, x: 100, y: 100, left: warpTime}}
+	w.warps = []warp{{kind: scout, position: golib.Vector2{X: 100, Y: 100}, left: warpTime}}
 	w.step(controls{}, dt)
 	if !w.fighting() {
 		t.Error("the wave ended while an enemy was warping in")
@@ -185,15 +185,15 @@ func TestTheFirstWavesCanBeCleared(t *testing.T) {
 		c := controls{}
 		best := float32(math.MaxFloat32)
 		for _, e := range w.enemies {
-			if d := distanceSquared(e.x, e.y, w.ship.x, w.ship.y); d < best {
+			if d := e.position.Distance(w.ship.position); d < best {
 				best = d
-				c.aimX, c.aimY = e.x-w.ship.x, e.y-w.ship.y
+				c.aim = e.position.Sub(w.ship.position)
 			}
 		}
 		if len(w.enemies) > 0 {
 			c.fire = true
-			if best > 300*300 {
-				c.moveX, c.moveY = normalize(c.aimX, c.aimY)
+			if best > 300 {
+				c.move = c.aim.Normalize()
 			}
 		}
 		w.step(c, dt)

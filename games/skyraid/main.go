@@ -9,15 +9,16 @@
 //   - scenes.go has the title, pause and game over scenes, and the keys every
 //     scene shares.
 //   - play.go is the scene where the game is played: it turns the keyboard,
-//     the mouse and gamepad 0 into controls for the world, and moves the
-//     camera.
+//     the mouse and gamepad 0 into controls for the world, and points the
+//     camera, a golib.Camera, ahead of the ship.
 //   - world.go holds the rules for the ship, the bullets and the repair kits;
 //     enemies.go the enemies; waves.go the waves. None of them read input or
-//     draw, so the tests can play them.
-//   - camera.go follows the ship and turns arena pixels into screen pixels;
-//     geometry.go has the vector math. GoLib has neither yet.
-//   - draw.go draws the arena and everything in it; hud.go the score, the
-//     radar and the arrows to enemies off the screen.
+//     draw, so the tests can play them. Positions are golib.Vector2, in the
+//     arena's pixels, and angles are degrees.
+//   - geometry.go has the little maths golib.Vector2 doesn't cover.
+//   - draw.go draws the arena and everything in it, through the camera;
+//     hud.go the score, the radar and the arrows to enemies off the screen,
+//     in screen pixels.
 //   - sounds.go holds the sound effects; assets/sounds/explosion.jfxr is one,
 //     made with jfxr. assets.go puts the assets folder inside golib dist
 //     builds.

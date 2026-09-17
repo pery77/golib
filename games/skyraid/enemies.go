@@ -1,10 +1,6 @@
 package main
 
-import (
-	"math"
-
-	"golib"
-)
+import "golib"
 
 // Enemy kinds, as indexes into enemyKinds.
 const (
@@ -25,7 +21,7 @@ type enemyKind struct {
 	keepAway   float32 // pixels it tries to keep from the ship; 0 for none
 	fireEvery  float32 // seconds between volleys, in wave 1
 	volley     int     // bullets per volley, in a fan
-	fan        float32 // radians between the bullets of a volley
+	fan        float32 // degrees between the bullets of a volley
 	shotSpeed  float32 // pixels per second
 	shotRadius float32 // pixels
 	points     int     // score, times the wave number
@@ -41,12 +37,12 @@ var enemyKinds = [...]enemyKind{
 	},
 	gunship: {
 		name: "gunship", radius: 20, hull: 3, speed: 165, response: 2.5, keepAway: 340,
-		fireEvery: 2.0, volley: 3, fan: 0.22, shotSpeed: 360, shotRadius: 6,
+		fireEvery: 2.0, volley: 3, fan: 12.6, shotSpeed: 360, shotRadius: 6,
 		points: 250, dropChance: 0.12, size: 1.6,
 	},
 	heavy: {
 		name: "heavy", radius: 32, hull: 12, speed: 90, response: 1.5, keepAway: 460,
-		fireEvery: 2.8, volley: 7, fan: 0.16, shotSpeed: 250, shotRadius: 8,
+		fireEvery: 2.8, volley: 7, fan: 9.2, shotSpeed: 250, shotRadius: 8,
 		points: 600, dropChance: 0.4, size: 2.6,
 	},
 }
@@ -60,14 +56,15 @@ const (
 	enemyShotLife  = 3.2  // seconds an enemy bullet flies
 	warpTime       = 0.9  // seconds from the warp ring to the enemy
 	strafeFactor   = 0.8  // share of its speed that an enemy at its distance circles with
+	driftTurn      = 17   // degrees per second the enemies drift around once the ship is gone
 )
 
 // enemy is one enemy ship.
 type enemy struct {
 	kind     int
-	x, y     float32 // center
-	vx, vy   float32 // pixels per second
-	angle    float32 // radians it faces; it always faces the ship
+	position golib.Vector2 // center
+	velocity golib.Vector2 // pixels per second
+	angle    float32       // degrees it faces; it always faces the ship
 	hull     int
 	cooldown float32 // seconds until its next volley
 	flash    float32 // seconds left of the hit flash
@@ -76,13 +73,13 @@ type enemy struct {
 
 // warp is an enemy about to arrive: a ring that shrinks for warpTime.
 type warp struct {
-	kind int
-	x, y float32
-	left float32 // seconds until the enemy arrives
+	kind     int
+	position golib.Vector2
+	left     float32 // seconds until the enemy arrives
 }
 
-// newEnemy returns an enemy of a kind at x, y, facing the ship.
-func (w *world) newEnemy(kind int, x, y float32) enemy {
+// newEnemy returns an enemy of a kind at a place, facing the ship.
+func (w *world) newEnemy(kind int, at golib.Vector2) enemy {
 	k := enemyKinds[kind]
 	circle := float32(1)
 	if golib.RandomInt(0, 1) == 0 {
@@ -90,9 +87,8 @@ func (w *world) newEnemy(kind int, x, y float32) enemy {
 	}
 	return enemy{
 		kind:     kind,
-		x:        x,
-		y:        y,
-		angle:    angleOf(w.ship.x-x, w.ship.y-y),
+		position: at,
+		angle:    w.ship.position.Sub(at).Angle(),
 		hull:     k.hull,
 		cooldown: firstShotDelay + golib.RandomFloat(0, k.fireEvery),
 		circle:   circle,
@@ -109,8 +105,8 @@ func (w *world) moveEnemies(dt float32) {
 			kept = append(kept, wp)
 			continue
 		}
-		w.enemies = append(w.enemies, w.newEnemy(wp.kind, wp.x, wp.y))
-		w.burst(wp.x, wp.y, 10, 140, warpColor)
+		w.enemies = append(w.enemies, w.newEnemy(wp.kind, wp.position))
+		w.burst(wp.position, 10, 140, warpColor)
 	}
 	w.warps = kept
 
@@ -121,21 +117,18 @@ func (w *world) moveEnemies(dt float32) {
 		k := enemyKinds[e.kind]
 		e.flash = max(0, e.flash-dt)
 
-		wantX, wantY := w.steer(i)
-		speed := k.speed * speedScale
-		e.vx = approach(e.vx, wantX*speed, k.response, dt)
-		e.vy = approach(e.vy, wantY*speed, k.response, dt)
-		e.x = clamp(e.x+e.vx*dt, k.radius, worldWidth-k.radius)
-		e.y = clamp(e.y+e.vy*dt, k.radius, worldHeight-k.radius)
+		want := w.steer(i).Scale(k.speed * speedScale)
+		e.velocity = e.velocity.Lerp(want, min(1, k.response*dt))
+		e.position = insideArena(e.position.Add(e.velocity.Scale(dt)), k.radius)
 
 		if !w.ship.alive {
 			continue
 		}
-		e.angle = angleOf(w.ship.x-e.x, w.ship.y-e.y)
+		e.angle = w.ship.position.Sub(e.position).Angle()
 		e.cooldown -= dt * fireScale
 		if e.cooldown <= 0 {
 			e.cooldown += k.fireEvery
-			if distanceSquared(e.x, e.y, w.ship.x, w.ship.y) < fireRange*fireRange {
+			if e.position.Distance(w.ship.position) < fireRange {
 				w.enemyFire(e)
 			}
 		}
@@ -144,30 +137,28 @@ func (w *world) moveEnemies(dt float32) {
 
 // steer returns the direction enemy i wants to fly in, at most 1 long: at the
 // ship, away from it or around it, and away from enemies too close to it.
-func (w *world) steer(i int) (float32, float32) {
+func (w *world) steer(i int) golib.Vector2 {
 	e := &w.enemies[i]
 	k := enemyKinds[e.kind]
-	var x, y float32
+	var want golib.Vector2
 	if w.ship.alive {
-		toX, toY := w.ship.x-e.x, w.ship.y-e.y
-		distance := length(toX, toY)
-		toX, toY = normalize(toX, toY)
+		toShip := w.ship.position.Sub(e.position)
+		distance := toShip.Length()
+		to := toShip.Normalize()
 		switch {
 		case k.keepAway == 0 || distance > k.keepAway*1.25:
-			x, y = toX, toY
+			want = to
 		case distance < k.keepAway*0.8:
-			x, y = -toX, -toY
+			want = to.Scale(-1)
 		default:
 			// About at its distance: circle the ship, drifting back to the
 			// distance it likes.
 			pull := (distance - k.keepAway) / k.keepAway
-			x = -toY*e.circle*strafeFactor + toX*pull*2
-			y = toX*e.circle*strafeFactor + toY*pull*2
+			want = to.Rotate(90).Scale(e.circle * strafeFactor).Add(to.Scale(pull * 2))
 		}
 	} else {
-		// No ship to chase: drift around.
-		x, y = direction(w.time*0.3 + float32(i))
-		x, y = x*0.3, y*0.3
+		// No ship to chase: drift around, each enemy on its own heading.
+		want = golib.Vector2FromAngle(w.time*driftTurn + float32(i)*57).Scale(0.3)
 	}
 
 	for j := range w.enemies {
@@ -176,17 +167,12 @@ func (w *world) steer(i int) (float32, float32) {
 		}
 		o := &w.enemies[j]
 		reach := k.radius + enemyKinds[o.kind].radius + personalSpace
-		dx, dy := e.x-o.x, e.y-o.y
-		d2 := dx*dx + dy*dy
-		if d2 >= reach*reach || d2 == 0 {
-			continue
+		away := e.position.Sub(o.position)
+		if gap := away.Length(); gap < reach {
+			want = want.Add(away.Normalize().Scale((reach - gap) / reach * 2))
 		}
-		d := float32(math.Sqrt(float64(d2)))
-		push := (reach - d) / reach * 2
-		x += dx / d * push
-		y += dy / d * push
 	}
-	return limit(x, y, 1)
+	return want.ClampLength(1)
 }
 
 // enemyFire shoots a volley from an enemy at the ship: one bullet, or a fan
@@ -195,11 +181,12 @@ func (w *world) enemyFire(e *enemy) {
 	k := enemyKinds[e.kind]
 	first := e.angle - k.fan*float32(k.volley-1)/2
 	for n := range k.volley {
-		dx, dy := direction(first + k.fan*float32(n))
+		way := golib.Vector2FromAngle(first + k.fan*float32(n))
 		w.enemyShots = append(w.enemyShots, shot{
-			x: e.x + dx*k.radius, y: e.y + dy*k.radius,
-			vx: dx * k.shotSpeed, vy: dy * k.shotSpeed,
-			radius: k.shotRadius, life: enemyShotLife,
+			position: e.position.Add(way.Scale(k.radius)),
+			velocity: way.Scale(k.shotSpeed),
+			radius:   k.shotRadius,
+			life:     enemyShotLife,
 		})
 	}
 	enemyShotSounds[e.kind].Play()
@@ -213,19 +200,18 @@ func (w *world) hitEnemies() {
 		for i := range w.enemies {
 			e := &w.enemies[i]
 			k := enemyKinds[e.kind]
-			if !circlesTouch(b.x, b.y, b.radius, e.x, e.y, k.radius) {
+			if b.position.Distance(e.position) >= b.radius+k.radius {
 				continue
 			}
 			hit = true
 			e.hull--
 			e.flash = enemyFlashTime
 			// A hit nudges the enemy back.
-			e.vx += b.vx * 0.08 / k.size
-			e.vy += b.vy * 0.08 / k.size
+			e.velocity = e.velocity.Add(b.velocity.Scale(0.08 / k.size))
 			if e.hull <= 0 {
 				w.destroyEnemy(i, true)
 			} else {
-				w.burst(b.x, b.y, 4, 120, sparkColor)
+				w.burst(b.position, 4, 120, sparkColor)
 				hitSound.Play()
 			}
 			break
@@ -249,9 +235,9 @@ func (w *world) destroyEnemy(i int, scored bool) {
 	}
 	w.score += points
 	w.kills++
-	w.burst(e.x, e.y, int(18*k.size), 260*k.size, enemyColors[e.kind])
-	w.burst(e.x, e.y, int(10*k.size), 180*k.size, flameColor)
-	w.blast(e.x, e.y, k.radius, sparkColor)
+	w.burst(e.position, int(18*k.size), 260*k.size, enemyColors[e.kind])
+	w.burst(e.position, int(10*k.size), 180*k.size, flameColor)
+	w.blast(e.position, k.radius, sparkColor)
 	w.shake(traumaExplosion * k.size)
 	if k.size > 2 {
 		bigExplosionSound.Play()
@@ -259,6 +245,6 @@ func (w *world) destroyEnemy(i int, scored bool) {
 		explosionSound.Play()
 	}
 	if golib.RandomFloat(0, 1) < k.dropChance {
-		w.repairs = append(w.repairs, repairKit{x: e.x, y: e.y, life: repairLifetime})
+		w.repairs = append(w.repairs, repairKit{position: e.position, life: repairLifetime})
 	}
 }

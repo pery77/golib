@@ -30,7 +30,8 @@ straight ahead.
 
 ## Rules
 - The arena is 3600 by 2400 pixels; the screen shows 1280 by 720 of it and
-  follows the ship. A glowing border marks the edge; bullets that reach it
+  follows the ship, looking 110 pixels ahead of where it aims and never past
+  the arena's edge. A glowing border marks the edge; bullets that reach it
   vanish. The radar in the bottom-right corner shows the whole arena, and
   arrows at the screen's edge point at enemies off the screen.
 - The ship has 5 hull points. An enemy bullet or a collision with an enemy
@@ -83,8 +84,16 @@ straight ahead.
   falling 0.1 s a wave to 0.7 s, speed +5% and fire rate +8% a wave, breaks of
   2 and 3 s, the flawless bonus, how far from the ship enemies warp in):
   `waves.go`.
-- Camera lead, catch-up speed and shake: the top of `camera.go`. HUD layout:
-  the top of `hud.go`. Stars, grid and shapes: the top of `draw.go`.
+- Camera lead, lag and shake: the top of `play.go`. The camera itself is
+  `golib.Camera`: the game sets `Target` (the ship, `cameraLead` = 110 px
+  ahead of its aim), `Bounds` (the arena) and `Lag` = 0.14 s, and calls
+  `Shake`. `Lag` replaced the old catch-up rate of 7 per second: the camera
+  closes about two thirds of the way to the ship in `Lag` seconds, and 1/7 s,
+  rounded to 0.14, matches the old easing to within half a percent per update.
+  `Shake` is asked, every update, for `shakeMax` = 14 px times trauma squared,
+  lasting the time trauma has left, so the shake still fades with trauma
+  squared and small hits barely move the view. HUD layout: the top of
+  `hud.go`. Stars, grid and shapes: the top of `draw.go`.
 - Colors: the top of `main.go`. Sounds: `sounds.go` and
   `assets/sounds/explosion.jfxr`, which opens in jfxr
   (<https://jfxr.frozenfractal.com>).
@@ -113,3 +122,18 @@ Made without asking, to be corrected by the player:
   enemies off the screen, title, pause and game over. Not yet tuned by
   playing: the numbers come from tests and screenshots only.
 - 2026-09-17: the mouse pointer is hidden with `golib.SetMouseVisible` (GoLib M6), instead of raylib.
+- 2026-09-17: moved to GoLib's camera, vectors and drawing helpers (GoLib M6),
+  and deleted the game code they replace. `camera.go` is gone: the scenes keep
+  a `golib.Camera`, the world is drawn through it in arena coordinates instead
+  of converting every call to screen pixels, and the HUD is drawn with the
+  camera off. Positions and velocities are `golib.Vector2`, and angles are
+  degrees instead of radians, because that is what `Vector2` and `DrawOptions`
+  use. `geometry.go` keeps only `clamp`, `abs` and `wrap`. Ship and enemy
+  shapes are drawn with `Screen.DrawPolygon`, rings with
+  `Screen.DrawCircleOutline`, panels with `Screen.DrawRectangleOutline` and
+  centered text with `TextOptions{Align: AlignCenter}`. The game still keeps
+  its own parallax backdrop, the arrows' edge maths, `withAlpha` (which scales
+  a color's own opacity, where `golib.WithOpacity` sets one) and `darker`.
+  The game plays the same; a shot of a given frame differs from an older one
+  only because the camera now draws random numbers for the shake only while
+  it shakes, which moves the rest of the game along the same random sequence.

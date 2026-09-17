@@ -1,95 +1,106 @@
 package main
 
-import "testing"
+import (
+	"testing"
+
+	"golib"
+)
+
+// The camera is golib.Camera; these tests check what the game asks of it: the
+// lead ahead of the aim, the arena's edges, the catch-up and the shake. Its
+// Update, Snap, View, ToScreen and ToWorld all work without a window.
 
 func TestCameraCentersTheShipAheadOfItsAim(t *testing.T) {
 	w := quietWorld()
 	w.ship.angle = 0 // aiming right
-	c := newCamera(&w)
-	sx, sy := c.toScreen(w.ship.x, w.ship.y)
-	if !near(sx, screenWidth/2-cameraLead, 0.01) || !near(sy, screenHeight/2, 0.01) {
-		t.Errorf("the ship is at %v, %v on the screen, want %v, %v", sx, sy, screenWidth/2-cameraLead, screenHeight/2)
+	on := newArenaCamera(&w).ToScreen(w.ship.position)
+	// The view sits on whole pixels, so half a pixel either way is right.
+	if !near(on.X, screenWidth/2-cameraLead, 0.5) || !near(on.Y, screenHeight/2, 0.5) {
+		t.Errorf("the ship is at %v, %v on the screen, want %v, %v", on.X, on.Y, screenWidth/2-cameraLead, screenHeight/2)
 	}
 }
 
 func TestCameraStaysInsideTheArena(t *testing.T) {
 	w := quietWorld()
-	w.ship.x, w.ship.y = 0, 0
-	if c := newCamera(&w); c.x != 0 || c.y != 0 {
-		t.Errorf("with the ship in the top-left corner, the camera is at %v, %v, want 0, 0", c.x, c.y)
+	w.ship.position, w.ship.angle = golib.Vector2{}, -90
+	if view := newArenaCamera(&w).View(); view.X != 0 || view.Y != 0 {
+		t.Errorf("with the ship in the top-left corner, the view starts at %v, %v, want 0, 0", view.X, view.Y)
 	}
-	w.ship.x, w.ship.y = worldWidth, worldHeight
-	if c := newCamera(&w); c.x != worldWidth-screenWidth || c.y != worldHeight-screenHeight {
-		t.Errorf("with the ship in the bottom-right corner, the camera is at %v, %v", c.x, c.y)
+	w.ship.position, w.ship.angle = golib.Vector2{X: worldWidth, Y: worldHeight}, 90
+	view := newArenaCamera(&w).View()
+	if view.X != worldWidth-screenWidth || view.Y != worldHeight-screenHeight {
+		t.Errorf("with the ship in the bottom-right corner, the view starts at %v, %v", view.X, view.Y)
 	}
 }
 
 func TestCameraCatchesUpWithTheShip(t *testing.T) {
-	w := quietWorld()
-	c := newCamera(&w)
-	w.ship.x += 500
+	p := &playScene{world: quietWorld()}
+	p.camera = newArenaCamera(&p.world)
+	p.world.ship.position.X += 500
 	for range 120 {
-		c.follow(&w, dt)
+		p.followCamera(dt)
 	}
-	goalX, goalY := cameraGoal(&w)
-	if !near(c.x, goalX, 1) || !near(c.y, goalY, 1) {
-		t.Errorf("two seconds after the ship moved, the camera is at %v, %v, want %v, %v", c.x, c.y, goalX, goalY)
-	}
-	if c.shakeX != 0 || c.shakeY != 0 {
-		t.Errorf("the camera shakes by %v, %v with no trauma", c.shakeX, c.shakeY)
-	}
-	w.trauma = 1
-	c.follow(&w, dt)
-	if c.shakeX == 0 && c.shakeY == 0 {
-		t.Error("the camera doesn't shake at full trauma")
-	}
-	if c.shakeX < -shakeMax || c.shakeX > shakeMax || c.shakeY < -shakeMax || c.shakeY > shakeMax {
-		t.Errorf("the camera shakes by %v, %v, more than %v", c.shakeX, c.shakeY, shakeMax)
+	want := cameraTarget(&p.world)
+	if got := p.camera.Center(); !near(got.X, want.X, 1) || !near(got.Y, want.Y, 1) {
+		t.Errorf("two seconds after the ship moved, the view is on %v, %v, want %v, %v", got.X, got.Y, want.X, want.Y)
 	}
 }
 
-func TestScreenAndArenaPointsAgree(t *testing.T) {
-	c := camera{x: 812, y: 377, shakeX: 3, shakeY: -5}
-	sx, sy := c.toScreen(1000, 600)
-	if x, y := c.toWorld(sx, sy); !near(x, 1000, 0.001) || !near(y, 600, 0.001) {
-		t.Errorf("a point went to the screen and back as %v, %v", x, y)
+func TestCameraShakesWithTrauma(t *testing.T) {
+	p := &playScene{world: quietWorld()}
+	p.camera = newArenaCamera(&p.world)
+	still := p.camera.Center()
+	p.followCamera(dt)
+	if p.camera.Center() != still {
+		t.Errorf("with no trauma the view moved from %v to %v", still, p.camera.Center())
 	}
-	if !c.sees(1000, 600, 0) || c.sees(100, 100, 10) {
-		t.Error("sees is wrong about a point on the screen, or one off it")
+
+	p.world.trauma = 1 // the world only loses trauma in step, which this test skips
+	shaken := false
+	for range 20 {
+		p.followCamera(dt)
+		off := p.camera.Center().Sub(still)
+		if off != (golib.Vector2{}) {
+			shaken = true
+		}
+		// One pixel of slack: the view sits on whole pixels.
+		if abs(off.X) > shakeMax+1 || abs(off.Y) > shakeMax+1 {
+			t.Fatalf("the view shook by %v, %v, more than %v", off.X, off.Y, shakeMax)
+		}
+	}
+	if !shaken {
+		t.Error("the view doesn't shake at full trauma")
 	}
 }
 
 func TestArrowsSitOnTheScreenEdge(t *testing.T) {
-	c := camera{x: 1000, y: 1000}
-	if _, _, ok := c.edgePoint(1500, 1300, 20); ok {
-		t.Error("a point on the screen got an arrow")
+	w := quietWorld()
+	c := newArenaCamera(&w)
+	if !c.View().Contains(w.ship.position.X, w.ship.position.Y) {
+		t.Error("the ship isn't in the camera's view, so it would get an arrow")
 	}
+	const inset = 20
 	tests := []struct {
 		name   string
-		x, y   float32
-		wantX  float32
-		wantY  float32
+		on     golib.Vector2 // the enemy's place on the screen, outside it
+		want   golib.Vector2
 		within bool // only check that the arrow is on the frame
 	}{
-		{name: "right", x: 5000, y: 1000 + screenHeight/2, wantX: screenWidth - 20, wantY: screenHeight / 2},
-		{name: "above", x: 1000 + screenWidth/2, y: 0, wantX: screenWidth / 2, wantY: 20},
-		{name: "top-left", x: 0, y: 0, within: true},
+		{name: "right", on: golib.Vector2{X: 4000, Y: screenHeight / 2}, want: golib.Vector2{X: screenWidth - inset, Y: screenHeight / 2}},
+		{name: "above", on: golib.Vector2{X: screenWidth / 2, Y: -1000}, want: golib.Vector2{X: screenWidth / 2, Y: inset}},
+		{name: "top-left", on: golib.Vector2{X: -1000, Y: -1000}, within: true},
 	}
 	for _, tt := range tests {
-		x, y, ok := c.edgePoint(tt.x, tt.y, 20)
-		if !ok {
-			t.Errorf("%s: no arrow for a point off the screen", tt.name)
-			continue
-		}
+		edge := edgePoint(tt.on, inset)
 		if tt.within {
-			onFrame := near(x, 20, 0.01) || near(y, 20, 0.01)
-			if !onFrame || x < 20 || y < 20 {
-				t.Errorf("%s: arrow at %v, %v, not on the frame", tt.name, x, y)
+			onFrame := near(edge.X, inset, 0.01) || near(edge.Y, inset, 0.01)
+			if !onFrame || edge.X < inset || edge.Y < inset {
+				t.Errorf("%s: arrow at %v, %v, not on the frame", tt.name, edge.X, edge.Y)
 			}
 			continue
 		}
-		if !near(x, tt.wantX, 0.01) || !near(y, tt.wantY, 0.01) {
-			t.Errorf("%s: arrow at %v, %v, want %v, %v", tt.name, x, y, tt.wantX, tt.wantY)
+		if !near(edge.X, tt.want.X, 0.01) || !near(edge.Y, tt.want.Y, 0.01) {
+			t.Errorf("%s: arrow at %v, %v, want %v, %v", tt.name, edge.X, edge.Y, tt.want.X, tt.want.Y)
 		}
 	}
 }
