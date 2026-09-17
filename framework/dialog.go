@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"runtime/debug"
 	"strings"
+
+	"golib/internal/startup"
 )
 
 // crashStackLines limits the stack trace in a crash dialog, so it fits on
@@ -18,11 +20,11 @@ const crashStackLines = 30
 // recover returns nil.
 func reportInDialog(title string, err *error) {
 	if r := recover(); r != nil {
-		showErrorDialog(title, crashMessage(r, debug.Stack()))
+		startup.ShowError(title, crashMessage(r, debug.Stack()))
 		panic(r)
 	}
 	if *err != nil {
-		showErrorDialog(title, (*err).Error())
+		startup.ShowError(title, (*err).Error())
 	}
 }
 

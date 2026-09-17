@@ -11,15 +11,15 @@
 //     keyboard, the mouse and a gamepad.
 //   - world.go holds the rules as plain Go, with no input or drawing, so that
 //     world_test.go can test them. The level comes from a Tiled map.
-//   - draw.go draws the world: the map layer by layer, with sprites between
-//     them, and a camera that follows the player.
+//   - draw.go draws the world through a golib.Camera that follows the player:
+//     the map layer by layer, with sprites between them.
 //   - art.go names the sprite sheets, their frames and animations, and the map.
 //   - sounds.go holds the sound effects, which GoLib makes in code.
 //   - assets/ holds the pictures and the level, assets/maps/forest.tmx, which
 //     opens in Tiled; assets.go puts the folder inside golib dist builds.
 //   - DESIGN.md says what the game is, its controls and where its numbers live.
-//   - game.json and icon.png name the game and give it an icon in the file
-//     golib dist builds.
+//   - game.json and icon.png name the game and give it an icon in the
+//     executables golib builds on Windows.
 package main
 
 import (

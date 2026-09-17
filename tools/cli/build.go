@@ -46,7 +46,8 @@ func (c *cli) run(options []string) int {
 // or "" after reporting a failure. Debug builds keep their debug symbols,
 // open a console window on Windows, read the game's assets from disk, and
 // load raylib and libffi from their own folder, where buildGame copies them
-// from .tools/raylib/.
+// from .tools/raylib/. On Windows they carry the game's icon and details, as
+// dist builds do, without reporting them.
 func (c *cli) buildGame(game string) string {
 	dir := c.path("games", game)
 	outDir := c.path("build", game)
@@ -55,7 +56,18 @@ func (c *cli) buildGame(game string) string {
 		c.check("fail", fmt.Sprintf("cannot create build/%s/: %v", game, err))
 		return ""
 	}
-	if err := c.goRun(dir, "build", "-o", exe, "."); err != nil {
+	removeResources := func() {}
+	if c.goos == "windows" {
+		var ok bool
+		_, removeResources, ok = c.addWindowsResources(game, false)
+		if !ok {
+			removeResources()
+			return ""
+		}
+	}
+	err := c.goRun(dir, "build", "-o", exe, ".")
+	removeResources()
+	if err != nil {
 		c.check("fail", fmt.Sprintf("build failed for games/%s (see the Go errors above)", game))
 		return ""
 	}
@@ -65,7 +77,7 @@ func (c *cli) buildGame(game string) string {
 		return ""
 	}
 	for _, library := range synced.libraries {
-		if err := copyFile(library, filepath.Join(outDir, filepath.Base(library))); err != nil {
+		if err := syncFile(library, filepath.Join(outDir, filepath.Base(library))); err != nil {
 			c.check("fail", fmt.Sprintf("cannot copy %s into build/%s/ (is the game still running?): %v", filepath.Base(library), game, err))
 			return ""
 		}

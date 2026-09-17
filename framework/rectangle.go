@@ -21,3 +21,8 @@ func (r Rectangle) Overlaps(other Rectangle) bool {
 func (r Rectangle) Contains(x, y float32) bool {
 	return x >= r.X && x < r.X+r.Width && y >= r.Y && y < r.Y+r.Height
 }
+
+// Center returns the point in the middle of r.
+func (r Rectangle) Center() Vector2 {
+	return Vector2{X: r.X + r.Width/2, Y: r.Y + r.Height/2}
+}

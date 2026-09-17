@@ -1,0 +1,19 @@
+{
+  "_version": 1,
+  "_name": "Level complete",
+  "waveform": "square",
+  "attack": 0.005,
+  "sustain": 0.32,
+  "sustainPunch": 30,
+  "decay": 0.35,
+  "frequency": 523,
+  "frequencyJump1Onset": 22,
+  "frequencyJump1Amount": 26,
+  "frequencyJump2Onset": 44,
+  "frequencyJump2Amount": 19,
+  "vibratoDepth": 6,
+  "vibratoFrequency": 7,
+  "squareDuty": 35,
+  "lowPassCutoff": 7000,
+  "amplification": 32
+}

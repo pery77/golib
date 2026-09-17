@@ -129,11 +129,11 @@ func (c *cli) distGame(game string) bool {
 
 	switch c.goos {
 	case "windows":
-		c.check("info", fmt.Sprintf("players unzip it and start %s, which needs the files next to it and writes nothing to their machine", exe))
+		c.check("info", fmt.Sprintf("players unzip it and start %s, which needs the files next to it and writes nothing to their machine but what the game saves with golib.SaveData, in %%AppData%%\\GoLib games\\%s", exe, game))
 	case "linux":
-		c.check("info", fmt.Sprintf("players unzip it and start %s, which needs the files next to it, and libX11.so.6, libGL.so.1 and libffi.so.8 from their system", exe))
+		c.check("info", fmt.Sprintf("players unzip it and start %s, which needs the files next to it, and libX11.so.6, libGL.so.1 and libffi.so.8 from their system. What the game saves with golib.SaveData goes in ~/.config/GoLib games/%s", exe, game))
 	default:
-		c.check("info", fmt.Sprintf("players unzip it and start %s. On macOS it carries %s inside, and copies them into the player's ~/Library/Caches folder when it first starts", exe, joinWords(names)))
+		c.check("info", fmt.Sprintf("players unzip it and start %s. On macOS it carries %s inside, and copies them into the player's ~/Library/Caches folder when it first starts. What the game saves with golib.SaveData goes in ~/Library/Application Support/GoLib games/%s", exe, joinWords(names), game))
 	}
 	return true
 }
@@ -143,23 +143,17 @@ func (c *cli) distGame(game string) bool {
 // icon and version information. It returns false after reporting a failure.
 func (c *cli) buildExecutable(game, tags, output string) (gameInfo, bool) {
 	dir := c.path("games", game)
-	ldflags := "-s -w"
+	// golib.SaveData saves in a folder named after the game.
+	ldflags := "-s -w -X golib.saveName=" + game
 	var info gameInfo
 	var ok bool
 	switch c.goos {
 	case "windows":
 		// -H=windowsgui makes a program that opens no console window.
 		ldflags += " -H=windowsgui"
-		// Go links the .syso files in a package's folder into the program,
-		// and only from there, so the resources sit next to main.go for the
-		// length of the build. .gitignore lists the name.
-		resources := filepath.Join(dir, "golib_dist_windows_"+c.goarch+".syso")
-		defer func() {
-			if err := os.Remove(resources); err != nil && !errors.Is(err, fs.ErrNotExist) {
-				c.check("warn", fmt.Sprintf("could not delete games/%s/%s after the build: delete it by hand (%v)", game, filepath.Base(resources), err))
-			}
-		}()
-		info, ok = c.writeWindowsResources(game, resources)
+		var removeResources func()
+		info, removeResources, ok = c.addWindowsResources(game, true)
+		defer removeResources()
 	case "linux":
 		// The dynamic linker looks for the libraries in the executable's
 		// folder too.
@@ -183,8 +177,8 @@ func (c *cli) buildExecutable(game, tags, output string) (gameInfo, bool) {
 }
 
 // gameNotices returns what THIRD-PARTY-LICENSES.txt lists for game, whose
-// executable is called exe: Go, the modules, the libraries, which are beside
-// the executable or inside it, and the files that the game's
+// executable is called exe: Go, jfxr, the modules, the libraries, which are
+// beside the executable or inside it, and the files that the game's
 // assets/ATTRIBUTION.md lists.
 func (c *cli) gameNotices(game, exe string, modules []goModule, libraries []library, beside bool) []notice {
 	goVersion, err := c.goVersion()
@@ -197,6 +191,17 @@ func (c *cli) gameNotices(game, exe string, modules []goModule, libraries []libr
 		where: "Built into " + exe + ": the Go runtime and standard library",
 		files: []string{c.path(".tools", "go", "LICENSE")},
 	}}
+	jfxr := notice{
+		title: "jfxr",
+		url:   "https://github.com/ttencate/jfxr",
+		where: "Built into " + exe + ", in GoLib's framework: the synthesizer that makes sound effects from .jfxr files",
+	}
+	if license := c.path("framework", jfxrLicenseFile); isFile(license) {
+		jfxr.files = []string{license}
+	} else {
+		c.check("warn", fmt.Sprintf("framework/%s is missing: copy it back from GoLib, or add jfxr's license to %s by hand", jfxrLicenseFile, noticesFile))
+	}
+	notices = append(notices, jfxr)
 	for _, m := range modules {
 		files := moduleLicenseFiles(m.Dir)
 		if len(files) == 0 {
@@ -242,14 +247,27 @@ func (c *cli) gameNotices(game, exe string, modules []goModule, libraries []libr
 	return notices
 }
 
-// writeWindowsResources writes the Windows resources of game, its icon from
-// icon.png and the details Explorer shows from game.json, into the .syso file
-// at path, reports what it found, and returns what game.json says. It
-// returns false after reporting a failure.
-func (c *cli) writeWindowsResources(game, path string) (gameInfo, bool) {
-	info, icon, ok := c.readGameFiles(game, true)
+// addWindowsResources writes the Windows resources of game, its icon from
+// icon.png and the details Explorer shows from game.json, into a .syso file
+// next to its main.go, where the next go build links them into the
+// executable. With describe, it reports what it found. It returns what
+// game.json says, and a function that deletes the file, to call once the
+// build is over, even after a failure. ok is false after reporting a failure.
+func (c *cli) addWindowsResources(game string, describe bool) (info gameInfo, remove func(), ok bool) {
+	// Go links the .syso files in a package's folder into the program, and
+	// only from there, so the resources sit next to main.go for the length of
+	// the build. .gitignore lists the name. Debug and dist builds use the
+	// same name, so a file left by an interrupted build is replaced, not
+	// linked twice.
+	path := filepath.Join(c.path("games", game), "golib_windows_"+c.goarch+".syso")
+	remove = func() {
+		if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			c.check("warn", fmt.Sprintf("could not delete games/%s/%s after the build: delete it by hand (%v)", game, filepath.Base(path), err))
+		}
+	}
+	info, icon, _, ok := c.readGameFiles(game, describe)
 	if !ok {
-		return info, false
+		return info, remove, false
 	}
 	data, err := windowsResources(info, icon, game, c.goarch)
 	if err == nil {
@@ -257,31 +275,35 @@ func (c *cli) writeWindowsResources(game, path string) (gameInfo, bool) {
 	}
 	if err != nil {
 		c.check("fail", "cannot make the Windows resources of games/"+game+": "+err.Error())
-		return info, false
+		return info, remove, false
 	}
-	return info, true
+	return info, remove, true
 }
 
 // checkGameFiles checks game.json and icon.png on platforms that don't use
-// them yet, so a mistake shows up wherever the game is built, and returns
-// what game.json says. It returns false after reporting a failure.
+// them yet, so a mistake shows up wherever the game is built, says that this
+// platform leaves them out, and returns what game.json says. It returns false
+// after reporting a failure.
 func (c *cli) checkGameFiles(game string) (gameInfo, bool) {
-	info, _, ok := c.readGameFiles(game, false)
+	info, _, found, ok := c.readGameFiles(game, false)
+	if ok && found {
+		c.check("info", "only Windows builds carry the icon from icon.png and the details from game.json so far")
+	}
 	return info, ok
 }
 
 // readGameFiles reads game.json and icon.png from game's folder. With
-// describe, it reports what the executable's details and icon will be;
-// without, it only says that this platform leaves them out. icon is nil when
-// the game has no icon.png. ok is false after reporting a failure.
-func (c *cli) readGameFiles(game string, describe bool) (info gameInfo, icon *image.NRGBA, ok bool) {
+// describe, it reports what the executable's details and icon will be. icon
+// is nil when the game has no icon.png, and found is true when the game has
+// either file. ok is false after reporting a failure.
+func (c *cli) readGameFiles(game string, describe bool) (info gameInfo, icon *image.NRGBA, found, ok bool) {
 	dir := c.path("games", game)
 	shown := "games/" + game
 
 	info, infoFound, err := readGameInfo(dir)
 	if err != nil {
 		c.check("fail", fmt.Sprintf("%s/%s: %v", shown, gameInfoFile, err))
-		return info, nil, false
+		return info, nil, false, false
 	}
 	if describe {
 		details := fmt.Sprintf("%q, version %s", info.Title, info.Version)
@@ -298,7 +320,7 @@ func (c *cli) readGameFiles(game string, describe bool) (info gameInfo, icon *im
 	icon, iconFound, err := readIcon(filepath.Join(dir, iconFile))
 	if err != nil {
 		c.check("fail", fmt.Sprintf("%s/%s: %v", shown, iconFile, err))
-		return info, nil, false
+		return info, nil, false, false
 	}
 	switch {
 	case describe && iconFound:
@@ -306,10 +328,8 @@ func (c *cli) readGameFiles(game string, describe bool) (info gameInfo, icon *im
 		c.check("ok", fmt.Sprintf("%s/%s (%d by %d pixels): the game's icon, in %d sizes from %d to %d pixels", shown, iconFile, size, size, len(iconSizes), iconSizes[0], iconSizes[len(iconSizes)-1]))
 	case describe:
 		c.check("info", fmt.Sprintf("%s has no %s, so the game shows Windows' default icon: add a square PNG, ideally 256 by 256 pixels", shown, iconFile))
-	case infoFound || iconFound:
-		c.check("info", "only Windows builds carry the icon from icon.png and the details from game.json so far")
 	}
-	return info, icon, true
+	return info, icon, infoFound || iconFound, true
 }
 
 // windowsResources returns a .syso file with the Windows resources of the

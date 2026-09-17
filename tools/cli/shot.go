@@ -74,7 +74,7 @@ func (c *cli) shot(options []string) int {
 	}
 	playing := ""
 	if input != "" {
-		playing = ", playing " + input
+		playing = ", playing " + shortInput(input)
 	}
 	c.check("info", fmt.Sprintf("running %s for %d frame(s) in a hidden window%s", game, frames[len(frames)-1], playing))
 	list := make([]string, len(frames))
@@ -106,4 +106,25 @@ func (c *cli) shot(options []string) int {
 		}
 	}
 	return c.summary("shot")
+}
+
+// shortInputLength is how much of an --input script shot repeats in its
+// output. Scripts that play a whole level can be thousands of characters.
+const shortInputLength = 100
+
+// shortInput returns input as shot's output shows it: whole when it is short,
+// otherwise its first events and how many there are.
+func shortInput(input string) string {
+	events := strings.Fields(input)
+	if len(input) <= shortInputLength {
+		return strings.Join(events, " ")
+	}
+	shown := ""
+	for _, event := range events {
+		if len(shown)+len(event) > shortInputLength {
+			break
+		}
+		shown += event + " "
+	}
+	return fmt.Sprintf("%s... (%d events)", shown, len(events))
 }

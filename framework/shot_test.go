@@ -204,6 +204,19 @@ func TestInputScriptMouse(t *testing.T) {
 				tt.update, x, y, in.MouseDown(MouseLeft), in.MousePressed(MouseLeft), tt.x, tt.y, tt.down, tt.pressed)
 		}
 	}
+
+	// The pointer moves in the updates where a move changes where it is,
+	// but not in the first update.
+	script, err = parseInputScript("Mouse@1:5,5 Mouse@3:6,5 Mouse@4:6,5")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for update, want := range []bool{1: false, 2: false, 3: true, 4: false, 5: false} {
+		in := script.at(update)
+		if update > 0 && in.MouseMoved() != want {
+			t.Errorf("update %d: MouseMoved() = %v, want %v", update, !want, want)
+		}
+	}
 }
 
 func TestInputScriptGamepadAndWheel(t *testing.T) {

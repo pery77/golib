@@ -195,3 +195,28 @@ func TestApplyDeadZone(t *testing.T) {
 		}
 	}
 }
+
+func TestInputQueueReportsPointerMoves(t *testing.T) {
+	var queue inputQueue
+	var input Input
+	steps := []struct {
+		frames [][2]float32 // pointer positions read before the update
+		moved  bool
+	}{
+		{[][2]float32{{50, 50}}, false},           // the first update has nothing to compare with
+		{[][2]float32{{50, 50}}, false},           // resting
+		{nil, false},                              // no frame between two updates
+		{[][2]float32{{51, 50}}, true},            // moved
+		{[][2]float32{{60, 60}, {51, 50}}, false}, // moved and came back within a frame's updates
+		{[][2]float32{{51, 50}}, false},
+	}
+	for i, step := range steps {
+		for _, p := range step.frames {
+			queue.readMouse(p[0], p[1], 0, noButton, noButton)
+		}
+		queue.next(&input)
+		if input.MouseMoved() != step.moved {
+			t.Errorf("update %d: MouseMoved() = %v, want %v", i, input.MouseMoved(), step.moved)
+		}
+	}
+}

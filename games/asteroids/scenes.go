@@ -143,11 +143,13 @@ func newPlayScene(o *options) *playScene {
 func (s *playScene) Update(input *golib.Input, dt float32) {
 	s.options.handleKeys(input)
 	if input.KeyPressed(golib.KeyEscape) || input.GamepadPressed(0, golib.GamepadStart) {
+		thrustSound.Stop() // the world stops, and so does its rumble
 		golib.SwitchScene(&pauseScene{paused: s})
 		return
 	}
 	s.world.step(readControls(input), dt)
 	if s.world.over {
+		thrustSound.Stop()
 		golib.SwitchScene(&gameOverScene{finished: s})
 	}
 }

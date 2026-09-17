@@ -1,0 +1,1 @@
+{"_version":1,"_name":"Triangle","_locked":[],"waveform":"triangle","attack":0.01,"sustain":0.04,"sustainPunch":50,"decay":0.05,"tremoloDepth":40,"tremoloFrequency":60,"frequency":300,"frequencySweep":900,"frequencyDeltaSweep":-400,"repeatFrequency":25,"frequencyJump1Onset":20,"frequencyJump1Amount":30,"frequencyJump2Onset":60,"frequencyJump2Amount":-40}

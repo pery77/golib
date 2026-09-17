@@ -70,6 +70,13 @@ func TestShipTurnsAndStopsAtTopSpeed(t *testing.T) {
 	if speed := length(w.ship.vx, w.ship.vy); speed > maxShipSpeed+0.01 || speed < maxShipSpeed-1 {
 		t.Errorf("after five seconds of thrust, speed = %v, want %v", speed, maxShipSpeed)
 	}
+	if !thrustSound.Looping() {
+		t.Error("the thrust rumble doesn't loop while the ship thrusts")
+	}
+	run(&w, 1, controls{})
+	if thrustSound.Looping() {
+		t.Error("the thrust rumble still loops after the thrust ends")
+	}
 }
 
 func TestFireRateAndBulletLimit(t *testing.T) {

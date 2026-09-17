@@ -2,7 +2,7 @@
 
 Make games in **Go**, powered by **[raylib](https://www.raylib.com)**, designed so an AI agent can turn a single prompt into a playable game.
 
-> **Status: early development.** GoLib installs its own Go toolchain, runs games with keyboard, mouse and gamepad input, shapes, text, random numbers, scenes, fullscreen, post-processing shaders, sprites and animations from PNG and Aseprite files, Tiled maps, fonts, sound effects made in code or read from files, and music, and builds them into a zip to share, and `golib new` starts a new game; 3D comes later: see the [roadmap](docs/roadmap.md).
+> **Status: early development.** GoLib installs its own Go toolchain, runs games with keyboard, mouse and gamepad input, shapes, text, random numbers, scenes, fullscreen, post-processing shaders, sprites and animations from PNG and Aseprite files, Tiled maps, fonts, sound effects made in code, designed in jfxr or read from files, and music, and builds them into a zip to share, and `golib new` starts a new game; 3D comes later: see the [roadmap](docs/roadmap.md).
 
 ## Quick start
 
@@ -49,9 +49,9 @@ The framework is still small (shapes, text and fonts, sprites, Tiled maps, keybo
 ## How games are made
 
 - **Your game and the framework are separate.** The framework lives in `framework/` and each game in its own folder under `games/`. You make a game without touching the framework, and a game moves to a newer GoLib by copying its folder into the newer template (see [Distribution](docs/architecture.md#distribution)).
-- **No built-in editors.** Maps are made in [Tiled](https://www.mapeditor.org), sprites in [Aseprite](https://www.aseprite.org) and 3D models in [Blender](https://www.blender.org); GoLib loads their files. You only need these tools to edit content: games build and run without them.
+- **No built-in editors.** Maps are made in [Tiled](https://www.mapeditor.org), sprites in [Aseprite](https://www.aseprite.org), sound effects in [jfxr](https://jfxr.frozenfractal.com), which runs in the browser, and 3D models in [Blender](https://www.blender.org); GoLib loads their files. You only need these tools to edit content: games build and run without them.
 
-GoLib reads Tiled maps, Aseprite files, PNG images, fonts and sound files already; Blender models come with 3D in M6: see the [architecture](docs/architecture.md).
+GoLib reads Tiled maps, Aseprite files, PNG images, fonts, jfxr sounds and sound files already; Blender models come with 3D in M7: see the [architecture](docs/architecture.md).
 
 ## Commands
 
@@ -97,7 +97,7 @@ Type `.\golib` on Windows (PowerShell or cmd) and `./golib` in bash or zsh. `[ga
 
 ## License
 
-GoLib is released under the [zlib license](LICENSE), the same as raylib: use it for anything, commercial games included, with no need to credit GoLib inside your game. It covers the framework, the tools, the docs and the example games, except files with terms of their own, such as the music in `games/asteroids/assets/` (see its `ATTRIBUTION.md`).
+GoLib is released under the [zlib license](LICENSE), the same as raylib: use it for anything, commercial games included, with no need to credit GoLib inside your game. It covers the framework, the tools, the docs and the example games, except files with terms of their own, such as the music in `games/asteroids/assets/` (see its `ATTRIBUTION.md`) and `framework/jfxr.go`, a Go version of [jfxr](https://github.com/ttencate/jfxr)'s synthesizer under jfxr's BSD license (`framework/LICENSE-jfxr.txt`). Games carry that notice, and `golib dist` writes it into their `THIRD-PARTY-LICENSES.txt` for you.
 
 The games you make in `games/` are yours: license them as you like.
 

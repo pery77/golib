@@ -24,3 +24,15 @@ func TestPlayerStaysInsideTheWorld(t *testing.T) {
 		t.Errorf("after ten seconds moving up and left, the player is at %v, %v, want 0, 0", w.player.X, w.player.Y)
 	}
 }
+
+func TestPlayerIsNoFasterDiagonally(t *testing.T) {
+	w := newWorld()
+	start := w.player
+	for range 30 {
+		w.step(1, 1, dt)
+	}
+	dx, dy := w.player.X-start.X, w.player.Y-start.Y
+	if moved := dx*dx + dy*dy; moved > (playerSpeed/2)*(playerSpeed/2)+1 {
+		t.Errorf("after half a second moving diagonally, the player moved %v by %v, farther than %v pixels", dx, dy, playerSpeed/2)
+	}
+}

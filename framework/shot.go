@@ -219,11 +219,23 @@ func inputScriptError(item, reason string) error {
 	return fmt.Errorf("golib.Run: invalid input %q for golib shot --input: %s. Example: --input \"Enter@1 Right@30-90 Mouse@100:640,360 MouseLeft@101\"", item, reason)
 }
 
+// pointerAt returns where the latest moves up to update number update put the
+// mouse pointer: 0, 0 before any.
+func (s inputScript) pointerAt(update int) (x, y float32) {
+	for _, move := range s.moves {
+		if move.update > update {
+			break
+		}
+		x, y = move.x, move.y
+	}
+	return x, y
+}
+
 // at returns the input update number update sees: the keys and buttons the
 // script holds down, which of those were up in the update before, where the
-// latest moves so far put the mouse pointer (0, 0 before any) and the sticks,
-// and how far the wheel turns in this update. Gamepad 0 is connected when the
-// script uses it.
+// latest moves so far put the mouse pointer and the sticks, whether the
+// pointer moved since the update before, and how far the wheel turns in this
+// update. Gamepad 0 is connected when the script uses it.
 func (s inputScript) at(update int) Input {
 	var in Input
 	for _, h := range s.keys {
@@ -238,11 +250,11 @@ func (s inputScript) at(update int) Input {
 			in.mousePressed[h.of] = !heldAt(s.buttons, h.of, update-1)
 		}
 	}
-	for _, move := range s.moves {
-		if move.update > update {
-			break
-		}
-		in.mouseX, in.mouseY = move.x, move.y
+	in.mouseX, in.mouseY = s.pointerAt(update)
+	if update > 1 {
+		// As in a window, the first update sees no move.
+		x, y := s.pointerAt(update - 1)
+		in.mouseMoved = in.mouseX != x || in.mouseY != y
 	}
 	for _, turn := range s.wheel {
 		if turn.update == update {

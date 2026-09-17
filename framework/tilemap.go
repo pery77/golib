@@ -13,11 +13,6 @@ import (
 	rl "github.com/gen2brain/raylib-go/raylib"
 )
 
-// Vector2 is a point, or a direction, in pixels.
-type Vector2 struct {
-	X, Y float32
-}
-
 // Map is a level made in Tiled: a .tmx file in the game's assets folder, with
 // its tile layers, object layers, image layers and groups, and the tilesets
 // it uses, from the map itself or from .tsx files.
@@ -783,15 +778,17 @@ func (r *layerReader) readImage(layer *mapLayer, x tmxLayer) error {
 }
 
 // DrawMap draws every visible layer of level with the map's top-left corner
-// at x, y, starting with its background color, if Tiled gives it one. To
-// follow a camera, pass the camera's position, negated:
+// at x, y, starting with its background color, if Tiled gives it one. With a
+// [Camera], draw the map where it is in the world, usually at 0, 0:
 //
-//	screen.DrawMap(level, -camera.X, -camera.Y)
+//	screen.SetCamera(camera)
+//	screen.DrawMap(level, 0, 0)
 //
 // Tile layers, image layers and tile objects are drawn; other objects aren't,
 // because games use them for places and areas. Animated tiles follow the
-// game's time, and layers move at their parallax factor. Only the tiles on the
-// screen are drawn, so large maps are fine. Layers and objects are drawn at
+// game's time, and layers move at their parallax factor, around the middle
+// of the camera's view, or of the screen without a camera. Only the tiles on
+// the screen are drawn, so large maps are fine. Layers and objects are drawn at
 // whole pixels, rounding x and y, so that tiles leave no gaps between them.
 func (s *Screen) DrawMap(level *Map, x, y float32) {
 	s.drawMap(level, nil, x, y)
@@ -829,7 +826,8 @@ func (s *Screen) drawMap(level *Map, only *string, x, y float32) {
 	for _, l := range layers {
 		// A layer with a parallax factor other than 1 moves slower or
 		// faster than the camera, as Tiled shows it.
-		centerX, centerY := s.width/2-x, s.height/2-y
+		view := s.visible()
+		centerX, centerY := view.X+view.Width/2-x, view.Y+view.Height/2-y
 		lx := wholePixel(x + l.offsetX + (1-l.parallaxX)*(centerX-level.parallaxOriginX))
 		ly := wholePixel(y + l.offsetY + (1-l.parallaxY)*(centerY-level.parallaxOriginY))
 		switch l.kind {
@@ -853,10 +851,11 @@ func (s *Screen) drawTiles(level *Map, l *mapLayer, x, y float32) {
 		reachX = max(reachX, float32(ts.tileWidth)-tw+float32(max(ts.offsetX, -ts.offsetX)))
 		reachY = max(reachY, float32(ts.tileHeight)-th+float32(max(ts.offsetY, -ts.offsetY)))
 	}
-	firstColumn := max(0, int(math.Floor(float64((-x-reachX)/tw))))
-	lastColumn := min(l.columns-1, int(math.Floor(float64((s.width-x+reachX)/tw))))
-	firstRow := max(0, int(math.Floor(float64((-y-reachY)/th))))
-	lastRow := min(l.rows-1, int(math.Floor(float64((s.height-y+reachY)/th))))
+	view := s.visible()
+	firstColumn := max(0, int(math.Floor(float64((view.X-x-reachX)/tw))))
+	lastColumn := min(l.columns-1, int(math.Floor(float64((view.X+view.Width-x+reachX)/tw))))
+	firstRow := max(0, int(math.Floor(float64((view.Y-y-reachY)/th))))
+	lastRow := min(l.rows-1, int(math.Floor(float64((view.Y+view.Height-y+reachY)/th))))
 
 	columnStep, rowStep := 1, 1
 	startColumn, startRow := firstColumn, firstRow
@@ -946,7 +945,7 @@ func (s *Screen) drawTileObjects(level *Map, l *mapLayer, x, y float32) {
 }
 
 // drawImageLayer draws l's image with its top-left corner at x, y, over and
-// over across the screen if the layer repeats.
+// over across the visible area if the layer repeats.
 func (s *Screen) drawImageLayer(l *mapLayer, x, y float32) {
 	if l.image == nil {
 		return
@@ -960,14 +959,15 @@ func (s *Screen) drawImageLayer(l *mapLayer, x, y float32) {
 	if w <= 0 || h <= 0 {
 		return
 	}
+	view := s.visible()
 	firstX, lastX, firstY, lastY := x, x, y, y
 	if l.repeatX {
-		firstX = x - w*float32(math.Ceil(float64(x/w)))
-		lastX = s.width
+		firstX = x - w*float32(math.Ceil(float64((x-view.X)/w)))
+		lastX = view.X + view.Width
 	}
 	if l.repeatY {
-		firstY = y - h*float32(math.Ceil(float64(y/h)))
-		lastY = s.height
+		firstY = y - h*float32(math.Ceil(float64((y-view.Y)/h)))
+		lastY = view.Y + view.Height
 	}
 	for top := firstY; top <= lastY; top += h {
 		for left := firstX; left <= lastX; left += w {

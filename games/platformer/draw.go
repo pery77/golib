@@ -13,48 +13,39 @@ const (
 	cloudSpan     = 520  // pixels across which clouds are scattered: the screen and what the parallax reveals
 )
 
-// camera returns the top-left corner of the part of the level the screen
-// shows: the player in the middle, as far as the level goes. It is in whole
-// pixels, as the map and the sprites are drawn, so they move together.
-func camera(w *world) (float32, float32) {
-	p := w.player
-	x := max(0, min(p.x+playerWidth/2-screenWidth/2, w.width-screenWidth))
-	y := max(0, min(p.y+playerHeight/2-screenHeight/2, w.height-screenHeight))
-	return float32(math.Round(float64(x))), float32(math.Round(float64(y)))
-}
-
-// drawWorld draws the level and everything in it, from back to front. The map
-// is drawn one layer at a time, so that the chests, the snakes and the hero
-// go between its layers.
-func drawWorld(screen *golib.Screen, w *world, clouds []cloud) {
-	cameraX, cameraY := camera(w)
-	x, y := -cameraX, -cameraY // where the level's top-left corner goes on the screen
+// drawWorld draws the level and everything in it, from back to front, through
+// camera, which follows the player. The map is drawn one layer at a time, so
+// that the chests, the snakes and the hero go between its layers.
+func drawWorld(screen *golib.Screen, w *world, clouds []cloud, camera *golib.Camera) {
 	screen.Clear(skyColor)
-	drawClouds(screen, clouds, cameraX)
-	screen.DrawMapLayer(level, "far", x, y) // Tiled gives it a parallax factor of 0.5 and a blue tint
-	screen.DrawMapLayer(level, "back", x, y)
-	screen.DrawMapLayer(level, groundLayer, x, y)
+	drawClouds(screen, clouds, camera.View().X) // in screen pixels, behind the level
+
+	// Everything drawn from here on is in the level's pixels.
+	screen.SetCamera(camera)
+	screen.DrawMapLayer(level, "far", 0, 0) // Tiled gives it a parallax factor of 0.5 and a blue tint
+	screen.DrawMapLayer(level, "back", 0, 0)
+	screen.DrawMapLayer(level, groundLayer, 0, 0)
 	for _, c := range w.chests {
 		frame := closedChestFrame
 		if c.open {
 			frame = openChestFrame
 		}
-		screen.DrawSprite(tiles, frame, c.bounds.X+x, c.bounds.Y+y)
+		screen.DrawSprite(tiles, frame, c.bounds.X, c.bounds.Y)
 	}
 	for _, s := range w.snakes {
 		if !s.defeated {
-			left, top := s.x-snakeOffsetX+x, s.y+snakeHeight-frameSize+y
+			left, top := s.x-snakeOffsetX, s.y+snakeHeight-frameSize
 			screen.DrawSprite(characters, snakeCrawl.Frame(s.crawlTime), left, top, golib.DrawOptions{FlipX: s.facingLeft})
 		}
 	}
-	drawHero(screen, w.player, x, y)
-	screen.DrawMapLayer(level, "front", x, y) // grass and flowers, in front of the hero's feet
+	drawHero(screen, w.player)
+	screen.DrawMapLayer(level, "front", 0, 0) // grass and flowers, in front of the hero's feet
+	screen.SetCamera(nil)
 }
 
-// drawHero draws the player in the pose it is in, with the level's top-left
-// corner at x, y. The hero faces right in the sheet, so facing left flips the
-// frame.
-func drawHero(screen *golib.Screen, p player, x, y float32) {
+// drawHero draws the player in the pose it is in. The hero faces right in the
+// sheet, so facing left flips the frame.
+func drawHero(screen *golib.Screen, p player) {
 	frame := heroStand
 	switch {
 	case p.slashLeft > 0:
@@ -67,17 +58,17 @@ func drawHero(screen *golib.Screen, p player, x, y float32) {
 		frame = heroWalk.Frame(p.walkTime)
 	}
 	flip := golib.DrawOptions{FlipX: p.facingLeft}
-	screen.DrawSprite(characters, frame, p.x-heroOffsetX+x, p.y+playerHeight-frameSize+y, flip)
+	screen.DrawSprite(characters, frame, p.x-heroOffsetX, p.y+playerHeight-frameSize, flip)
 
 	if p.slashLeft > 0 {
 		// The swoosh's crescent is in the right half of its frame: put that
 		// half in front of the hero.
-		middle := p.x + playerWidth/2 + x
+		middle := p.x + playerWidth/2
 		left := middle - 8
 		if p.facingLeft {
 			left = middle - frameSize + 8
 		}
-		top := p.y + playerHeight/2 - frameSize/2 + y
+		top := p.y + playerHeight/2 - frameSize/2
 		screen.DrawSprite(swoosh, slashEffect.Frame(slashTime-p.slashLeft), left, top, flip)
 	}
 }
@@ -124,12 +115,12 @@ func drawMessage(screen *golib.Screen, heading string, hints ...string) {
 
 // drawCentered draws text centered across the screen, with its top at y.
 func drawCentered(screen *golib.Screen, text string, y, size float32) {
-	drawShadowed(screen, text, (screen.Width()-screen.TextWidth(text, size))/2, y, size)
+	drawShadowed(screen, text, screen.Width()/2, y, size, golib.TextOptions{Align: golib.AlignCenter})
 }
 
 // drawShadowed draws text with a dark copy one pixel down and to the right,
-// so it reads over the level.
-func drawShadowed(screen *golib.Screen, text string, x, y, size float32) {
-	screen.DrawText(text, x+1, y+1, size, shadowColor)
-	screen.DrawText(text, x, y, size, textColor)
+// so it reads over the level. options can align it, as for DrawText.
+func drawShadowed(screen *golib.Screen, text string, x, y, size float32, options ...golib.TextOptions) {
+	screen.DrawText(text, x+1, y+1, size, shadowColor, options...)
+	screen.DrawText(text, x, y, size, textColor, options...)
 }

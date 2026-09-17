@@ -2,12 +2,14 @@ package main
 
 import "golib"
 
-// The game's sounds. GoLib makes them in code when they first play, so the game
-// ships no sound files. Most are ready-made recipes; the slash is made from
-// scratch with golib.SoundSpec. world.go plays them.
+// The game's sounds. GoLib makes them when they first play, so the game ships
+// no recorded sounds. Most are ready-made recipes; the slash is made from
+// scratch with golib.SoundSpec, and the chest from settings made in jfxr
+// (https://jfxr.frozenfractal.com), which can open assets/sounds/chest.jfxr
+// to change it. world.go plays them.
 var (
 	jumpSound  = golib.Jump()
-	chestSound = golib.Pickup()
+	chestSound = golib.NewSoundFile("sounds/chest.jfxr") // a rising arpeggio
 	fallSound  = golib.Hurt()
 	hitSound   = golib.Explosion()
 	winSound   = golib.PowerUp()

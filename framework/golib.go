@@ -123,6 +123,8 @@ import (
 	"os"
 
 	rl "github.com/gen2brain/raylib-go/raylib"
+
+	"golib/internal/startup"
 )
 
 const (
@@ -179,7 +181,7 @@ type Game interface {
 // build started from Explorer has a console window of its own, which closes
 // as soon as the game ends.
 func Run(game Game, config Config) (err error) {
-	if distBuild || ownConsole() {
+	if startup.ErrorsUnseen() {
 		title := config.Title
 		if title == "" {
 			title = defaultTitle

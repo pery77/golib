@@ -2,7 +2,7 @@
 
 How GoLib keeps the framework apart from the games made with it, and where game content comes from.
 
-> **Status:** the framework and game split exists since M1, with `framework/` and the example game, `games/platformer`. Tiled maps, Aseprite files, PNG images, fonts and sound files load since M4, and 3D models from Blender come in M6, after it (see [roadmap.md](roadmap.md)).
+> **Status:** the framework and game split exists since M1, with `framework/` and the example game, `games/platformer`. Tiled maps, Aseprite files, PNG images, fonts, sound files and jfxr sounds load since M4, and 3D models from Blender come in M7, after the 2D essentials of M6 (see [roadmap.md](roadmap.md)).
 
 ## Framework and games
 
@@ -29,13 +29,14 @@ framework/          The framework: Go module "golib"
   go.mod
   *.go              package golib
   README.md         The API guide: every exported name by task; apiguide_test.go keeps it in step
+  internal/startup/ Checks, before raylib starts, that its libraries load (Windows); games can't import it
 games/
   <name>/           One game; the folder name is the game's short name
     go.mod          Go module <name>, which uses the framework through a replace directive
     main.go         Entry point (package main)
     DESIGN.md       Design brief: the game's memory across sessions
-    game.json       Title, version and author, for the file golib dist builds (optional)
-    icon.png        The game's icon, a square PNG, for the file golib dist builds (optional)
+    game.json       Title, version and author: the Windows executable's details, and the dist zip's version (optional)
+    icon.png        The game's icon, a square PNG, for the executables golib builds on Windows (optional)
     assets/         Content: maps, sprites, models, sounds, fonts; read with golib.ReadAsset
     assets.go       Embeds assets/ in golib dist builds; needed only when assets/ exists
     sources/        Files the game doesn't load, such as .blend or .psd; committed, not shipped (optional)
@@ -91,15 +92,16 @@ GoLib has no visual editor, scene designer, level editor or asset GUI, and won't
 | 2D maps and levels | [Tiled](https://www.mapeditor.org) | TMX maps, TSX tilesets and TX templates, Tiled's default formats; orthogonal maps only | Done (M4): `golib.NewMap` |
 | Sprites and animations | [Aseprite](https://www.aseprite.org) | `.aseprite` and `.ase` files, with their layers combined as Aseprite shows them and their tags as animations | Done (M4): `golib.NewSprite` |
 | Images and sprite sheets | Any image tool | PNG; a sprite sheet is cut into a grid of frames of one size | Done (M4): `golib.NewSprite`, `golib.NewSpriteSheet` |
-| 3D models | [Blender](https://www.blender.org) | glTF (`.glb`) exported from Blender | M6, with 3D support |
+| 3D models | [Blender](https://www.blender.org) | glTF (`.glb`) exported from Blender | M7, with 3D support |
 | Music | Any music tool, or a tracker such as [MilkyTracker](https://milkytracker.org) | `.ogg`, `.mp3`, `.wav`, `.qoa`, and the tracker modules `.xm` and `.mod` | Done (M2): `golib.NewMusic` |
-| Sound effects | Any audio tool | `.wav`, `.ogg`, `.mp3`, `.qoa` | Done (M4): `golib.NewSoundFile`. GoLib also makes sound effects in code: `golib.NewSound` |
+| Sound effects | [jfxr](https://jfxr.frozenfractal.com), a sound effect maker in the browser | `.jfxr` files, the settings jfxr saves, from which GoLib makes the sound as jfxr does | Done (M4): `golib.NewSoundFile` |
+| Recorded sound effects | Any audio tool | `.wav`, `.ogg`, `.mp3`, `.qoa` | Done (M4): `golib.NewSoundFile`. GoLib also makes sound effects in code: `golib.NewSound` |
 | Fonts | Existing fonts whose license allows it | `.ttf`, `.otf` | Done (M4): `golib.NewFont` |
 
 Why:
 
 - **Proven and documented.** These tools are mature and their file formats are documented. GoLib doesn't have to build, maintain or teach an editor.
-- **Good for agents too.** Tiled maps are plain XML: an agent can write a level as easily as code, and a human can open it in Tiled to adjust it.
+- **Good for agents too.** Tiled maps are plain XML, and jfxr sounds plain JSON: an agent can write a level or a sound as easily as code, and a human can open it in Tiled or jfxr to adjust it.
 - **Clear split.** Tools decide what content looks like; game code decides what it means.
 
 ### Rules
@@ -107,7 +109,7 @@ Why:
 1. **The tools are for editing, not for building.** A game builds and runs on a machine that has none of them, so the zero-install promise holds. Builds never call these tools, which means every file a game loads is committed in its folder.
 2. **Load what the tool saves.** Prefer the tool's own file format, so saving in the tool and running the game is all it takes, with no export step to forget. Export only when the tool's format can't be loaded at runtime (Blender's `.blend`), and then commit the source file too, in `sources/`. One format for each kind of content: GoLib doesn't read Tiled's JSON maps or Aseprite's JSON sprite sheets.
 3. **No editors inside games either.** Don't build an in-game level editor, sprite editor or any other tool for making content. If a game has levels, they are Tiled maps.
-4. **No dependencies for formats.** Tiled and Aseprite files are parsed with the Go standard library (`encoding/xml`, `encoding/base64`, `compress/zlib`, `compress/gzip`). The standard library has no Zstandard, so a Tiled map compressed with it will fail with a message that says to pick another compression in Tiled. 3D models and audio go through raylib.
+4. **No dependencies for formats.** Tiled and Aseprite files are parsed with the Go standard library (`encoding/xml`, `encoding/base64`, `compress/zlib`, `compress/gzip`). The standard library has no Zstandard, so a Tiled map compressed with it will fail with a message that says to pick another compression in Tiled. jfxr files are read with `encoding/json`, and GoLib makes their sound itself, with a Go version of jfxr's synthesizer (`framework/jfxr.go`, under jfxr's BSD license, which `golib dist` adds to every game's notices). 3D models and recorded audio go through raylib.
 5. **Everything in `assets/` ships.** `golib dist` embeds the whole folder in the executable, so keep only files the game loads there. Source files the game doesn't load go in `sources/`, with the same paths: `sources/models/ship.blend` for `assets/models/ship.glb`. They are committed, but not shipped.
 
-The formats were chosen on 2026-09-16; the reasons are in [roadmap.md](roadmap.md#decisions).
+The formats were chosen on 2026-09-16, and jfxr for sound effects on 2026-09-17; the reasons are in [roadmap.md](roadmap.md#decisions).

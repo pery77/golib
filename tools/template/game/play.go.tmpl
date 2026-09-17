@@ -2,13 +2,6 @@ package main
 
 import "golib"
 
-// The game's colors, in one place so the look is easy to change.
-var (
-	backgroundColor = golib.RayWhite
-	playerColor     = golib.Maroon
-	textColor       = golib.DarkGray
-)
-
 // playScene is the game itself. Update turns the keyboard and gamepad into
 // actions for the world, and Draw draws the world.
 type playScene struct {

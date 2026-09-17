@@ -2,7 +2,7 @@
 
 For AI agents. Follow it when a user asks you to create a game, or to change the game in this project.
 
-> **Status:** the framework is still small (M2, Framework basics, is done): a window, a fixed-step game loop, keyboard, mouse and gamepad input, random numbers, rectangles, circles, lines, triangles and text, sprites and animations from PNG and Aseprite files, Tiled maps, fonts, fullscreen, post-processing shaders, sound effects made in code or read from files, music from the game's `assets/` folder, reading files from `assets/`, scenes with `golib.SwitchScene`, quitting with `golib.Quit`, screenshots through `golib shot` and zips to share through `golib dist`. Check the "Project status" table in [AGENTS.md](../../AGENTS.md), and the end of [framework/README.md](../../framework/README.md) for what else is missing. If the game needs something that doesn't exist yet, tell the user. Don't build a private engine to fill the gap.
+> **Status:** the framework is still small (M5, Shipping, is done on Windows, and M6, 2D essentials, has started): a window, a fixed-step game loop, keyboard, mouse and gamepad input, random numbers, rectangles, circles, lines, triangles and text, sprites and animations from PNG and Aseprite files, Tiled maps, fonts, vector math, a camera for worlds larger than the screen, fullscreen, post-processing shaders, sound effects made in code, from jfxr's `.jfxr` files or from sound files, music from the game's `assets/` folder, reading files from `assets/`, scenes with `golib.SwitchScene`, quitting with `golib.Quit`, screenshots through `golib shot` and zips to share through `golib dist`. Check the "Project status" table in [AGENTS.md](../../AGENTS.md), and the end of [framework/README.md](../../framework/README.md) for what else is missing. If the game needs something that doesn't exist yet, tell the user. Don't build a private engine to fill the gap.
 
 ## Goal
 
@@ -21,9 +21,9 @@ golib run asteroids
 
 | File | Holds |
 | --- | --- |
-| `main.go` | `main`, which calls `golib.Run` with the first scene |
+| `main.go` | `main`, which calls `golib.Run` with the first scene; the screen's size and the game's colors |
 | `play.go` | The play scene: `Update` turns input into actions, `Draw` draws the world |
-| `world.go` | The rules and the tuning constants, with no input or drawing |
+| `world.go` | The rules, the tuning constants and the world's size, with no input or drawing |
 | `world_test.go` | Tests for the rules |
 | `DESIGN.md` | The design brief, with placeholder text to replace |
 | `game.json` | The title, version and author that `golib dist` writes into the executable |
@@ -36,9 +36,10 @@ golib run asteroids
 | [main.go](../../games/platformer/main.go) | How a game starts: `main` calls `golib.Run` with the first scene, on a 320 by 180 pixel art screen |
 | [scenes.go](../../games/platformer/scenes.go) | Scenes (title, play, pause, won) and `golib.SwitchScene` between them. The play scene's `Update` turns input into actions and its `Draw` draws the state; pause and won draw the play scene under a message; the title menu works with the keyboard, the mouse and a gamepad, over the level drawn with `screen.DrawMap` |
 | [world.go](../../games/platformer/world.go) | The rules as plain Go types, with no input or drawing, and the tuning constants at the top. The level comes from a Tiled map: the start and the snakes are objects, and tiles are solid or water by their properties |
-| [draw.go](../../games/platformer/draw.go) | Drawing the world: a camera that follows the player, the map layer by layer with sprites between the layers, animations, and clouds placed with `golib.RandomFloat` |
+| [draw.go](../../games/platformer/draw.go) | Drawing the world through a `golib.Camera` that follows the player (made and moved in [scenes.go](../../games/platformer/scenes.go)), the map layer by layer with sprites between the layers, animations, and clouds placed with `golib.RandomFloat` |
 | [art.go](../../games/platformer/art.go) | The sprite sheets, their frames and animations, and the map, made once as package variables |
 | [assets/maps/](../../games/platformer/assets/maps) | The level, `forest.tmx`, and its tileset, `forest.tsx`, as Tiled saves them |
+| [sounds.go](../../games/platformer/sounds.go), [assets/sounds/](../../games/platformer/assets/sounds) | The sounds, made once as package variables: recipes, a `golib.SoundSpec`, and `chest.jfxr`, a sound as jfxr saves it |
 | [world_test.go](../../games/platformer/world_test.go) | Testing the rules by calling them directly, without a window or a keyboard, on the real level |
 | [DESIGN.md](../../games/platformer/DESIGN.md) | The design brief |
 
@@ -57,8 +58,9 @@ Before writing code, read [framework/README.md](../../framework/README.md), the 
 | Window | 1280x720, resizable; F11 or Alt+Enter for fullscreen |
 | Timing | 60 FPS target; movement scaled by frame time |
 | Input | Keyboard (arrow keys and WASD) and gamepad 0 (d-pad or left stick, A to act, Start to pause) together; mouse when the genre needs it |
-| Art | Simple shapes and a small, coherent color palette drawn in code, or sprites when the user provides art (PNG or Aseprite files). No external files unless the user provides them |
-| Audio | Sound effects for every action that needs feedback, made in code with `golib.NewSound`, or from files the user provides with `golib.NewSoundFile`; music only from a file the user provides, with `golib.NewMusic`. The game must stay fully playable muted |
+| Art | Simple shapes and a small, coherent color palette drawn in code, or sprites when the user provides art (PNG or Aseprite files). No downloaded files; files you make for the game, such as Tiled maps, `.jfxr` sounds and a tileset (see [Content](#content)), are fine |
+| Audio | Sound effects for every action that needs feedback, made in code with `golib.NewSound`, from `.jfxr` files you write, or from files the user provides, both with `golib.NewSoundFile`; a sound that lasts, such as an engine, loops with `Sound.Loop`; music only from a file the user provides, with `golib.NewMusic`. The game must stay fully playable muted |
+| Saving | A game with a score keeps the best one with `golib.SaveData`; settings and progress too, when the game has them |
 | Text | English, readable at a glance; controls shown on the title screen. The built-in font, or a font file the user provides, with `golib.NewFont` |
 | Scope | One polished core loop rather than many half-finished features |
 
@@ -110,8 +112,9 @@ Each slice ends with a game that builds and runs. Never write the whole game bef
 
 ## 4. Verify every slice
 
-- Run `golib test`, which runs `go vet` and `go test` for the framework and every game, and fix everything it reports.
+- Run `golib test <game>`, which runs `go vet` and `go test` for your game, and fix everything it reports. Before you finish, run `golib test` without a name too, which checks the framework and every game.
 - Test pure logic with Go tests: collisions, scoring, level generation, state transitions. Keep that logic free of drawing calls so it stays testable.
+- In a puzzle game, test that every level can be finished, with a small solver in the tests (a breadth-first search over the moves is enough for small levels), and that it can't be finished in fewer moves than any par you show. A level that can't be finished is the worst bug a puzzle game can have, and shots won't find it.
 - Run the game with `golib run <name>`, and look at it with `golib shot <name> [frame...]`. It saves PNG screenshots of the given frames without opening a visible window; frame N shows the game after N updates, and 60 updates are one second. Open the files and check what they show. Add `--input` to play keys and the mouse on chosen updates: `golib shot <name> 120 --input "Enter@1 Right@10-100 Space@40"` presses Enter, walks right and jumps, `"Mouse@5:640,500 MouseLeft@6"` clicks at 640, 500, and `"GamepadLeftStick@10:1,0 GamepadA@20"` walks and jumps with a gamepad. Take shots of every scene this way, not just the first one.
 - For anything you can't observe yourself, like feel, difficulty or audio, say so and tell the user exactly what to try.
 - Never claim a game works or is fun because it compiles.
@@ -136,7 +139,7 @@ GoLib has no editors. Content comes from established tools, and the game loads t
 - Files the user provides go in the game's `assets/` folder, with paths relative to that folder: load pictures with `golib.NewSprite("sprites/player.aseprite")` or `golib.NewSpriteSheet("sprites/player.png", 32, 32)`, maps with `golib.NewMap("maps/level1.tmx")`, music with `golib.NewMusic`, and other files with `golib.ReadAsset`. Keep Aseprite files as `.aseprite`: the game reads them as they are, with their tags as animations.
 - Source files the game doesn't load, such as a `.blend` file next to the `.glb` exported from it, go in the game's `sources/` folder, with the same paths as in `assets/`. Everything in `assets/` ships in the dist build; `sources/` doesn't.
 - A game with an `assets/` folder also needs `assets.go` next to `main.go`, so `golib dist` embeds the folder. Copy it exactly from the `golib.EmbedAssets` documentation in `framework/assets.go`. `golib dist` stops and says so when it is missing.
-- When a game has levels, make them Tiled maps instead of arrays in code, so the user can open and change them in Tiled. A map is XML you can write directly: see the example below and the Maps section of [framework/README.md](../../framework/README.md). Put the tileset in its own `.tsx` file, so every level shares it, and mark tiles there with properties such as `solid`, not by ID in code.
+- When a game has levels, make them Tiled maps instead of arrays in code, so the user can open and change them in Tiled. Tiled needs a tileset picture to show them: without art from the user, draw a small one yourself, as a PNG made by a short Go program in the game's `sources/` folder, run with `golib go run`, so the user can see how it was made, change it or replace the picture with one drawn in Aseprite. A map is XML you can write directly: see the example below and the Maps section of [framework/README.md](../../framework/README.md). Put the tileset in its own `.tsx` file, so every level shares it, and mark tiles there with properties such as `solid`, not by ID in code.
 - Never build a level editor, sprite editor or other content tool, inside the game or next to it.
 
 A level written by hand, `assets/maps/level1.tmx`, with the tileset `assets/maps/tiles.tsx` for the 16 by 16 pixel tiles of `assets/sprites/tiles.png`. Tile layer data is one tile per cell, row by row: 0 for none, else the tile's ID in the tileset plus the tileset's `firstgid`.
@@ -185,11 +188,12 @@ Keep `id`, `nextlayerid` and `nextobjectid` unique and increasing, as Tiled does
 
 - Group tuning constants together, with units in the name or a comment: `playerSpeed = 240 // pixels per second`. "Make the player faster" should be a one-line change.
 - Keep game state in structs you pass around, not in package-level variables.
+- Keep what the game remembers between runs, such as the best score, the settings and the levels finished, in one struct with exported fields. Load it with `golib.LoadData` when the game starts, and save it with `golib.SaveData` when it changes, not in every update. Under `golib shot` and in tests nothing is written, so shots and tests start with nothing saved.
 - Base every timer, movement and animation on `dt` (always 1/60 s), never on `time.Now`. The game then plays the same on every machine and in screenshots.
 - Draw for the screen size in `golib.Config`, never for the window: GoLib scales the screen to any window size and to fullscreen, and reports mouse positions in screen pixels.
 - Screen effects (glow, CRT, color grading) are GLSL 330 fragment shaders in `shaders/*.fs`, embedded with `//go:embed` and run with `golib.SetPostProcess`; `golib.NewShader` documents the uniforms GoLib sets. Let the player turn them off, and check them with `golib shot`: screenshots include post-processing.
-- Sound effects come from `golib.NewSound`, which makes them from a `golib.SoundSpec` in code, so there are no sound files to ship: start from the ready-made recipes (`golib.Laser`, `golib.Explosion`, `golib.Pickup`, `golib.Jump`, `golib.Hurt`, `golib.PowerUp`), and keep every sound in one file, as `games/asteroids/sounds.go` does. Sound files the user provides (WAV, OGG, MP3 or QOA) play with `golib.NewSoundFile`: write where they came from, and their license, in `assets/ATTRIBUTION.md`, and even out their loudness with `sound.SetVolume`. Give the player feedback for shooting, hitting, dying and scoring. Screenshots are silent, so you can't check sound yourself: tell the user what to listen for.
-- Music comes from a file in the game's `assets/` folder, played with `golib.NewMusic` (OGG, MP3, WAV, QOA, XM or MOD; not IT). Tracker modules are a few dozen kilobytes, so they suit a dist build. Only use music the user provides, never a file downloaded on your own: write where it came from and under which license in `assets/ATTRIBUTION.md`, and tell the user when the license is unclear. Let the player turn it off, and keep it under the sound effects with `music.SetVolume`. A game with an `assets/` folder needs `assets.go` too, or `golib dist` stops.
+- Sound effects come from `golib.NewSound`, which makes them from a `golib.SoundSpec` in code, so there are no sound files to ship: start from the ready-made recipes (`golib.Laser`, `golib.Explosion`, `golib.Pickup`, `golib.Jump`, `golib.Hurt`, `golib.PowerUp`), and keep every sound in one file, as `games/asteroids/sounds.go` does. For a sound the user will want to tune by ear, write a `.jfxr` file instead, in `assets/sounds/`, with the settings in [framework/README.md](../../framework/README.md#sound-effects-from-jfxr), and play it with `golib.NewSoundFile`: the user opens it in jfxr (<https://jfxr.frozenfractal.com>), changes it, saves it and copies the saved file back over it. Set its `amplification` to about 30 to 40, or jfxr makes it louder than everything else, and add `assets.go`, as for any `assets/` folder. Sound files the user provides (WAV, OGG, MP3 or QOA) play with `golib.NewSoundFile` too: write where they came from, and their license, in `assets/ATTRIBUTION.md`, and even out their loudness with `sound.SetVolume`. Give the player feedback for shooting, hitting, dying and scoring. Screenshots are silent, so you can't check sound yourself: tell the user what to listen for.
+- Music comes from a file in the game's `assets/` folder, played with `golib.NewMusic` (OGG, MP3, WAV, QOA, XM or MOD; not IT). When the user wants music but gives no file, leave the music out, and tell them what to add and where, such as a tracker module made in a free tracker, or an OGG file they have the rights to; don't build a music player out of sound effects. Tracker modules are a few dozen kilobytes, so they suit a dist build. Only use music the user provides, never a file downloaded on your own: write where it came from and under which license in `assets/ATTRIBUTION.md`, and tell the user when the license is unclear. Let the player turn it off, and keep it under the sound effects with `music.SetVolume`. A game with an `assets/` folder needs `assets.go` too, or `golib dist` stops.
 - Get random numbers from `golib.RandomInt` and `golib.RandomFloat`, never from `math/rand`: they start from the same seed under `golib shot`, so shots repeat. Tests that use them call `golib.SetRandomSeed` first.
 - Separate updating (input, logic) from drawing. Drawing never changes game state.
 - End the game with `golib.Quit()` from `Update`, for example from a Quit menu entry. No key quits on its own, not even Esc; closing the window always does.
@@ -208,7 +212,7 @@ On Windows, the executable also carries what players see in Explorer, the title 
 - `game.json`, which `golib new` writes, holds the title, version and author. Keep `title` the same as `Config.Title`, fill in `author` when the user says who they are, and raise `version` (major.minor.patch) each time the user shares a new build. [docs/tooling.md](../tooling.md#icon-and-version-information-windows) lists every field.
 - `icon.png`, next to it, is the icon: a square PNG, ideally 256 by 256 pixels, transparent around the shape. Ask the user for one, for example drawn in Aseprite, when they want to share the game; never download one. Without it, Windows shows its default icon.
 
-`golib dist` prints what it used, and stops with a `[fail]` line that says what to fix when either file has a mistake.
+`golib dist` prints what it used. When either file has a mistake, `golib build`, `run`, `shot` and `dist` stop with a `[fail]` line that says what to fix.
 
 ## Quality checklist
 

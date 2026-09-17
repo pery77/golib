@@ -12,7 +12,7 @@ The promise: someone downloads the template, runs a couple of commands, and buil
 
 Keep this section true: update it in the same change that lands or removes a feature. Never describe planned work as if it existed.
 
-Last updated: 2026-09-17 (milestone M4, Content, done; M5, Shipping, in progress).
+Last updated: 2026-09-17 (milestone M5, Shipping, done on Windows; M6, 2D essentials, in progress; other platforms on hold).
 
 | Area | State |
 | --- | --- |
@@ -27,11 +27,13 @@ Last updated: 2026-09-17 (milestone M4, Content, done; M5, Shipping, in progress
 | VS Code: Go extension on the local toolchain | Done |
 | VS Code debug configuration: "GoLib: debug game" (F5) | Done |
 | GoLib window (`golib-ui.cmd`): a button for each `golib` command, with its output | Done (Windows only) |
-| Linux and macOS (`golib.sh`) | On hold: written but never run on a real Linux or macOS machine; Windows comes first for now |
+| Linux and macOS (`golib.sh`) | On hold: written but never run on a real Linux or macOS machine; Windows comes first for now (see "Other platforms" in [docs/roadmap.md](docs/roadmap.md)) |
 | Fixed-step game loop: 60 updates per second at any frame rate | Done (M2) |
 | `golib shot`: screenshots of chosen frames, rendered in a hidden window, with scripted keyboard, mouse and gamepad input (`--input`) and random numbers from a fixed seed | Done (brought forward from M3) |
 | `golib dist`: the game to share, as a folder with the executable (assets inside), the raylib libraries and `THIRD-PARTY-LICENSES.txt`, and a zip of it | Done (M5; tested on Windows only; on macOS the executable still carries the libraries) |
-| Windows icon and version information in `golib dist`, from the game's `icon.png` and `game.json` | Done (M5; not yet on Linux and macOS) |
+| Windows icon and version information, from the game's `icon.png` and `game.json`, in dist builds and in the debug builds of `build`, `run` and `shot` | Done (M5; not yet on Linux and macOS) |
+| A Windows game that can't load raylib or libffi says why, in a message box when nobody sees its console, instead of ending silently | Done (M5) |
+| On Windows, `build` and `shot` work while `run` has the game open, and `golib` works while one of its copies is running | Done (M5) |
 | Keyboard, mouse (pointer, buttons, wheel) and gamepad (buttons, sticks) input; rectangles, circles, lines and triangles; `Rectangle` overlap and point checks | Done (M2) |
 | Screen scaled to any window size, fullscreen (`golib.SetFullscreen`), post-processing shaders (`golib.NewShader`, `golib.SetPostProcess`) | Done (M2) |
 | Random numbers: `golib.RandomInt`, `golib.RandomFloat`, `golib.SetRandomSeed` | Done (M2) |
@@ -45,10 +47,15 @@ Last updated: 2026-09-17 (milestone M4, Content, done; M5, Shipping, in progress
 | Sprites from PNG images, PNG sprite sheets and Aseprite files, with animations: `golib.NewSprite`, `golib.NewSpriteSheet`, `Screen.DrawSprite`, `golib.Animation` | Done (M4) |
 | Tiled maps: `golib.NewMap`, `Screen.DrawMap`, `Screen.DrawMapLayer`, tiles and objects by layer, custom properties | Done (M4) |
 | Sound effects from `.wav`, `.ogg`, `.mp3` and `.qoa` files: `golib.NewSoundFile`, and `Sound.SetVolume` | Done (M4) |
+| Sound effects designed in jfxr, the sound effect maker: `.jfxr` files through `golib.NewSoundFile`, made by a Go version of jfxr's synthesizer that matches jfxr's samples | Done (M4) |
 | Fonts from `.ttf` and `.otf` files, in any language: `golib.NewFont`, `golib.TextOptions` | Done (M4) |
-| 3D: glTF models from Blender, a 3D camera, basic lighting | Planned (M6, after M4); nothing built |
+| Vectors and a 2D camera: `Vector2` methods, `golib.NewCamera`, `Screen.SetCamera` | Done (M6) |
+| Saving high scores, settings and progress: `golib.SaveData`, `golib.LoadData`, `golib.DeleteData` | Done (M6) |
+| Looping sounds and stopping them: `Sound.Loop`, `Sound.Stop` | Done (M6) |
+| Outlines, polygons, aligned text, a color's opacity; hiding the mouse pointer | Done (M6) |
+| 3D: glTF models from Blender, a 3D camera, basic lighting | Planned (M7, after M6); nothing built |
 
-**The framework is still small.** It opens a window, runs a fixed-step game loop, reads the keyboard, the mouse and gamepads, draws rectangles, circles, lines, triangles, text in its built-in font or in fonts from files, sprites from PNG and Aseprite files with their animations, and Tiled maps, whose tiles and objects a game can look up, scales the screen to any window or fullscreen, runs post-processing shaders, makes random numbers, makes and plays sound effects, streams music, switches between scenes, reads files from the game's `assets/` folder, quits when the game asks, and takes screenshots for `golib shot`. [framework/README.md](framework/README.md) is its API guide: every exported name, grouped by task, with the rules the names don't tell you and what is still missing. Read it before writing game code; the doc comments in `framework/*.go` have the details. `games/platformer` is the reference for using it: read it before writing a game. It shows sprites, animations, a Tiled map with a camera, and pixel art. `games/asteroids` shows post-processing shaders, fullscreen, sound and music. Sound effects are made in code or read from files, and music, sprites, maps and fonts are files in the game's `assets/` folder. There is no 3D yet (M6, after M4). If someone asks for a game that needs it, or anything else the API guide lists as missing, say what is missing and point to [docs/roadmap.md](docs/roadmap.md). Do not improvise a stand-alone engine to fill the gap.
+**The framework is still small.** It opens a window, runs a fixed-step game loop, reads the keyboard, the mouse and gamepads, draws rectangles, circles, lines, triangles and polygons, filled or outlined, text in its built-in font or in fonts from files, aligned as the game wants, sprites from PNG and Aseprite files with their animations, and Tiled maps, whose tiles and objects a game can look up, shows worlds larger than the screen through a camera, does vector math, scales the screen to any window or fullscreen, runs post-processing shaders, makes random numbers, makes and plays sound effects, once or in a loop, from code, from jfxr's `.jfxr` files or from sound files, streams music, switches between scenes, reads files from the game's `assets/` folder, saves high scores, settings and progress, quits when the game asks, and takes screenshots for `golib shot`. [framework/README.md](framework/README.md) is its API guide: every exported name, grouped by task, with the rules the names don't tell you and what is still missing. Read it before writing game code; the doc comments in `framework/*.go` have the details. `games/platformer` is the reference for using it: read it before writing a game. It shows sprites, animations, a Tiled map seen through `golib.Camera`, pixel art, and a sound designed in jfxr. `games/asteroids` shows post-processing shaders, fullscreen, sound and music. Sound effects are made in code, from `.jfxr` files or from sound files, and music, sprites, maps and fonts are files in the game's `assets/` folder. There is no 3D yet (M7, after M6). If someone asks for a game that needs it, or anything else the API guide lists as missing, say what is missing and point to [docs/roadmap.md](docs/roadmap.md). Do not improvise a stand-alone engine to fill the gap.
 
 ## Golden rules
 
@@ -61,7 +68,7 @@ Last updated: 2026-09-17 (milestone M4, Content, done; M5, Shipping, in progress
 7. **Transparent over clever.** Small readable scripts, plain Go, visible folders. No hidden state, no generated code the user can't see, nothing written outside the project folder.
 8. **Nothing sensitive in the repo.** No secrets, tokens, personal data or machine-specific absolute paths. Assume every commit is public.
 9. **Framework and games stay apart.** A game lives in its own folder under `games/` and uses only the framework's exported API. The framework never contains code for one particular game. Rules in [docs/architecture.md](docs/architecture.md).
-10. **No editors of our own.** Content comes from established tools: Tiled for 2D maps, Aseprite for sprites, Blender for 3D models. Never build a level editor, sprite editor or asset GUI, not even inside a game; load those tools' files instead.
+10. **No editors of our own.** Content comes from established tools: Tiled for 2D maps, Aseprite for sprites, jfxr for sound effects, Blender for 3D models. Never build a level editor, sprite editor or asset GUI, not even inside a game; load those tools' files instead.
 
 ## Commands
 
@@ -77,11 +84,11 @@ Run from the project root. The command name is the same everywhere; only the pre
 | `setup` | Checks the environment, then installs Go, the Go modules and the raylib libraries into `.tools/`. Safe to run repeatedly. |
 | `doctor` | Read-only diagnosis of the environment and the project. |
 | `new <name>` | Creates `games/<name>/` from `tools/template/game/`: a small game that runs straight away, laid out like `games/platformer`. Names are lowercase letters, digits, `-` and `_`. |
-| `build [game]` | Debug build: builds `games/<game>` into `build/<game>/`, next to copies of the raylib libraries, with a console window for errors. `run`, `shot`, `test` and F5 build the same way, and read `assets/` from disk. Started from Explorer, the executable still reads `games/<game>/assets/` and shows errors in a message box, because its console window closes when the game ends. |
-| `dist [game]` | Dist build, to share: builds `build/<game>/dist/<game>/`, with `<game>.exe` (no `.exe` on Linux and macOS, and no console window on Windows), the raylib libraries it loads and `THIRD-PARTY-LICENSES.txt`, and zips that folder into `build/<game>/dist/<game>-<version>-<os>-<arch>.zip`, the file to share. The executable carries the game's `assets/` folder, and players need the files next to it. `THIRD-PARTY-LICENSES.txt` includes the game's `assets/ATTRIBUTION.md`. A game with an `assets/` folder needs an `assets.go` file: see `golib.EmbedAssets`. On Windows the executable also carries the game's icon, from `icon.png`, and its title, version and author, from `game.json`, which also gives the zip its version (see [docs/tooling.md](docs/tooling.md#icon-and-version-information-windows)). |
+| `build [game]` | Debug build: builds `games/<game>` into `build/<game>/`, next to copies of the raylib libraries, with a console window for errors. On Windows it carries the game's icon and details from `icon.png` and `game.json`, as a dist build does. `run`, `shot`, `test` and F5 build the same way, and read `assets/` from disk. Started from Explorer, the executable still reads `games/<game>/assets/` and shows errors in a message box, because its console window closes when the game ends. |
+| `dist [game]` | Dist build, to share: builds `build/<game>/dist/<game>/`, with `<game>.exe` (no `.exe` on Linux and macOS, and no console window on Windows), the raylib libraries it loads and `THIRD-PARTY-LICENSES.txt`, and zips that folder into `build/<game>/dist/<game>-<version>-<os>-<arch>.zip`, the file to share. The executable carries the game's `assets/` folder, and players need the files next to it. `THIRD-PARTY-LICENSES.txt` includes the game's `assets/ATTRIBUTION.md`. A game with an `assets/` folder needs an `assets.go` file: see `golib.EmbedAssets`. On Windows the executable also carries the game's icon, from `icon.png`, and its title, version and author, from `game.json`, which also gives the zip its version (see [docs/tooling.md](docs/tooling.md#icon-and-version-information-windows)). The game writes nothing on the player's machine but what it saves with `golib.SaveData`, in `GoLib games/<game>` in their settings folder. |
 | `run [game]` | Builds the game, then runs it with `games/<game>/` as the working directory. |
 | `shot [game] [frame...] [--input "<script>"]` | Builds the game, runs it in a hidden window and saves screenshots of the given frames (default: 60) as `build/<game>/shots/frame-NNNNNN.png`. Frame N shows the game after N updates. `--input "Enter@1 Right@30-90 Mouse@100:640,360 MouseLeft@101"` presses Enter in update 1, holds Right from update 30 to 90, moves the mouse pointer to 640, 360 and clicks (see [docs/tooling.md](docs/tooling.md#screenshots)). Random numbers start from the same seed, so shots repeat. Open the files to see the game. |
-| `test` | Runs `go vet` and `go test` for the framework, every game and `tools/cli`. |
+| `test [game]` | Runs `go vet` and `go test` for the framework, every game and `tools/cli`. Given a game, only for `games/<game>`, so another game in progress doesn't get in the way. |
 | `go <args>` | Runs the project's Go toolchain with GoLib's environment, for example `go -C games/platformer mod tidy`. |
 | `clean` | Deletes `build/`. |
 | `clean --all` | Also deletes `.tools/`. Run `setup` again afterwards. |
@@ -145,5 +152,5 @@ The test game developed alongside the framework is still a game: it follows the 
 - Windows baseline: Windows 10 or later with the built-in Windows PowerShell 5.1. PowerShell 7 is not required.
 - Always type the `.\` or `./` prefix. Some environments, including agent sandboxes, stop Windows from running programs from the current folder by bare name; an explicit relative path always works.
 - On Windows, `./golib` from Git Bash and `.\golib` from PowerShell run the same implementation (`golib.ps1`), so their results match.
-- A debug build loads the raylib library, and libffi on Windows and macOS, when it starts, and stops with `cannot load library ...` if it can't find them. `golib build`, `run`, `shot` and `test` take care of that; `golib go test` and running a debug executable from outside `build/<game>/` don't. A `golib dist` build loads them from its own folder, where `dist` copies them, except on macOS, where it carries both inside.
+- A debug build loads the raylib library, and libffi on Windows and macOS, when it starts, and stops with `cannot load library ...` if it can't find them (on Windows, with exit code 1 and a line that says where they go, and in a message box when nobody sees the console). `golib build`, `run`, `shot` and `test` take care of that; `golib go test` and running a debug executable from outside `build/<game>/` don't. A `golib dist` build loads them from its own folder, where `dist` copies them, except on macOS, where it carries both inside; on Windows, moved away from them, it says so in a message box.
 - `.gitattributes` enforces line endings: LF everywhere, CRLF only for `*.cmd` and `*.bat`. Don't change files to work around it.

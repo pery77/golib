@@ -1,9 +1,12 @@
 package main
 
 import (
+	"bytes"
+	"debug/pe"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -29,6 +32,14 @@ func TestBuild(t *testing.T) {
 		}
 	}
 
+	// The executable carries the version information, as dist builds do.
+	if _, found := tp.resources["golib_windows_amd64.syso"]; !found || len(tp.resources) != 1 {
+		t.Errorf("the build saw %d .syso files, want only golib_windows_amd64.syso", len(tp.resources))
+	}
+	if sysos, _ := filepath.Glob(filepath.Join(dir, "*.syso")); len(sysos) > 0 {
+		t.Errorf("left behind in the game's folder: %v", sysos)
+	}
+
 	tools := readFolder(t, tp.c.path(".tools", "raylib"))
 	wantTools := map[string]string{
 		"raylib.dll":   "raylib for win64_msvc16",
@@ -50,6 +61,21 @@ func TestBuild(t *testing.T) {
 	}
 	if built := readFolder(t, tp.c.path("build", "rocks")); built["raylib.dll"] != "kept" {
 		t.Errorf("second build copied %q, want the library already in .tools/raylib/", built["raylib.dll"])
+	}
+	// Libraries that are up to date aren't written again: a running game
+	// keeps them open, and Windows can't write them. Read-only files stand
+	// in for that.
+	for _, name := range []string{"raylib.dll", "libffi-8.dll"} {
+		if err := os.Chmod(tp.c.path("build", "rocks", name), 0o444); err != nil {
+			t.Fatal(err)
+		}
+		defer os.Chmod(tp.c.path("build", "rocks", name), 0o644)
+	}
+	if code := tp.c.build(nil); code != 0 {
+		t.Errorf("build with up-to-date libraries that can't be written: exit code %d, output:\n%s", code, tp.stdout.String())
+	}
+	if err := os.Chmod(tp.c.path("build", "rocks", "raylib.dll"), 0o644); err != nil {
+		t.Fatal(err)
 	}
 	// A different raylib-go version replaces it.
 	tp.modules[1].Version = "v0.61.0"
@@ -74,13 +100,43 @@ func mapsEqual(a, b map[string]string) bool {
 	return true
 }
 
+// TestBuildWindowsResources checks that a debug build carries the icon and
+// the details without reporting them.
+func TestBuildWindowsResources(t *testing.T) {
+	tp := newTestProject(t, "windows", "rocks")
+	writeFile(t, tp.c.path("games", "rocks", gameInfoFile), `{"title": "Rocks", "version": "1.0.0"}`)
+	tp.addIcon(t, "rocks")
+	if code := tp.c.build(nil); code != 0 {
+		t.Fatalf("exit code %d, output:\n%s%s", code, tp.stdout.String(), tp.stderr.String())
+	}
+	if want := "[ok]   built games/rocks into build/rocks/rocks.exe\n\nbuild: 0 failed, 0 warning(s)\n"; tp.stdout.String() != want {
+		t.Errorf("output:\n%s\nwant:\n%s", tp.stdout.String(), want)
+	}
+	file, err := pe.NewFile(bytes.NewReader(tp.resources["golib_windows_amd64.syso"]))
+	if err != nil {
+		t.Fatal(err)
+	}
+	section, err := file.Section(".rsrc").Data()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := len(readResources(t, section)); got != 1+len(iconSizes)+1 {
+		t.Errorf("%d resources, want the version, %d icons and their group", got, len(iconSizes))
+	}
+}
+
 func TestBuildLinux(t *testing.T) {
 	tp := newTestProject(t, "linux", "rocks")
+	// Linux debug builds neither check nor mention game.json.
+	writeFile(t, tp.c.path("games", "rocks", gameInfoFile), `{"title": "Rocks"}`)
 	if code := tp.c.build(nil); code != 0 {
 		t.Fatalf("exit code %d, output:\n%s", code, tp.stdout.String())
 	}
-	if want := "[ok]   built games/rocks into build/rocks/rocks\n"; !strings.HasPrefix(tp.stdout.String(), want) {
-		t.Errorf("output:\n%s\nwant it to start with:\n%s", tp.stdout.String(), want)
+	if want := "[ok]   built games/rocks into build/rocks/rocks\n\nbuild: 0 failed, 0 warning(s)\n"; tp.stdout.String() != want {
+		t.Errorf("output:\n%s\nwant:\n%s", tp.stdout.String(), want)
+	}
+	if len(tp.resources) != 0 {
+		t.Errorf("the build saw .syso files: %v", tp.resources)
 	}
 	// Linux games load the system's libffi.
 	tools := readFolder(t, tp.c.path(".tools", "raylib"))
@@ -94,14 +150,16 @@ func TestBuildLinux(t *testing.T) {
 
 func TestBuildFailures(t *testing.T) {
 	tests := []struct {
-		name, failing, want string
-		change              func(tp *testProject)
+		name, failing, gameInfo, want string
+		change                        func(tp *testProject)
 	}{
 		{name: "failing build", failing: "build", want: "[fail] build failed for games/rocks (see the Go errors above)"},
 		{name: "failing go list", failing: "list", want: "[fail] cannot find github.com/gen2brain/raylib-go/raylib and github.com/jupiterrider/ffi for games/rocks (run: golib setup)"},
 		{name: "missing module", change: func(tp *testProject) { tp.modules = tp.modules[:2] }, want: "[fail] cannot find github.com/gen2brain/raylib-go/raylib and github.com/jupiterrider/ffi for games/rocks (run: golib setup)"},
 		{name: "raylib-go not downloaded", change: func(tp *testProject) { tp.modules[1].Dir = "" }, want: "[fail] github.com/gen2brain/raylib-go/raylib v0.60.1 is not downloaded yet (run: golib setup)"},
 		{name: "ffi not downloaded", change: func(tp *testProject) { tp.modules[2].Dir = "" }, want: "[fail] github.com/jupiterrider/ffi v0.7.0 is not downloaded yet (run: golib setup)"},
+		{name: "bad game.json", gameInfo: `{"version": "one"}`, want: `[fail] games/rocks/game.json: "version" is "one": write major.minor.patch, such as "1.0.0" or "1.2.0-beta"`},
+		{name: "unknown processor", change: func(tp *testProject) { tp.c.goarch = "386" }, want: `[fail] cannot make the Windows resources of games/rocks: GoLib can't make Windows resources for "386" processors: use amd64 or arm64`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -110,11 +168,17 @@ func TestBuildFailures(t *testing.T) {
 			if tt.change != nil {
 				tt.change(tp)
 			}
+			if tt.gameInfo != "" {
+				writeFile(t, tp.c.path("games", "rocks", gameInfoFile), tt.gameInfo)
+			}
 			if code := tp.c.build(nil); code != 1 {
 				t.Errorf("exit code %d, want 1", code)
 			}
 			if want := tt.want + "\n\nbuild: 1 failed, 0 warning(s)\n"; tp.stdout.String() != want {
 				t.Errorf("output:\n%s\nwant:\n%s", tp.stdout.String(), want)
+			}
+			if sysos, _ := filepath.Glob(tp.c.path("games", "rocks", "*.syso")); len(sysos) > 0 {
+				t.Errorf("left behind in the game's folder: %v", sysos)
 			}
 		})
 	}
@@ -355,9 +419,28 @@ test: 0 failed, 0 warning(s)
 	if code := tp.c.test(nil); code != 0 || tp.stdout.String() != "[warn] no Go modules to test\n\ntest: 0 failed, 1 warning(s)\n" {
 		t.Errorf("no modules: exit code %d, output:\n%s", code, tp.stdout.String())
 	}
-	tp = newTestProject(t, "windows", "rocks")
-	if code := tp.c.test([]string{"rocks"}); code != 2 || tp.stderr.String() != "golib: test takes no options (got: rocks)\nRun \"golib help\" for usage.\n" {
-		t.Errorf("test rocks: exit code %d, stderr %q", code, tp.stderr.String())
+	// A game's name tests only that game.
+	tp = newTestProject(t, "windows", "rocks", "snake")
+	writeFile(t, tp.c.path("framework", "go.mod"), "module golib\n")
+	if code := tp.c.test([]string{"Snake"}); code != 0 || tp.stdout.String() != "[ok]   games/snake: vet and tests passed\n\ntest: 0 failed, 0 warning(s)\n" {
+		t.Errorf("test Snake: exit code %d, output:\n%s", code, tp.stdout.String())
+	}
+	for _, call := range tp.calls {
+		if call.args[0] != "list" && call.dir != tp.c.path("games", "snake") {
+			t.Errorf("test Snake ran go %q in %s", call.args, call.dir)
+		}
+	}
+	for _, tt := range []struct {
+		options []string
+		want    string
+	}{
+		{[]string{"tetris"}, "golib: no game named \"tetris\" in games/ (available: rocks, snake)\n"},
+		{[]string{"rocks", "snake"}, "golib: test takes at most one game name (got: rocks snake)\n"},
+	} {
+		tp = newTestProject(t, "windows", "rocks", "snake")
+		if code := tp.c.test(tt.options); code != 2 || tp.stderr.String() != tt.want+"Run \"golib help\" for usage.\n" {
+			t.Errorf("test %q: exit code %d, stderr %q", tt.options, code, tp.stderr.String())
+		}
 	}
 }
 
@@ -484,6 +567,8 @@ func TestHelperGame(t *testing.T) {
 	switch os.Getenv("GOLIB_TEST_GAME") {
 	case "exit3":
 		os.Exit(3)
+	case "exit-1":
+		os.Exit(-1)
 	case "hang":
 		time.Sleep(time.Minute)
 		os.Exit(0)
@@ -498,6 +583,14 @@ func TestWaitForGame(t *testing.T) {
 	}
 	if code, timedOut, err := waitForGame(game("exit3"), 0); code != 3 || timedOut || err != nil {
 		t.Errorf("a game that exits with code 3: %d, %v, %v", code, timedOut, err)
+	}
+	// Unix keeps the low 8 bits of an exit code.
+	wantMinus1 := -1
+	if runtime.GOOS != "windows" {
+		wantMinus1 = 255
+	}
+	if code, _, err := waitForGame(game("exit-1"), 0); code != wantMinus1 || err != nil {
+		t.Errorf("a game that exits with code -1: %d, %v; want %d", code, err, wantMinus1)
 	}
 	start := time.Now()
 	if code, timedOut, err := waitForGame(game("hang"), 200*time.Millisecond); code != 0 || !timedOut || err != nil {
@@ -571,5 +664,16 @@ Setup incomplete. Fix the [fail] items above, then run setup again.
 		if code := tp.c.setup(options); code != 2 || !strings.HasPrefix(tp.stderr.String(), "golib: setup takes no options (got: ") {
 			t.Errorf("setup %q: exit code %d, stderr %q", options, code, tp.stderr.String())
 		}
+	}
+}
+
+func TestShortInput(t *testing.T) {
+	if got := shortInput("Enter@1  Right@2-9"); got != "Enter@1 Right@2-9" {
+		t.Errorf("short script: %q", got)
+	}
+	long := strings.Repeat("Right@10 ", 30)
+	want := strings.Repeat("Right@10 ", 11) + "... (30 events)"
+	if got := shortInput(long); got != want {
+		t.Errorf("long script: %q, want %q", got, want)
 	}
 }

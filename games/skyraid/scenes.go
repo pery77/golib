@@ -1,0 +1,221 @@
+package main
+
+import (
+	"fmt"
+	"math"
+
+	"golib"
+)
+
+// The game's scenes. Each one is a golib.Game: golib.Run starts with the title,
+// and golib.SwitchScene moves between them.
+//
+//	title --Enter/A/click--> play --Esc/P/Start--> pause --Esc/P/Start--> back to the same play
+//	  |                        |                     '------Q/Back------> title
+//	  |                        '--ship destroyed--> game over --Enter/A/click--> a new play
+//	  |                                                '-----Esc/B-----> title
+//	  '--Esc--> quit
+//
+// In every scene, F11 or Alt+Enter switches fullscreen.
+
+// Scene tuning.
+const (
+	titlePanSpeed = 40  // pixels per second the title's view drifts across the arena
+	gameOverWait  = 0.6 // seconds before the game over screen takes a key, so firing doesn't skip it
+	panelHeight   = 200 // pixels, for a panel with two lines; each more line adds 30
+)
+
+// session is what every scene shares while the game runs: the best result so
+// far and the space behind the arena. GoLib can't save files yet, so the best
+// score is gone when the game closes.
+type session struct {
+	bestScore int
+	bestWave  int
+	newBest   bool // the last game beat the best score
+	backdrop  *backdrop
+}
+
+// newSession returns a session with a new backdrop.
+func newSession() *session {
+	return &session{backdrop: newBackdrop()}
+}
+
+// record keeps a finished game's result if it is the best so far.
+func (s *session) record(w *world) {
+	s.newBest = w.score > s.bestScore
+	if s.newBest {
+		s.bestScore = w.score
+	}
+	s.bestWave = max(s.bestWave, w.wave)
+}
+
+// handleKeys reads the keys every scene shares: F11 or Alt+Enter switch
+// fullscreen.
+func (s *session) handleKeys(input *golib.Input) {
+	if input.KeyPressed(golib.KeyF11) || (altDown(input) && input.KeyPressed(golib.KeyEnter)) {
+		golib.SetFullscreen(!golib.IsFullscreen())
+	}
+}
+
+func altDown(input *golib.Input) bool {
+	return input.KeyDown(golib.KeyLeftAlt) || input.KeyDown(golib.KeyRightAlt)
+}
+
+// confirmed reports whether the player pressed Enter, A or Start, or clicked.
+// Alt+Enter doesn't count: it switches fullscreen.
+func confirmed(input *golib.Input) bool {
+	return (input.KeyPressed(golib.KeyEnter) && !altDown(input)) ||
+		input.MousePressed(golib.MouseLeft) ||
+		input.GamepadPressed(0, golib.GamepadA) || input.GamepadPressed(0, golib.GamepadStart)
+}
+
+// titleScene shows the game's name and controls over the arena, drifting by.
+type titleScene struct {
+	session *session
+	camera  camera
+	time    float32 // seconds on the title, for the drift and the pulse
+}
+
+func newTitleScene(s *session) *titleScene {
+	return &titleScene{session: s, camera: titleCamera(0)}
+}
+
+// titleCamera returns the title's view after time seconds: a slow circle
+// around the middle of the arena.
+func titleCamera(time float32) camera {
+	angle := time * titlePanSpeed / 600
+	x := (worldWidth-screenWidth)/2 + 600*float32(math.Cos(float64(angle)))
+	y := (worldHeight-screenHeight)/2 + 400*float32(math.Sin(float64(angle)))
+	return camera{x: x, y: y}
+}
+
+func (s *titleScene) Update(input *golib.Input, dt float32) {
+	s.session.handleKeys(input)
+	golib.SetMouseVisible(true)
+	s.time += dt
+	s.camera = titleCamera(s.time)
+	if confirmed(input) {
+		golib.SwitchScene(newPlayScene(s.session))
+		return
+	}
+	// No key quits by itself, not even Esc: the game calls golib.Quit when it
+	// wants to end.
+	if input.KeyPressed(golib.KeyEscape) || input.GamepadPressed(0, golib.GamepadBack) {
+		golib.Quit()
+	}
+}
+
+func (s *titleScene) Draw(screen *golib.Screen) {
+	s.session.backdrop.draw(screen, s.camera)
+	drawGrid(screen, s.camera)
+	screen.DrawRectangle(golib.Rectangle{Width: screenWidth, Height: screenHeight}, withAlpha(overlayColor, 0.5))
+
+	// A ship on the title, turning slowly.
+	drawShape(screen, shipShape, screenWidth/2, 250, -math.Pi/2+0.25*float32(math.Sin(float64(s.time))), shipDarkColor, shipColor)
+	drawShape(screen, scoutShape, screenWidth/2-220, 210, 0.3, darker(enemyColors[scout], 0.35), enemyColors[scout])
+	drawShape(screen, gunshipShape, screenWidth/2+230, 200, math.Pi-0.3, darker(enemyColors[gunship], 0.35), enemyColors[gunship])
+
+	drawCentered(screen, "SKY RAID", 70, 100, titleColor)
+	drawCentered(screen, "Waves of enemy ships are hunting you. Survive, and shoot them all.", 300, 20, textColor)
+
+	lines := []string{
+		"Fly: WASD, d-pad or left stick",
+		"Aim: mouse, arrow keys or right stick",
+		"Fire: left click, Space, arrow keys, A or right trigger",
+		"Dash through bullets: Shift, right click, B or left bumper",
+		"Pause: Esc, P or Start      Fullscreen: F11 or Alt+Enter",
+	}
+	for i, line := range lines {
+		drawCentered(screen, line, 360+float32(i)*30, 20, dimTextColor)
+	}
+
+	pulse := 0.6 + 0.4*float32(math.Sin(float64(s.time)*4))
+	drawCentered(screen, "Press Enter, A or click to start", 540, 30, withAlpha(titleColor, pulse))
+	if s.session.bestScore > 0 {
+		drawCentered(screen, fmt.Sprintf("Best score %d, wave %d", s.session.bestScore, s.session.bestWave), 600, 20, textColor)
+	}
+	drawCentered(screen, "Esc: quit", 670, 20, dimTextColor)
+}
+
+// pauseScene freezes a play scene and shows a message over it. Resuming
+// switches back to that same play scene, so the game carries on where it
+// stopped.
+type pauseScene struct {
+	paused *playScene
+}
+
+func (s *pauseScene) Update(input *golib.Input, dt float32) {
+	s.paused.session.handleKeys(input)
+	golib.SetMouseVisible(true)
+	if pausePressed(input) {
+		golib.SwitchScene(s.paused)
+		return
+	}
+	if input.KeyPressed(golib.KeyQ) || input.GamepadPressed(0, golib.GamepadBack) {
+		golib.SwitchScene(newTitleScene(s.paused.session))
+	}
+}
+
+func (s *pauseScene) Draw(screen *golib.Screen) {
+	s.paused.Draw(screen)
+	drawPanel(screen, "PAUSED",
+		"Esc, P or Start to resume",
+		"Q or Back to quit to the title",
+	)
+}
+
+// gameOverScene shows the final score while the arena keeps moving.
+type gameOverScene struct {
+	finished *playScene
+	time     float32 // seconds on this screen
+}
+
+func (s *gameOverScene) Update(input *golib.Input, dt float32) {
+	p := s.finished
+	p.session.handleKeys(input)
+	golib.SetMouseVisible(true)
+	s.time += dt
+	p.world.step(controls{}, dt)
+	p.camera.follow(&p.world, dt)
+	if s.time < gameOverWait {
+		return
+	}
+	if confirmed(input) {
+		golib.SwitchScene(newPlayScene(p.session))
+		return
+	}
+	if input.KeyPressed(golib.KeyEscape) || input.GamepadPressed(0, golib.GamepadB) {
+		golib.SwitchScene(newTitleScene(p.session))
+	}
+}
+
+func (s *gameOverScene) Draw(screen *golib.Screen) {
+	p := s.finished
+	drawWorld(screen, &p.world, p.session.backdrop, p.camera)
+	best := fmt.Sprintf("Best %d", p.session.bestScore)
+	if p.session.newBest {
+		best = "New best score!"
+	}
+	drawPanel(screen, "GAME OVER",
+		fmt.Sprintf("Score %d     Wave %d     Enemies destroyed %d", p.world.score, p.world.wave, p.world.kills),
+		best,
+		"",
+		"Enter, A or click to play again",
+		"Esc or B for the title",
+	)
+}
+
+// drawPanel darkens the screen and shows a heading and a few lines in the
+// middle.
+func drawPanel(screen *golib.Screen, heading string, lines ...string) {
+	screen.DrawRectangle(golib.Rectangle{Width: screenWidth, Height: screenHeight}, overlayColor)
+	height := float32(panelHeight + 30*max(0, len(lines)-2))
+	top := (screenHeight - height) / 2
+	panel := golib.Rectangle{X: screenWidth/2 - 360, Y: top, Width: 720, Height: height}
+	screen.DrawRectangle(panel, panelColor)
+	outline(screen, panel, 2, withAlpha(titleColor, 0.6))
+	drawCentered(screen, heading, top+30, 60, titleColor)
+	for i, line := range lines {
+		drawCentered(screen, line, top+110+float32(i)*30, 20, textColor)
+	}
+}

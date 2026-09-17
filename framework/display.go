@@ -34,6 +34,24 @@ func IsFullscreen() bool {
 	return fullscreenWanted.Load()
 }
 
+// mouseHiddenWanted is whether SetMouseVisible asks to hide the mouse pointer.
+// Run applies it at the start of every frame.
+var mouseHiddenWanted atomic.Bool
+
+// SetMouseVisible shows or hides the mouse pointer over the game's window,
+// from the next frame, such as to draw a crosshair of the game's own in its
+// place. The pointer still moves, and [Input.MousePosition] still reports it.
+// It shows again outside the window.
+func SetMouseVisible(visible bool) {
+	mouseHiddenWanted.Store(!visible)
+}
+
+// IsMouseVisible reports whether the mouse pointer shows over the game's
+// window, or will from the next frame.
+func IsMouseVisible() bool {
+	return !mouseHiddenWanted.Load()
+}
+
 // window switches the game window between windowed and fullscreen, and
 // remembers where the window was. Fullscreen is a window without borders that
 // covers the monitor, so the monitor keeps its resolution, and switching back
@@ -41,10 +59,20 @@ func IsFullscreen() bool {
 type window struct {
 	fullscreen          bool // what is applied now
 	x, y, width, height int  // the window before it went fullscreen
+	mouseHidden         bool // the mouse pointer is hidden now
 }
 
-// apply switches the window to match fullscreenWanted.
+// apply switches the window to match fullscreenWanted, and shows or hides the
+// mouse pointer to match mouseHiddenWanted.
 func (w *window) apply() {
+	if hide := mouseHiddenWanted.Load(); hide != w.mouseHidden {
+		if hide {
+			rl.HideCursor()
+		} else {
+			rl.ShowCursor()
+		}
+		w.mouseHidden = hide
+	}
 	want := fullscreenWanted.Load()
 	if want == w.fullscreen {
 		return

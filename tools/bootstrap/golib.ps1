@@ -40,7 +40,7 @@ $GamesDir = Join-Path $Root 'games'
 # The Go side of golib, and where Invoke-Cli builds it. build/golib/ can't clash with a game's
 # build folder: new refuses golib as a game name.
 $CliDir = Join-Path $Root 'tools\cli'
-$CliExe = Join-Path $BuildDir 'golib\golib.exe'
+$CliBuildDir = Join-Path $BuildDir 'golib'
 
 $script:Failures = 0
 $script:Warnings = 0
@@ -67,7 +67,8 @@ Commands:
                           frames into build/<game>/shots/ (default: frame 60, one second in).
                           --input "Enter@1 Right@30-90 Mouse@100:640,360 MouseLeft@101" plays keyboard,
                           mouse and gamepad input in those updates (see docs/tooling.md)
-  test                    Vet and test the framework, every game and GoLib's Go tools
+  test [game]             Vet and test the framework, every game and GoLib's Go tools,
+                          or only games/<game>
   go <args>               Run the project's Go toolchain, with GoLib's settings
   clean                   Delete build outputs (build/)
   clean --all             Also delete downloaded tools (.tools/); run setup again afterwards
@@ -292,20 +293,40 @@ function Get-RaylibVersion {
     return ([string]$first[0]).Trim()
 }
 
+# Returns where Invoke-Cli builds and starts tools/cli: build/golib/golib.exe, unless that program
+# is running, as it is while a game started by run or shot is open. Windows can't replace a
+# running program, and go build moves only one copy out of its way, so the next name that isn't
+# in use is taken instead: golib-2.exe, golib-3.exe and so on. go build keeps each up to date.
+function Get-CliExe {
+    for ($i = 1; ; $i++) {
+        $name = if ($i -eq 1) { 'golib.exe' } else { "golib-$i.exe" }
+        $path = Join-Path $CliBuildDir $name
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return $path }
+        try {
+            # A running program's file can't be opened for writing.
+            [System.IO.File]::Open($path, 'Open', 'ReadWrite', 'None').Dispose()
+            return $path
+        } catch {
+            continue
+        }
+    }
+}
+
 # Builds tools/cli into build/golib/ when its code has changed, then runs it with the command and
 # its options, and exits with its exit code. The CLI gives the go commands it runs GoLib's
 # environment itself, so it starts with the user's.
 function Invoke-Cli([string]$Command, [string[]]$Options) {
     Assert-Toolchain $Command
+    $exe = Get-CliExe
     # go build leaves an up-to-date executable alone, so this costs about a tenth of a second.
-    & $GoExe -C $CliDir build -o $CliExe . | Out-Host
+    & $GoExe -C $CliDir build -o $exe . | Out-Host
     if ($LASTEXITCODE -ne 0) {
         Write-Check fail 'could not build tools/cli, the part of golib written in Go (see the Go errors above)'
         Write-Summary $Command
         exit 1
     }
     Restore-UserEnvironment
-    & $CliExe $Command @Options
+    & $exe $Command @Options
     exit $LASTEXITCODE
 }
 
@@ -404,7 +425,15 @@ function Invoke-Clean([string[]]$Options) {
     $removed = 0
     foreach ($target in $targets) {
         if (Test-Path -LiteralPath $target) {
-            Remove-Item -LiteralPath $target -Recurse -Force
+            try {
+                Remove-Item -LiteralPath $target -Recurse -Force
+            } catch {
+                # Windows can't delete the file of a running program, such as a game golib started.
+                [Console]::Error.WriteLine($_.Exception.Message)
+                [Console]::Error.WriteLine(('golib: cannot delete {0}/ completely (see the error above)' -f (Split-Path -Leaf $target)))
+                [Console]::Error.WriteLine('Close the games that golib started, and any program running from that folder, then run clean again.')
+                exit 1
+            }
             Write-Host ('removed {0}/' -f (Split-Path -Leaf $target))
             $removed++
         }

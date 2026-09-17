@@ -55,14 +55,14 @@ There is no game over screen, because there is no way to lose.
 The screen is 320 by 180 pixels, scaled up by whole numbers (`Config.PixelArt`). The pictures are the sprite sheets of "A platformer in the forest" (CC0, by Buch; see `assets/ATTRIBUTION.md`): `sheet.png`, the tileset, which also gives the chests; `characters.png`, 32 by 32 frames, for the hooded hero and the snakes; and `swoosh.png`, the slash. `art.go` names their frames and animations. `icon.png` is the hero's first frame. Text uses GoLib's built-in font: the game has no font file.
 
 ## Sounds
-GoLib makes every sound in code, so the game ships no sound files. `sounds.go` holds them: GoLib's recipes for a jump, a chest, a fall back to the start, a defeated snake and winning, and a slash made from a `golib.SoundSpec`.
+GoLib makes every sound when it first plays, so the game ships no recorded sounds. `sounds.go` holds them: GoLib's recipes for a jump, a fall back to the start, a defeated snake and winning, a slash made from a `golib.SoundSpec`, and a chest from `assets/sounds/chest.jfxr`, a rising arpeggio made with the settings of jfxr, the sound effect maker, which can open the file to change it.
 
 ## Tuning
 In `world.go`: `moveSpeed`, `jumpSpeed`, `gravity` and `maxFallSpeed` at the top, the hitbox sizes, the slash and the snakes' speed below them. The level is the map. The clouds are in `draw.go`, the colors and the screen size in `main.go`, and the frames and animations in `art.go`.
 
 ## Later
 Follows the framework, one feature at a time:
-- Music, and sound effects from files, when the user provides them.
+- Music, and recorded sound effects, when the user provides them.
 - A font, when the user provides one.
 - Climbing the ladder, with the sheet's climb animation.
 - More levels, as more Tiled maps.
@@ -77,3 +77,4 @@ Follows the framework, one feature at a time:
 - 2026-09-16: `game.json` (title, version 0.1.0, author) and a placeholder `icon.png`, which `golib dist` puts in the Windows executable.
 - 2026-09-16: `assets/` with the sprite sheets of "A platformer in the forest" (CC0, by Buch; see `assets/ATTRIBUTION.md`), not drawn yet because GoLib can't load images until M4, and `assets.go`, so `golib dist` embeds the folder.
 - 2026-09-17: version 0.2.0, drawn with the forest art on a 320 by 180 pixel art screen. The level is a Tiled map that scrolls, with a far layer in parallax. Coins became chests, and the gap became water; snakes crawl on the ground, and the hero slashes them. The hero walks, jumps and slashes with the sheet's animations. `icon.png` is now the hero.
+- 2026-09-17: the camera is GoLib's `golib.Camera` (M6), instead of the game's own; it shows the same picture.

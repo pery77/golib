@@ -16,5 +16,5 @@ __debug_bin*
 Thumbs.db
 desktop.ini
 
-# golib dist puts Windows resources next to a game's main.go while it builds.
-golib_dist_*.syso
+# golib build and dist put Windows resources next to a game's main.go while they build.
+golib_windows_*.syso

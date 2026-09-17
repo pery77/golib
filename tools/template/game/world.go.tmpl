@@ -8,10 +8,11 @@ const (
 	playerSize  = 40  // pixels
 )
 
-// World size in pixels. It is also the window size (see main.go).
+// World size in pixels: the screen's here. A larger world scrolls when play.go
+// draws it through a golib.Camera, as games/platformer does.
 const (
-	worldWidth  = 1280
-	worldHeight = 720
+	worldWidth  = screenWidth
+	worldHeight = screenHeight
 )
 
 // world is the whole game state and its rules. It knows nothing about the
@@ -35,8 +36,10 @@ func newWorld() world {
 // step advances the world by dt seconds. moveX and moveY go from -1 to 1:
 // negative is left or up, positive is right or down.
 func (w *world) step(moveX, moveY, dt float32) {
-	w.player.X = clamp(w.player.X+moveX*playerSpeed*dt, 0, worldWidth-playerSize)
-	w.player.Y = clamp(w.player.Y+moveY*playerSpeed*dt, 0, worldHeight-playerSize)
+	// ClampLength keeps diagonal moves as fast as straight ones.
+	move := golib.Vector2{X: moveX, Y: moveY}.ClampLength(1).Scale(playerSpeed * dt)
+	w.player.X = clamp(w.player.X+move.X, 0, worldWidth-playerSize)
+	w.player.Y = clamp(w.player.Y+move.Y, 0, worldHeight-playerSize)
 }
 
 // clamp returns value, kept between low and high.

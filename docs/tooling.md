@@ -45,7 +45,13 @@ Rules for everything golib prints, in the scripts and the Go program:
 
 The program finds the project from its own location, two folders above `build/golib/`, and sets the project environment for each `go` command it runs (`goEnv` in `tools/cli/project.go`), so the games it starts get the user's environment. `golib test` vets and tests it; its tests replace the `go` command and the games with fakes that record how they were started (`runGo` and `runGame` in `project.go`).
 
-While a game started by `run` or `shot` is open, the program is running too. On Windows, a running program's file can't be replaced or deleted, so until the game ends, a change to `tools/cli` can't be built (the next command stops with `could not build tools/cli`) and `golib clean` can't delete `build/golib/`. Close the game first.
+While a game started by `run` or `shot` is open, the program is running too, and so is the game. On Windows, a running program's file can't be replaced or deleted, so golib works around both:
+
+- When `build/golib/golib.exe` is running, `golib.ps1` builds and starts `golib-2.exe` instead, or `golib-3.exe` and so on, the first one that isn't running (`Get-CliExe`), so other commands work, and a change to `tools/cli` still takes effect.
+- A debug build copies `raylib.dll` and `libffi-8.dll` next to the game only when they differ from the ones there, and `go build` moves a running executable aside (as `<game>.exe~`) to write the new one. So `build` and `shot` work while `run` has the game open; the build fails only if the game was built again and both older copies are still open.
+- `golib clean` can't delete a running program's files: it stops with `cannot delete build/ completely` and exit code 1. Close the games golib started, then run it again.
+
+Linux and macOS replace and delete running programs' files, so `golib.sh` needs only the `clean` message, which it prints when `rm` fails for any other reason.
 
 To move a command into it:
 
@@ -102,7 +108,7 @@ raylib-go's module ships prebuilt raylib libraries for Windows, Linux and macOS,
 | Linux | `libraylib.so.6.0.0`; `libffi.so.8` comes from the system | Copied next to the executable; `run` and `shot` set `LD_LIBRARY_PATH` | `LD_LIBRARY_PATH` |
 | macOS | `libraylib.6.0.0.dylib`, `libffi.8.dylib` | Copied next to the executable; `run` and `shot` set `DYLD_LIBRARY_PATH` | `DYLD_LIBRARY_PATH` |
 
-A debug program that can't find a library stops as soon as it starts, with `cannot load library ...` for raylib or `error loading library` for libffi. That includes test binaries started with `golib go test`: use `golib test`.
+A debug program that can't find a library stops as soon as it starts. On Windows it prints `cannot load library <name>: <reason>` for each library, says where they go, and exits with code 1 (see [Libraries that don't load](#libraries-that-dont-load)); on Linux and macOS raylib-go or ffi panic, with `cannot load library ...` for raylib or `error loading library` for libffi. That includes test binaries started with `golib go test`: use `golib test`.
 
 The prebuilt Linux library links against `libX11.so.6` and loads `libGL.so.1` when a window opens, and raylib-go needs the system's `libffi.so.8`. Desktop Linux systems usually have all three; `golib doctor` checks for them and prints the install command when they are missing.
 
@@ -158,14 +164,17 @@ build/<game>/dist/                  emptied first
 | Debug symbols and paths from this machine | Kept, for Delve and readable stack traces | Removed |
 | raylib and libffi | Loaded from next to the executable | Loaded from next to the executable, except on macOS (below) |
 | The game's `assets/` folder | Read from disk, in the working directory, which `run`, `shot`, `test` and F5 set to `games/<game>/`. When the working directory has no `assets/` folder, as when the executable is started from Explorer in `build/<game>/`, from `games/<game>/assets/` instead | Embedded, through the game's `assets.go` |
+| `golib.SaveData` | Saves in `build/<game>/save/`, next to the executable; in memory under `shot` and `test` | Saves in the player's settings folder, in `GoLib games/<game>`: `%AppData%GoLib games<game>` on Windows, `~/.config/GoLib games/<game>` on Linux, `~/Library/Application Support/GoLib games/<game>` on macOS |
 
 It runs `go build -trimpath` with these build tags and linker flags:
 
 | Platform | Next to the executable | `-tags` | `-ldflags` |
 | --- | --- | --- | --- |
-| Windows | `raylib.dll`, and `libffi-8.dll` on amd64 | `golib_dist,raylib_no_embed,ffi_no_embed` | `-s -w -H=windowsgui` |
-| Linux | `libraylib.so.6.0.0`. Players' systems provide `libffi.so.8`, `libX11.so.6` and `libGL.so.1` | `golib_dist,raylib_no_embed,ffi_no_embed` | `-s -w -r $ORIGIN` |
-| macOS | Nothing: the executable carries both libraries | `golib_dist` | `-s -w` |
+| Windows | `raylib.dll`, and `libffi-8.dll` on amd64 | `golib_dist,raylib_no_embed,ffi_no_embed` | `-s -w -X golib.saveName=<game> -H=windowsgui` |
+| Linux | `libraylib.so.6.0.0`. Players' systems provide `libffi.so.8`, `libX11.so.6` and `libGL.so.1` | `golib_dist,raylib_no_embed,ffi_no_embed` | `-s -w -X golib.saveName=<game> -r $ORIGIN` |
+| macOS | Nothing: the executable carries both libraries | `golib_dist` | `-s -w -X golib.saveName=<game>` |
+
+`-X golib.saveName=<game>` names the folder `golib.SaveData` saves in after the game's folder in `games/`, so it stays the same when a player renames the executable.
 
 `-tags` replaces the tags in `GOFLAGS`. `golib_dist` switches the framework to dist behavior and includes the game's `assets.go`, which embeds its assets folder:
 
@@ -188,26 +197,33 @@ func init() { golib.EmbedAssets(assets) }
 
 Debug builds leave that file out, so they never embed assets. Before building, `dist` checks with `go list` that a game with an `assets/` folder embeds `assets` or `all:assets`, and stops with a `[fail]` line otherwise: without it the executable would build and then fail on the player's machine.
 
-The libraries are the ones debug builds use: raylib from the archive for this platform in raylib-go's `libs/` folder, and libffi from the ffi module's `assets/libffi/` folder. `raylib_no_embed` and `ffi_no_embed` keep the executable from carrying its own copies, which raylib-go and ffi would otherwise write into the player's cache folder when the game first starts, and never check again: a damaged copy there would stop the game until someone deleted that folder, with no message (see [roadmap.md](roadmap.md#decisions)). Instead, the game loads the files next to it, and writes nothing on the player's machine:
+The libraries are the ones debug builds use: raylib from the archive for this platform in raylib-go's `libs/` folder, and libffi from the ffi module's `assets/libffi/` folder. `raylib_no_embed` and `ffi_no_embed` keep the executable from carrying its own copies, which raylib-go and ffi would otherwise write into the player's cache folder when the game first starts, and never check again: a damaged copy there would stop the game until someone deleted that folder, with no message (see [roadmap.md](roadmap.md#decisions)). Instead, the game loads the files next to it, and writes nothing on the player's machine but what it saves with `golib.SaveData`:
 
 - Windows looks for a library in the executable's folder first.
 - Linux's dynamic linker looks there because `-r $ORIGIN` writes that folder into the executable's `DT_RUNPATH`. Not tried on Linux yet.
 - macOS looks for a library that is given by its bare name, as raylib-go gives raylib's, only in `DYLD_LIBRARY_PATH`, the working directory and system folders, never in the executable's folder. So macOS dist builds still carry both libraries, and write them to `~/Library/Caches/github.com/` when the game first starts.
 
-A game that can't find a library stops as soon as it starts, with `cannot load library raylib.dll` or `error loading library` on stderr. The libraries load before `golib.Run` starts, and a Windows dist build has no console, so players see nothing happen: they have to keep the folder together, which unzipping it does. Windows also looks for libraries in the folders on `PATH`, so a `libffi-8.dll` from another program, such as MSYS2's, can hide a missing one on your machine: try the game from the unzipped folder.
+Players have to keep the folder together, which unzipping it does. Windows also looks for libraries in the folders on `PATH`, so a `libffi-8.dll` from another program, such as MSYS2's, can hide a missing one on your machine: try the game from the unzipped folder.
+
+#### Libraries that don't load
+
+raylib-go and ffi load their libraries while Go initializes their packages, before `main` and `golib.Run`, and panic when they can't. A Windows dist build has no console, so a player who moved the executable out of its folder would see nothing happen. So on Windows, the framework's `golib/internal/startup` package loads `libffi-8.dll` and `raylib.dll` first, the same way. When one doesn't load, it writes `cannot load library <name>: <reason>` for each to stderr, with a line that says where the libraries go, shows the same in a message box when nobody would see the console (a dist build, or a debug build started from Explorer), and exits with code 1.
+
+It can only run first because Go initializes packages in the order of their import paths, each as soon as the packages it imports are ready: `golib/internal/startup` comes right after `syscall`, before `os`, and raylib-go and ffi need `os`. So the package imports only `syscall` and `unsafe` (even `strings` would hold it back, through `unicode`), which its test checks; another test in the framework starts a test binary where the libraries can't be found and checks the message. The check runs only in builds with the `raylib_no_embed` and `ffi_no_embed` tags, which all of golib's Windows builds have: without them, the libraries come from inside the executable. A library that loads but isn't the one the game was built for, such as a `raylib.dll` of another raylib version, still makes raylib-go panic with no message in a dist build.
 
 ### Third-party licenses
 
-The licenses of Go, purego (Apache-2.0), ffi and libffi ask for their notices to go with the programs built from them. `THIRD-PARTY-LICENSES.txt` holds them, each under a heading that says what it is and where it is in the game:
+The licenses of Go, jfxr, purego (Apache-2.0), ffi and libffi ask for their notices to go with the programs built from them. `THIRD-PARTY-LICENSES.txt` holds them, each under a heading that says what it is and where it is in the game:
 
 | Heading | License text from |
 | --- | --- |
 | Go | `.tools/go/LICENSE`: the Go runtime and standard library are in every executable |
+| jfxr | `framework/LICENSE-jfxr.txt` (BSD-3-Clause): GoLib's framework carries a Go version of jfxr's synthesizer, `framework/jfxr.go`, in every executable. Without the file, `dist` prints a `[warn]` line and leaves the heading empty |
 | Each Go module the game is built from, as `go list -deps` reports with the dist build tags, except the game's own and GoLib's | The files in the module's folder whose names start with `LICENSE`, `LICENCE`, `COPYING`, `COPYRIGHT` or `NOTICE`. A module without one gets a `[warn]` line: find its license and add its notice by hand |
 | raylib, and libffi when the platform has it | `libs/LICENSE` in raylib-go, `assets/libffi/LICENSE` in ffi. For raylib, also `tools/cli/notices/raylib-<version>.txt` (below) |
 | `assets/ATTRIBUTION.md`, when the game has one | The file itself: where the files in the assets folder that weren't made for the game come from, and their licenses (see [framework/README.md](../framework/README.md)) |
 
-GoLib is left out because its license, zlib, asks for nothing in games (see [roadmap.md](roadmap.md#decisions)). The file starts with the game's title from `game.json`. `dist` writes it again on every build, so don't edit it: put what it should say in `assets/ATTRIBUTION.md`.
+GoLib is left out because its license, zlib, asks for nothing in games (see [roadmap.md](roadmap.md#decisions)); jfxr's code inside it is the exception. The file starts with the game's title from `game.json`. `dist` writes it again on every build, so don't edit it: put what it should say in `assets/ATTRIBUTION.md`.
 
 raylib's library includes other libraries, and raylib's `LICENSE` covers none of them. Most of them (GLFW, miniaudio, dr_libs, stb, jar_xm, jar_mod, sinfl, sdefl, rprand, rl_gputex) are under zlib, public domain, MIT-0 or a choice of public domain, and ask for no notice in programs. The others ask for one: cgltf, tinyobj_loader_c, vox_loader, m3d, par_shapes, QOI and QOA (MIT), glad's `khrplatform.h` (Khronos), and dirent, in the Windows library only. Their notices are written out in `tools/cli/notices/raylib-<version>.txt`, which `dist` embeds and adds under raylib's heading. The texts sit in comments in each library's header, in different forms, so they are copied by hand rather than extracted.
 
@@ -215,7 +231,7 @@ When raylib-go moves to a new raylib version, `golib test` fails until that file
 
 ### Icon and version information (Windows)
 
-On Windows, a dist build carries the game's icon, which Explorer, the title bar and the taskbar show, and the details that Explorer lists under Properties > Details and Task Manager uses as the program's name. They come from two optional files in the game's folder:
+On Windows, the executable carries the game's icon, which Explorer, the title bar and the taskbar show, and the details that Explorer lists under Properties > Details and Task Manager uses as the program's name, in dist builds and in the debug builds of `build`, `run` and `shot` (not in F5's, which the Go extension builds). They come from two optional files in the game's folder:
 
 | File | Holds | Without it |
 | --- | --- | --- |
@@ -239,11 +255,11 @@ Every field of `game.json` is optional. Save it as UTF-8; the byte order mark th
 }
 ```
 
-A mistake in either file stops `dist` with a `[fail]` line that says what to fix: invalid JSON (with its line), an unknown field, a version that isn't major.minor.patch, an icon that isn't a square PNG of at least 16 pixels. `dist` checks both files on Linux and macOS too, so a mistake shows up wherever the game is built.
+A mistake in either file stops the build with a `[fail]` line that says what to fix: invalid JSON (with its line), an unknown field, a version that isn't major.minor.patch, an icon that isn't a square PNG of at least 16 pixels. `dist` reports what it found, and checks both files on Linux and macOS too, so a mistake shows up wherever the game is built; debug builds say nothing while both files are fine, and don't check them on Linux and macOS.
 
-How it works, in `tools/cli` (`dist.go`, `gameinfo.go`, `icon.go` and `winres.go`): `dist` resizes the icon to 16, 20, 24, 32, 40, 48, 64 and 256 pixels, averaging pixels to shrink and repeating them to grow, so pixel art stays sharp. It writes those images and the version information as Windows resources into a `.syso` file, the object file format the Go linker reads. The linker only picks up `.syso` files from the package's own folder, and `go build -overlay` doesn't cover them, so `dist` puts the file in the game's folder as `golib_dist_windows_<arch>.syso` while it builds, then deletes it, even when the build fails. `.gitignore` lists that name, in case a build is interrupted. The icon resource is named `GLFW_ICON`: GLFW, the library raylib opens windows with, gives an icon with that name to the game's window.
+How it works, in `tools/cli` (`dist.go`, `gameinfo.go`, `icon.go` and `winres.go`): golib resizes the icon to 16, 20, 24, 32, 40, 48, 64 and 256 pixels, averaging pixels to shrink and repeating them to grow, so pixel art stays sharp. It writes those images and the version information as Windows resources into a `.syso` file, the object file format the Go linker reads. The linker only picks up `.syso` files from the package's own folder, and `go build -overlay` doesn't cover them, so golib puts the file in the game's folder as `golib_windows_<arch>.syso` while it builds, then deletes it, even when the build fails. Debug and dist builds use the same name, so a file left by an interrupted build is replaced rather than linked twice, and `.gitignore` lists it. The same resources give the same file, so an unchanged game isn't linked again. The icon resource is named `GLFW_ICON`: GLFW, the library raylib opens windows with, gives an icon with that name to the game's window.
 
-Debug builds don't carry the icon or the details, and dist builds on Linux and macOS don't use the two files yet.
+Dist builds on Linux and macOS don't use the two files yet.
 
 ## New games
 
@@ -272,7 +288,7 @@ Windows PowerShell 5.1 splits arguments that start with `-` and contain a dot be
 | `build/<game>/` | A game's debug executable, next to its copies of the raylib libraries |
 | `build/<game>/shots/` | Screenshots from the latest `golib shot` |
 | `build/<game>/dist/` | The latest `golib dist` build: the folder to share, `<game>/`, and its zip |
-| `build/golib/` | [The Go program](#the-go-program), `golib.exe` (`golib` on Linux and macOS), built by the scripts when a command needs it. `new` refuses `golib` as a game name, so no game's folder clashes with it. |
+| `build/golib/` | [The Go program](#the-go-program), `golib.exe` (`golib` on Linux and macOS), built by the scripts when a command needs it, and on Windows `golib-2.exe` and so on, built while `golib.exe` is running. `new` refuses `golib` as a game name, so no game's folder clashes with it. |
 
 `.tools/` and `build/` are git-ignored. `golib setup` creates `.tools/` and `golib clean --all` removes it; `golib build`, `run`, `shot` and `dist` create `build/` and `golib clean` removes it. `.tools/downloads/` only exists while setup is downloading.
 

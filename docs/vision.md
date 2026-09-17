@@ -21,11 +21,11 @@ Download the template, run a couple of commands, describe a game to an AI agent,
 7. **Cross-platform by default.** Windows, Linux and macOS are first-class, on x86-64 and ARM64.
 8. **Games, not engines.** GoLib covers what nearly every game needs, then gets out of the way. raylib stays reachable for everything else.
 9. **Framework and games apart.** The framework is a library; each game is an ordinary Go program in its own folder that uses it. Anyone can make a game without touching the framework, and the framework never holds code for one particular game. See [architecture.md](architecture.md).
-10. **Established tools, no editors of our own.** Content is made in mature tools people already know: Tiled for 2D maps, Aseprite for sprites and animations, Blender for 3D models. GoLib loads the files they save. The tools are only needed to edit content: a game builds and runs without them.
+10. **Established tools, no editors of our own.** Content is made in mature tools people already know: Tiled for 2D maps, Aseprite for sprites and animations, jfxr for sound effects, Blender for 3D models. GoLib loads the files they save. The tools are only needed to edit content: a game builds and runs without them.
 
 ## Non-goals
 
-- A visual editor, scene designer, level editor or asset GUI of any kind. Tiled, Aseprite and Blender already do that job well.
+- A visual editor, scene designer, level editor or asset GUI of any kind. Tiled, Aseprite, jfxr and Blender already do that job well.
 - A general-purpose engine competing with Godot or Unity on features.
 - Hiding Go. A GoLib game is an ordinary Go program.
 

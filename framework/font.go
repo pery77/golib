@@ -68,7 +68,25 @@ type TextOptions struct {
 	// Font is the font to draw with. Default: GoLib's built-in pixel font,
 	// which is 10 pixels high.
 	Font *Font
+
+	// Align says which part of each line DrawText puts at x: its start, with
+	// AlignLeft, the default, its middle, with AlignCenter, or its end, with
+	// AlignRight.
+	Align TextAlign
 }
+
+// TextAlign says which part of each line of text [Screen.DrawText] puts at x.
+type TextAlign int
+
+// Text alignments.
+const (
+	AlignLeft   TextAlign = iota // x is where each line starts
+	AlignCenter                  // x is the middle of each line
+	AlignRight                   // x is where each line ends
+)
+
+// textLineGap is the space between lines of text, in pixels: raylib's.
+const textLineGap = 2
 
 // textFont returns the raylib font to draw text at size with, and the space
 // between its letters. call names the method, for messages.

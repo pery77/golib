@@ -38,7 +38,7 @@ Each screen is a scene in `scenes.go`:
 - **Game over:** the final score while the rocks keep drifting.
 
 ## Sound and music
-GoLib makes every sound effect in code, so the game ships no sound files. The recipes are in `sounds.go`: the gun's falling zap, one burst of noise per rock size (the bigger the rock, the lower and longer it breaks), the ship's explosion, and a rising fanfare when a wave is cleared. Change the numbers there to change how the game sounds; `golib.SoundSpec` explains what each one does.
+GoLib makes every sound effect in code, so the game ships no sound files. The recipes are in `sounds.go`: the gun's falling zap, one burst of noise per rock size (the bigger the rock, the lower and longer it breaks), the ship's explosion, a rising fanfare when a wave is cleared, and a low rumble that loops while the ship thrusts (`golib.Sound.Loop`), which stops when the ship crashes or the game pauses. Change the numbers there to change how the game sounds; `golib.SoundSpec` explains what each one does.
 
 The music is `assets/4_rndd!.xm`, a tracker module streamed by `golib.NewMusic` and declared in `sounds.go` as `theme`. It loops from the title through the whole game, sits under the sound effects at `musicVolume`, and F3 or X turns it off. `assets/ATTRIBUTION.md` records where it comes from and under which license.
 
@@ -46,7 +46,7 @@ The music is `assets/4_rndd!.xm`, a tracker module streamed by `golib.NewMusic` 
 All the numbers are at the top of `world.go`: ship handling (`turnSpeed`, `thrustPower`, `maxShipSpeed`, `shipDrag`), shooting (`bulletSpeed`, `bulletLifetime`, `fireCooldown`, `maxBullets`), lives and respawning, and rocks (`firstWaveRocks`, speeds, sizes and points). The look is in `main.go`: colors, `lineWidth`, and the effect settings `glowStrength` and `crtCurvature`, which reach `shaders/glow.fs` and `shaders/crt.fs` as uniforms.
 
 ## Later
-- A thrust rumble and a heartbeat that speeds up as a wave thins out: both need sounds that loop, which GoLib doesn't have yet.
+- A heartbeat that speeds up as a wave thins out.
 - Music that changes with the wave, or fades out on game over.
 - A flying saucer that shoots back.
 - Hyperspace: jump to a random spot, at a risk.
@@ -59,3 +59,4 @@ All the numbers are at the top of `world.go`: ship handling (`turnSpeed`, `thrus
 - 2026-09-16: sound effects made in code (`sounds.go`): the gun, rocks breaking by size, the ship exploding and each new wave.
 - 2026-09-16: music, a tracker module in `assets/`, streamed with `golib.NewMusic` and turned on and off with F3 or X.
 - 2026-09-16: `game.json` (title, version 0.1.0, author) and a placeholder `icon.png`, which `golib dist` puts in the Windows executable.
+- 2026-09-17: a thrust rumble that loops while the ship thrusts, with `golib.Sound.Loop` (M6). Not heard yet: listen for it when thrusting, and check that it stops on a crash and on pause.

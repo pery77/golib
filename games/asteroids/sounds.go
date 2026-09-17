@@ -37,6 +37,13 @@ var (
 		}),
 	}
 
+	// thrustSound rumbles for as long as the ship thrusts: world.go loops it.
+	// Its fades are off, so that the loop has no gap.
+	thrustSound = golib.NewSound(golib.SoundSpec{
+		Wave: golib.WaveNoise, Frequency: 90, Duration: 0.5,
+		Attack: -1, Release: -1, Volume: 0.16,
+	})
+
 	// crashSound and waveSound are two of GoLib's ready-made recipes.
 	crashSound = golib.Explosion()
 	waveSound  = golib.PowerUp()

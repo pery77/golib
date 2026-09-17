@@ -59,7 +59,8 @@ Commands:
                           frames into build/<game>/shots/ (default: frame 60, one second in).
                           --input "Enter@1 Right@30-90 Mouse@100:640,360 MouseLeft@101" plays keyboard,
                           mouse and gamepad input in those updates (see docs/tooling.md)
-  test                    Vet and test the framework, every game and GoLib's Go tools
+  test [game]             Vet and test the framework, every game and GoLib's Go tools,
+                          or only games/<game>
   go <args>               Run the project's Go toolchain, with GoLib's settings
   clean                   Delete build outputs (build/)
   clean --all             Also delete downloaded tools (.tools/); run setup again afterwards
@@ -444,7 +445,11 @@ removed=0
 
 remove_dir() {
   if [ -e "$1" ]; then
-    remove_tree "$1"
+    if ! remove_tree "$1"; then
+      printf 'golib: cannot delete %s/ completely (see the error above)\n' "$(basename "$1")" >&2
+      echo 'Close the games that golib started, and any program running from that folder, then run clean again.' >&2
+      exit 1
+    fi
     printf 'removed %s/\n' "$(basename "$1")"
     removed=$((removed + 1))
   fi

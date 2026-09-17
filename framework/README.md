@@ -13,12 +13,15 @@ For AI agents writing game code with GoLib, and for anyone who wants the whole f
 | Draw pictures and animations | `golib.NewSprite`, `golib.NewSpriteSheet`, `screen.DrawSprite`, `golib.Animation` | [Sprites and animations](#sprites-and-animations) |
 | Load levels made in Tiled | `golib.NewMap`, `screen.DrawMap`, `level.TilesIn`, `level.Objects` | [Maps](#maps) |
 | Read keys, mouse and gamepads | `input.KeyDown`, `input.KeyPressed`, `input.MousePosition`, `input.GamepadDown` | [Input](#input) |
-| Check collisions | `golib.Rectangle` and its `Overlaps` | [Rectangles and collisions](#rectangles-and-collisions) |
+| Move, aim and chase | `golib.Vector2` and its `Add`, `Scale`, `Normalize`, `MoveTowards` | [Vectors, rectangles and collisions](#vectors-rectangles-and-collisions) |
+| Check collisions | `golib.Rectangle` and its `Overlaps`; `Vector2.Distance` for circles | [Vectors, rectangles and collisions](#vectors-rectangles-and-collisions) |
+| Scroll a world larger than the screen | `golib.NewCamera`, `screen.SetCamera` | [Camera](#camera) |
 | Move between title, play, pause and game over | `golib.SwitchScene` | [Scenes](#scenes) |
 | Roll dice | `golib.RandomInt`, `golib.RandomFloat` | [Random numbers](#random-numbers) |
-| Play sound effects | `golib.NewSound`, `golib.Laser` and the other recipes, `golib.NewSoundFile` | [Sound effects](#sound-effects) |
+| Play sound effects | `golib.NewSound`, `golib.Laser` and the other recipes, `golib.NewSoundFile` for sound files and sounds designed in jfxr | [Sound effects](#sound-effects) |
 | Play music | `golib.NewMusic` | [Music](#music) |
 | Go fullscreen, add a CRT look | `golib.SetFullscreen`, `golib.NewShader`, `golib.SetPostProcess` | [Window, fullscreen and screen effects](#window-fullscreen-and-screen-effects) |
+| Remember high scores, settings and progress | `golib.SaveData`, `golib.LoadData` | [Saving data](#saving-data) |
 | Read a data file | `golib.ReadAsset` | [Files: the assets folder](#files-the-assets-folder) |
 | End the game | `golib.Quit` | [Quitting](#quitting) |
 
@@ -72,7 +75,7 @@ func main() {
 3. **A scene must be ready to draw as soon as it is made.** Set its state in its constructor, not in its first `Update`: `Run` can draw a scene before updating it, on the first frame and on the frame a `SwitchScene` lands.
 4. **Pressed happens once, Down lasts.** `KeyPressed`, `MousePressed` and `GamepadPressed` are true in exactly one update per press: use them for jumping, firing and menus. `KeyDown`, `MouseDown` and `GamepadDown` stay true while held: use them for walking and thrust.
 5. **Use `Input` only in `Update`, and `Screen` only in `Draw`.** Don't keep them in the game's state.
-6. **Draw in screen pixels.** The screen is `Config.Width` by `Config.Height` pixels, with 0, 0 at the top-left corner and y growing downwards, whatever the window's size. `Run` scales it to the window, with black bars where the shapes differ, and reports the mouse in the same pixels.
+6. **Draw in screen pixels, or through a camera.** The screen is `Config.Width` by `Config.Height` pixels, with 0, 0 at the top-left corner and y growing downwards, whatever the window's size. `Run` scales it to the window, with black bars where the shapes differ, and reports the mouse in the same pixels. After `screen.SetCamera(camera)`, positions are in the world instead, until `screen.SetCamera(nil)`.
 7. **Make sprites, maps, fonts, sounds, music and shaders once, and keep them.** Create them as package variables or in `main`, never in `Update`, in `Draw` or in a scene that is made again for every new game: each one loads the first time it is used and stays loaded until `Run` returns.
 8. **Random numbers come from `RandomInt` and `RandomFloat`**, never from `math/rand`: `golib shot` starts them from the same seed, so its screenshots repeat.
 9. **No key quits on its own, not even Esc.** Call `Quit` when the game should end; the game decides what Esc does.
@@ -158,13 +161,19 @@ Only these keys are read. There is no numeric keypad, punctuation, Delete or Hom
 | Name | What it does |
 | --- | --- |
 | `Input.MousePosition` | `MousePosition() (x, y float32)`: the pointer, in screen pixels. Over the black bars or outside the window it can be outside the screen. |
+| `Input.MouseMoved` | `MouseMoved() bool`: the pointer moved since the previous update, even in another scene; false in the first update. Let the pointer pick a menu item only when it moves or clicks, so a pointer resting over a button doesn't fight the keys or pick one as a menu opens. |
 | `Input.MouseDown` | `MouseDown(button MouseButton) bool`: the button is held down. |
 | `Input.MousePressed` | `MousePressed(button MouseButton) bool`: the button went down since the previous update; true in one update per click. |
 | `Input.MouseWheel` | `MouseWheel() float32`: notches the wheel turned since the previous update. Positive is up, away from the player; 0 means it didn't move. |
+| `SetMouseVisible` | `SetMouseVisible(visible bool)`: shows or hides the pointer over the window, from the next frame, such as to draw a crosshair in its place. `MousePosition` still works. |
+| `IsMouseVisible` | `IsMouseVisible() bool`: whether the pointer shows, or will from the next frame. |
 | `MouseButton` | `MouseLeft`, `MouseRight` or `MouseMiddle`. |
 
 ```go
 x, y := input.MousePosition()
+if s.playButton.Contains(x, y) && (input.MouseMoved() || input.MousePressed(golib.MouseLeft)) {
+	s.selected = playButton // the pointer picks the button it moves over
+}
 if input.MousePressed(golib.MouseLeft) && s.playButton.Contains(x, y) {
 	golib.SwitchScene(newPlayScene())
 	return
@@ -206,25 +215,39 @@ Gamepads are numbered 0 to 3, in the order they were connected; a one-player gam
 | --- | --- |
 | `Screen.Clear` | `Clear(color Color)`: fills the whole screen. |
 | `Screen.DrawRectangle` | `DrawRectangle(rect Rectangle, color Color)`: a filled rectangle. |
+| `Screen.DrawRectangleOutline` | `DrawRectangleOutline(rect Rectangle, thickness float32, color Color)`: the rectangle's edges, thickness pixels wide, inside it. |
 | `Screen.DrawCircle` | `DrawCircle(x, y, radius float32, color Color)`: a filled circle centered at x, y. |
+| `Screen.DrawCircleOutline` | `DrawCircleOutline(x, y, radius, thickness float32, color Color)`: a ring, the circle's edge, thickness pixels wide, inside it. |
 | `Screen.DrawLine` | `DrawLine(x1, y1, x2, y2, thickness float32, color Color)`: a straight line, thickness pixels wide. |
 | `Screen.DrawTriangle` | `DrawTriangle(x1, y1, x2, y2, x3, y3 float32, color Color)`: a filled triangle; the corners can come in any order. |
-| `Screen.DrawText` | `DrawText(text string, x, y, size float32, color Color, options ...TextOptions)`: text with its top-left corner at x, y, size pixels high, in the built-in font or the font the options give (see [Fonts](#fonts)). A `\n` starts a new line. |
-| `Screen.TextWidth` | `TextWidth(text string, size float32, options ...TextOptions) float32`: how wide `DrawText` draws text with the same options, to center or right-align it. |
+| `Screen.DrawPolygon` | `DrawPolygon(points []Vector2, color Color)`: a filled shape with these corners, in order, either way round. Every corner must be in sight from the shape's middle, as in ships, rocks and stars. |
+| `Screen.DrawPolygonOutline` | `DrawPolygonOutline(points []Vector2, thickness float32, color Color)`: the shape's sides, back to the first corner, with round corners. |
+| `Screen.DrawText` | `DrawText(text string, x, y, size float32, color Color, options ...TextOptions)`: text with its top at y, size pixels high, in the built-in font or the font the options give (see [Fonts](#fonts)). x is where each line starts, or its middle or end with `TextOptions.Align`. A `\n` starts a new line. |
+| `Screen.TextWidth` | `TextWidth(text string, size float32, options ...TextOptions) float32`: how wide `DrawText` draws text with the same options, to fit it in a box or put something after it. |
 | `Screen.Width`, `Screen.Height` | `Width() float32`, `Height() float32`: the screen's size, from `Config`. |
 
 - Positions and sizes are `float32`. Untyped constants convert by themselves; other numbers need `float32(n)`.
-- Shapes are filled. For an outline, draw lines. For a rotated shape, work out its corners with `math.Sin` and `math.Cos` and draw triangles or lines, as `games/asteroids/scenes.go` does for the ship and the rocks. Pictures are sprites: see [Sprites and animations](#sprites-and-animations).
-- There is no camera. To scroll, subtract the camera's position from everything you draw.
+- For a shape that turns, keep its corners around 0, 0, and turn and move them before drawing: `corner.Rotate(angle).Add(position)` (see [Vectors, rectangles and collisions](#vectors-rectangles-and-collisions)). Pictures are sprites: see [Sprites and animations](#sprites-and-animations).
+- To scroll a world larger than the screen, draw it through a `Camera`: see [Camera](#camera).
 - The built-in font is raylib's pixel font, which is 10 pixels high: sizes that are multiples of 10 keep its pixels even. Other fonts come from files: see [Fonts](#fonts).
 - Text is drawn at whole pixels: x and y are rounded, so letters stay sharp.
 
 ```go
-// drawCentered draws text centered across the screen.
-func drawCentered(screen *golib.Screen, text string, y, size float32, color golib.Color) {
-	x := (screen.Width() - screen.TextWidth(text, size)) / 2
-	screen.DrawText(text, x, y, size, color)
+// A panel with a border, a centered heading, and a score on the right.
+panel := golib.Rectangle{X: 340, Y: 200, Width: 600, Height: 320}
+screen.DrawRectangle(panel, golib.WithOpacity(golib.Black, 0.8))
+screen.DrawRectangleOutline(panel, 4, golib.Gold)
+center := golib.TextOptions{Align: golib.AlignCenter}
+screen.DrawText("Level complete", panel.Center().X, panel.Y+30, 40, golib.White, center)
+screen.DrawText(fmt.Sprint(s.score), screen.Width()-20, 20, 30, golib.White, golib.TextOptions{Align: golib.AlignRight})
+
+// The ship: a polygon turned to where it faces.
+corners := make([]golib.Vector2, len(shipShape))
+for i, corner := range shipShape { // shipShape points right, around 0, 0
+	corners[i] = corner.Rotate(s.ship.angle).Add(s.ship.position)
 }
+screen.DrawPolygon(corners, shipColor)
+screen.DrawPolygonOutline(corners, 2, golib.White)
 ```
 
 ### Colors
@@ -232,6 +255,8 @@ func drawCentered(screen *golib.Screen, text string, y, size float32, color goli
 `Color` is a color with red, green, blue and opacity from 0 to 255: `golib.Color{R: 20, G: 24, B: 32, A: 255}`. `A` is 255 for solid colors; lower values let what is underneath show through, so `golib.Color{A: 150}` over the whole screen darkens it under a pause message. `Color` is raylib's `rl.Color`, so it can be passed to raylib directly.
 
 The named colors are raylib's palette: `LightGray` `Gray` `DarkGray` `Yellow` `Gold` `Orange` `Pink` `Red` `Maroon` `Green` `Lime` `DarkGreen` `SkyBlue` `Blue` `DarkBlue` `Purple` `Violet` `DarkPurple` `Beige` `Brown` `DarkBrown` `White` `Black` `Magenta`, `RayWhite` (the off-white raylib uses for backgrounds) and `Blank` (fully transparent).
+
+`WithOpacity`, `WithOpacity(color Color, opacity float32) Color`, returns the color with its opacity set, from 0, invisible, to 1, solid: `golib.WithOpacity(golib.White, flashLeft/flashTime)` fades a flash out.
 
 Keep a game's colors together as named variables, as `games/platformer/main.go` does, so its look changes in one place.
 
@@ -245,6 +270,8 @@ A font is a `.ttf` or `.otf` file in the assets folder. Pass it to `DrawText` an
 | `NewFont` | `NewFont(name string) *Font`: the `.ttf` or `.otf` file `name` in the assets folder, with forward slashes, as in `ReadAsset`. |
 | `TextOptions` | Changes how `DrawText` draws and `TextWidth` measures: `golib.TextOptions{Font: title}`. Pass at most one. |
 | `TextOptions.Font` | The font. Default: the built-in pixel font. |
+| `TextOptions.Align` | Which part of each line goes at x: `AlignLeft`, the default, `AlignCenter` or `AlignRight`. |
+| `TextAlign` | The type of `AlignLeft`, `AlignCenter` and `AlignRight`. |
 
 ```go
 var (
@@ -363,7 +390,7 @@ A map is a level made in [Tiled](https://www.mapeditor.org): a `.tmx` file in th
 | --- | --- |
 | `Map` | A Tiled map: its layers, its tilesets and its objects. |
 | `NewMap` | `NewMap(name string) *Map`: the `.tmx` file `name`, relative to the assets folder, as in `ReadAsset`. |
-| `Screen.DrawMap` | `DrawMap(level *Map, x, y float32)`: draws every visible layer with the map's top-left corner at x, y, over the map's background color if Tiled gives it one. To follow a camera, pass the camera's position, negated. |
+| `Screen.DrawMap` | `DrawMap(level *Map, x, y float32)`: draws every visible layer with the map's top-left corner at x, y, over the map's background color if Tiled gives it one. Through a camera, draw it at 0, 0, where it is in the world (see [Camera](#camera)). |
 | `Screen.DrawMapLayer` | `DrawMapLayer(level *Map, layer string, x, y float32)`: draws one layer, even one hidden in Tiled. Draw a map layer by layer to put sprites between its layers. |
 | `Map.Width`, `Map.Height` | `Width() float32`, `Height() float32`: the map's size, in pixels. |
 | `Map.TileWidth`, `Map.TileHeight` | `TileWidth() float32`, `TileHeight() float32`: the size of the map's grid cells, in pixels. |
@@ -396,7 +423,7 @@ A map is a level made in [Tiled](https://www.mapeditor.org): a `.tmx` file in th
 | `MapObject.Tile` | A tile object's tile. |
 | `MapObject.Visible` | Whether it is visible in Tiled. Hidden tile objects aren't drawn. |
 | `MapObject.Properties` | Its custom properties. A tile object also has its tile's, and its own win. |
-| `Vector2` | A point in pixels, with `Vector2.X` and `Vector2.Y`. |
+| `Vector2` | A point in pixels: see [Vectors, rectangles and collisions](#vectors-rectangles-and-collisions). |
 | `Properties` | Custom properties by name, as the text Tiled saves (a `map[string]string`). Its methods read one as a value, and give the zero value when it is missing or isn't one. |
 | `Properties.String` | `String(name string) string` |
 | `Properties.Int` | `Int(name string) int` |
@@ -432,11 +459,11 @@ func solidTiles(box golib.Rectangle) []golib.MapTile {
 
 func (s *playScene) Draw(screen *golib.Screen) {
 	screen.Clear(golib.Black)
-	x, y := -s.cameraX, -s.cameraY
-	screen.DrawMapLayer(level, "background", x, y)
-	screen.DrawMapLayer(level, "ground", x, y)
-	screen.DrawSprite(hero, 0, s.player.x+x, s.player.y+y)
-	screen.DrawMapLayer(level, "leaves", x, y) // in front of the player
+	screen.SetCamera(s.camera) // see Camera, below
+	screen.DrawMapLayer(level, "background", 0, 0)
+	screen.DrawMapLayer(level, "ground", 0, 0)
+	screen.DrawSprite(hero, 0, s.player.x, s.player.y)
+	screen.DrawMapLayer(level, "leaves", 0, 0) // in front of the player
 }
 ```
 
@@ -447,28 +474,113 @@ func (s *playScene) Draw(screen *golib.Screen) {
 - The members of a class property are named `"property.member"`, such as `object.Properties.Bool("door.locked")`, for the members Tiled saved.
 - GoLib reads orthogonal maps saved as TMX, with the Tile Layer Format set to CSV or Base64 (uncompressed, zlib or gzip compressed), and PNG images. Zstandard compression, isometric and hexagonal maps, and Tiled's JSON files stop `Run` with an error that says what to change in Tiled. An infinite map is read as a fixed one that covers its tiles, moved so its top-left tile is at 0, 0.
 - Keep maps, tilesets, templates and images inside the assets folder: Tiled saves paths relative to each file, and a path out of the folder stops `Run`.
-- `DrawMap` draws only the tiles on the screen, so large maps are fine, and draws at whole pixels, rounding x and y, so tiles leave no gaps.
+- `DrawMap` draws only the tiles on the screen, or in the camera's view, so large maps are fine, and draws at whole pixels, rounding x and y, so tiles leave no gaps.
 - `Width`, `Height`, `Tile`, `TileAt`, `TilesIn`, `Objects` and the properties read the file, so they work in tests and before `Run`.
 
-## Rectangles and collisions
+## Vectors, rectangles and collisions
+
+`Vector2` is a point or a direction, in pixels. Its methods return a new vector, so they chain, and leave the one they are called on as it is. Angles are in degrees, clockwise from pointing right, as for sprites: 90 points down the screen.
 
 | Name | What it does |
 | --- | --- |
+| `Vector2` | `golib.Vector2{X: 3, Y: 4}`, with `Vector2.X` and `Vector2.Y`. Maps use it for points too. |
+| `Vector2.Add`, `Vector2.Sub` | `Add(other Vector2) Vector2`, `Sub(other Vector2) Vector2`. `target.Sub(from)` is the way from `from` to `target`. |
+| `Vector2.Scale` | `Scale(factor float32) Vector2`: both parts multiplied, such as a velocity times `dt`. |
+| `Vector2.Length`, `Vector2.Distance` | `Length() float32`; `Distance(other Vector2) float32`, between two points. |
+| `Vector2.Normalize` | `Normalize() Vector2`: length 1, the same way; the zero vector stays zero. |
+| `Vector2.ClampLength` | `ClampLength(max float32) Vector2`: shortened to `max` if longer. Use it so that moving diagonally isn't faster than moving straight. |
+| `Vector2.Dot` | `Dot(other Vector2) float32`: positive when the two point the same way, 0 at right angles. |
+| `Vector2.Angle` | `Angle() float32`: where it points, from -180 to 180 degrees; 0 is right, 90 is down. |
+| `Vector2.Rotate` | `Rotate(degrees float32) Vector2`: turned clockwise. |
+| `Vector2FromAngle` | `Vector2FromAngle(degrees float32) Vector2`: length 1, pointing at `degrees`. |
+| `Vector2.MoveTowards` | `MoveTowards(target Vector2, maxDistance float32) Vector2`: a point moved towards `target`, stopping there. |
+| `Vector2.Lerp` | `Lerp(target Vector2, t float32) Vector2`: the point a share `t` of the way to `target`. |
 | `Rectangle` | A rectangle aligned with the screen, in pixels: `golib.Rectangle{X: 10, Y: 20, Width: 40, Height: 60}`. |
 | `Rectangle.X`, `Rectangle.Y` | Its top-left corner. |
 | `Rectangle.Width`, `Rectangle.Height` | Its size. |
+| `Rectangle.Center` | `Center() Vector2`: the point in its middle. |
 | `Rectangle.Overlaps` | `Overlaps(other Rectangle) bool`: the two share some area. Rectangles that only touch along an edge don't overlap, so a player standing on a platform isn't inside it. |
 | `Rectangle.Contains` | `Contains(x, y float32) bool`: the point is inside, such as the mouse over a button. The left and top edges are inside; the right and bottom ones are not. |
 
-With `Vector2`, which maps use for points, that is all the geometry GoLib has: no vector math, circles or physics. Check circles with their distance:
-
 ```go
-dx, dy := a.x-b.x, a.y-b.y
-reach := a.radius + b.radius
-hit := dx*dx+dy*dy < reach*reach
+// Moving with the keys or the stick, no faster diagonally.
+move := golib.Vector2{X: moveX, Y: moveY}.ClampLength(1)
+s.ship.position = s.ship.position.Add(move.Scale(shipSpeed * dt))
+
+// Aiming at the mouse, through the camera, and firing that way.
+aim := s.camera.ToWorld(input.MousePosition()).Sub(s.ship.position)
+bullet := bullet{position: s.ship.position, velocity: aim.Normalize().Scale(bulletSpeed)}
+s.ship.angle = aim.Angle() // for DrawOptions.Rotation
+
+// Chasing the ship.
+enemy.position = enemy.position.MoveTowards(s.ship.position, enemySpeed*dt)
+
+// Circles touch when their centers are closer than their radii added up.
+hit := enemy.position.Distance(bullet.position) < enemyRadius+bulletRadius
 ```
 
-Pushing a player out of a wall is game code: `games/platformer/world.go` moves one axis at a time and pushes the player back out of any solid tile of the map it overlaps.
+That is all the geometry GoLib has: no physics. Pushing a player out of a wall is game code: `games/platformer/world.go` moves one axis at a time and pushes the player back out of any solid tile of the map it overlaps.
+
+## Camera
+
+A camera shows part of a world larger than the screen: a level that scrolls, an arena to fly around. Positions stay in the world; the camera decides what is on the screen.
+
+| Name | What it does |
+| --- | --- |
+| `Camera` | Which part of the world the screen shows. Make one per scene with `NewCamera`, and keep it in the scene. |
+| `NewCamera` | `NewCamera(width, height float32) *Camera`: a camera for the screen's size, the one in `Config`. It starts showing the world from 0, 0, as if there were none. |
+| `Camera.Target` | The point in the world to keep in the middle of the screen, such as the player. |
+| `Camera.Lag` | Seconds of smoothing: the view closes about two thirds of the way to `Target` in `Lag` seconds. 0, the default, keeps `Target` exactly in the middle. |
+| `Camera.Zoom` | Screen pixels per world pixel: 2 shows everything twice as large. 0 counts as 1. |
+| `Camera.Bounds` | The part of the world the view stays inside, such as the whole level, so the screen never shows beyond it. The zero `Rectangle` sets no limit. |
+| `Camera.Update` | `Update(dt float32)`: moves the view towards `Target`, inside `Bounds`, and moves the shake on. Call it in every `Update`, after setting `Target`. |
+| `Camera.Snap` | `Snap()`: puts the view on `Target` at once, without `Lag`: at the start of a level, or after a teleport. |
+| `Camera.Shake` | `Shake(strength, seconds float32)`: shakes the view by up to `strength` world pixels, fading out over `seconds`, such as for an explosion. Call it from `Update`. |
+| `Camera.Center` | `Center() Vector2`: the point of the world in the middle of the screen, shake included. |
+| `Camera.View` | `View() Rectangle`: the part of the world on the screen, to skip drawing what isn't, or to place things just outside it. |
+| `Camera.ToWorld` | `ToWorld(x, y float32) Vector2`: the world point at a screen point, such as `camera.ToWorld(input.MousePosition())`. |
+| `Camera.ToScreen` | `ToScreen(point Vector2) Vector2`: where a world point is on the screen, possibly outside it, to draw a marker over it in screen pixels. |
+| `Screen.SetCamera` | `SetCamera(camera *Camera)`: the drawing that follows is in the world, through `camera`. `SetCamera(nil)` goes back to screen pixels, for the score and menus. Every `Draw` starts without a camera. |
+
+```go
+type playScene struct {
+	world  *world
+	camera *golib.Camera
+}
+
+func newPlayScene() *playScene {
+	s := &playScene{world: newWorld(), camera: golib.NewCamera(screenWidth, screenHeight)}
+	s.camera.Bounds = golib.Rectangle{Width: level.Width(), Height: level.Height()}
+	s.camera.Lag = 0.15
+	s.camera.Target = s.world.player.Center()
+	s.camera.Snap() // ready to draw before the first update
+	return s
+}
+
+func (s *playScene) Update(input *golib.Input, dt float32) {
+	// ... move the player ...
+	if s.world.player.hurt {
+		s.camera.Shake(3, 0.3)
+	}
+	s.camera.Target = s.world.player.Center()
+	s.camera.Update(dt)
+}
+
+func (s *playScene) Draw(screen *golib.Screen) {
+	screen.Clear(skyColor)
+	screen.SetCamera(s.camera)
+	screen.DrawMap(level, 0, 0) // where the map is in the world
+	screen.DrawSprite(hero, frame, s.world.player.X, s.world.player.Y)
+	screen.SetCamera(nil)
+	screen.DrawText(fmt.Sprint("Coins: ", s.world.coins), 4, 4, 10, golib.White)
+}
+```
+
+- **The camera changes the view, not the rules.** Keep positions in the world, in the rules and in the tests; only `Draw` and the mouse go through the camera.
+- The view sits on whole screen pixels, so pixel art, maps and text stay sharp while it moves. Zoom by whole numbers in pixel art games.
+- With a camera set, `DrawMap` and `DrawMapLayer` draw only the tiles in the camera's view, and move layers with a parallax factor around its middle. Without one, pass the view's top-left corner, negated, as `x, y`.
+- The shake uses `RandomFloat`, so call `Shake` and `Update` from `Update`, never from `Draw`: `golib shot` repeats it.
+- `Update`, `Snap`, `View`, `ToWorld` and `ToScreen` work without a window, so tests can check what the camera shows.
 
 ## Scenes
 
@@ -518,14 +630,17 @@ The numbers differ on every run, except under `golib shot`, which starts them fr
 
 ## Sound effects
 
-GoLib makes sound effects in code from a few numbers, so a game needs no sound files, and plays sound files too.
+GoLib makes sound effects in code from a few numbers, so a game needs no sound files. It also makes them from `.jfxr` files, the small files of settings that the sound effect maker jfxr saves ([below](#sound-effects-from-jfxr)), and it plays sound files.
 
 | Name | What it does |
 | --- | --- |
 | `NewSound` | `NewSound(spec SoundSpec) *Sound`: the sound the recipe describes. |
-| `NewSoundFile` | `NewSoundFile(name string) *Sound`: the `.wav`, `.ogg`, `.mp3` or `.qoa` file `name` in the game's assets folder, with forward slashes, as in `ReadAsset`. |
+| `NewSoundFile` | `NewSoundFile(name string) *Sound`: the `.wav`, `.ogg`, `.mp3`, `.qoa` or `.jfxr` file `name` in the game's assets folder, with forward slashes, as in `ReadAsset`. |
 | `Sound` | A sound effect, ready to play. |
 | `Sound.Play` | `Play()`: plays the sound, over any copy of it that is still playing; up to four copies at once, and a fifth cuts off the oldest. |
+| `Sound.Loop` | `Loop()`: plays the sound over and over, with no gap, until `Stop`: an engine, an alarm, rain. Calling it while it loops changes nothing, so a game can call it in every update. |
+| `Sound.Stop` | `Stop()`: silences the sound, its loop and every copy `Play` started. |
+| `Sound.Looping` | `Looping() bool`: `Loop` was called, and `Stop` wasn't since. True in tests and shots too, where nothing is heard. |
 | `Sound.SetVolume` | `SetVolume(volume float32)`: how loud this sound is, from 0 to 1, under `SetVolume`. Use it to even out sound files. |
 | `Laser` | A falling zap, for shots. |
 | `Explosion` | A low burst of noise, for things breaking apart. |
@@ -554,6 +669,7 @@ var (
 	})
 
 	doorSound = golib.NewSoundFile("sounds/door.ogg") // games/<game>/assets/sounds/door.ogg
+	hitSound  = golib.NewSoundFile("sounds/hit.jfxr") // designed in jfxr
 )
 
 func init() {
@@ -561,7 +677,18 @@ func init() {
 }
 ```
 
-and play them where things happen: `shotSound.Play()`.
+and play them where things happen: `shotSound.Play()`. A sound that lasts as long as something happens loops:
+
+```go
+// In Update: the engine hums while the ship thrusts.
+if s.ship.thrusting {
+	engineSound.Loop()
+} else {
+	engineSound.Stop()
+}
+```
+
+For a loop without a click where it starts again, make the sound's end meet its start: in code, give it no fades, with a negative `Attack` and `Release`, no `Slide`, and a `Duration` of whole waves, such as 0.25 seconds at 440 Hz; in a file, cut it at a quiet point. Stop looping sounds when the scene that plays them ends, such as in the code that switches to the pause scene.
 
 `SoundSpec` is the recipe. Every field left at zero gets its default, so `SoundSpec{}` is a short beep.
 
@@ -571,8 +698,8 @@ and play them where things happen: `shotSound.Play()`.
 | `SoundSpec.Frequency` | 440 | Pitch the sound starts at, in Hz. |
 | `SoundSpec.Slide` | 0 | Hz added every second: negative falls (a shot), positive rises (a coin). |
 | `SoundSpec.Duration` | 0.25 | Seconds; at most 10. |
-| `SoundSpec.Attack` | 0.005 | Seconds fading in, so the start doesn't click. |
-| `SoundSpec.Release` | 0.05 | Seconds fading out at the end. |
+| `SoundSpec.Attack` | 0.005 | Seconds fading in, so the start doesn't click. Negative for none, for a loop. |
+| `SoundSpec.Release` | 0.05 | Seconds fading out at the end. Negative for none, for a loop. |
 | `SoundSpec.Volume` | 0.5 | From 0 to 1. |
 | `SoundSpec.Duty` | 0.5 | Square waves only: the part of each wave that is high, from 0.05 to 0.95. 0.5 is even, 0.2 thin and nasal. |
 | `SoundSpec.Vibrato` | 0 | Hz the pitch wobbles up and down. |
@@ -589,8 +716,75 @@ and play them where things happen: `shotSound.Play()`.
 `Waveform` is the type of these constants.
 
 - A sound file is kept whole in memory: use `NewMusic` for long tracks. It is read the first time the sound plays, even under `golib shot` and in tests, which play nothing but stop at a file that is missing or can't be read.
-- A game with sound files has an `assets/` folder, so it needs `assets.go` (see [Files](#files-the-assets-folder)). Only use sounds the user provides, and write where they came from, and their license, in `assets/ATTRIBUTION.md`.
+- A game with sound files has an `assets/` folder, so it needs `assets.go` (see [Files](#files-the-assets-folder)). Only use sounds the user provides, and write where they came from, and their license, in `assets/ATTRIBUTION.md`. Sounds designed in jfxr for the game need no entry there.
 - A sound can't loop or be stopped yet.
+
+### Sound effects from jfxr
+
+[jfxr](https://jfxr.frozenfractal.com) is a sound effect maker that runs in the browser, with nothing to install: presets such as "Pickup/coin" and "Explosion", ten waveforms, pitch jumps and filters, each on a slider. Its "Save current sound to file" button saves a `.jfxr` file, a small JSON file of those settings, and "Load sound from file" opens it again. Put the file in the game's `assets/` folder and play it with `NewSoundFile`: GoLib makes the sound from the settings the first time it plays, with the same samples as the WAV file jfxr exports for it.
+
+```go
+var coinSound = golib.NewSoundFile("sounds/coin.jfxr") // games/<game>/assets/sounds/coin.jfxr
+```
+
+A `.jfxr` file is plain JSON, so it can also be written by hand. Settings left out keep jfxr's defaults. This one is a short rising jump:
+
+```json
+{
+  "_version": 1,
+  "waveform": "square",
+  "sustain": 0.08,
+  "decay": 0.12,
+  "frequency": 300,
+  "frequencySweep": 700,
+  "squareDuty": 30,
+  "amplification": 40
+}
+```
+
+The settings, with the labels jfxr shows for them. "Over the sound" means from its start to its end; pitch and duty sweeps start over at each repeat.
+
+| Setting | jfxr's label | Default | Range | Meaning |
+| --- | --- | --- | --- | --- |
+| `waveform` | Waveform | `"sine"` | `"sine"`, `"triangle"`, `"sawtooth"`, `"square"`, `"tangent"`, `"whistle"`, `"breaker"`, `"whitenoise"`, `"pinknoise"`, `"brownnoise"` | The sound's character |
+| `attack` | Attack | 0 | 0 to 5 | Seconds from silence to full volume |
+| `sustain` | Sustain | 0 | 0 to 5 | Seconds at full volume |
+| `sustainPunch` | Sustain punch | 0 | 0 to 100 | Percent louder at the start of the sustain, fading to full volume |
+| `decay` | Decay | 0 | 0 to 5 | Seconds from full volume to silence |
+| `tremoloDepth` | Tremolo depth | 0 | 0 to 100 | Percent the volume dips by, and back |
+| `tremoloFrequency` | Tremolo frequency | 10 | 0 to 1000 | Volume dips per second |
+| `frequency` | Frequency | 500 | 10 to 10000 | Hz the pitch starts at |
+| `frequencySweep` | Frequency sweep | 0 | -10000 to 10000 | Hz added to the pitch over the sound, evenly |
+| `frequencyDeltaSweep` | Freq. delta sweep | 0 | -10000 to 10000 | Hz added to the pitch over the sound, slowly at first |
+| `repeatFrequency` | Repeat frequency | 0 | 0 to 100 | Times per second the pitch starts over, with its sweeps and jumps; 0 is once |
+| `frequencyJump1Onset` | Freq. jump 1 onset | 33 | 0 to 100 | Percent of the way through each repeat where the pitch jumps |
+| `frequencyJump1Amount` | Freq. jump 1 amount | 0 | -100 to 100 | Percent the pitch jumps by |
+| `frequencyJump2Onset` | Freq. jump 2 onset | 66 | 0 to 100 | Where a second jump happens |
+| `frequencyJump2Amount` | Freq. jump 2 amount | 0 | -100 to 100 | Percent the second jump changes the pitch by |
+| `harmonics` | Harmonics | 0 | 0 to 5 | Copies of the sound at 2, 3, 4… times the pitch, mixed in |
+| `harmonicsFalloff` | Harmonics falloff | 0.5 | 0 to 1 | Volume of each harmonic, as a fraction of the one before |
+| `interpolateNoise` | Interpolate noise | `true` | `true`, `false` | Noise waveforms only: smoother noise |
+| `vibratoDepth` | Vibrato depth | 0 | 0 to 1000 | Hz the pitch dips by, and back |
+| `vibratoFrequency` | Vibrato frequency | 10 | 0 to 1000 | Pitch dips per second |
+| `squareDuty` | Square duty | 50 | 0 to 100 | Square waves only: percent of each wave that is high; 50 is even, 20 thin and nasal |
+| `squareDutySweep` | Square duty sweep | 0 | -100 to 100 | Added to the duty over the sound |
+| `flangerOffset` | Flanger offset | 0 | 0 to 50 | Milliseconds a copy of the sound is delayed by before it is mixed in: a hollow, swooshing sound |
+| `flangerOffsetSweep` | Flanger offset sweep | 0 | -50 to 50 | Milliseconds added to that delay over the sound |
+| `bitCrush` | Bit crush | 16 | 1 to 16 | Bits per sample: fewer is crunchier |
+| `bitCrushSweep` | Bit crush sweep | 0 | -16 to 16 | Bits added over the sound |
+| `lowPassCutoff` | Low-pass cutoff | 22050 | 0 to 22050 | Hz above which frequencies are taken out: lower is duller |
+| `lowPassCutoffSweep` | Low-pass sweep | 0 | -22050 to 22050 | Hz added to that cutoff over the sound |
+| `highPassCutoff` | High-pass cutoff | 0 | 0 to 22050 | Hz below which frequencies are taken out: higher is thinner |
+| `highPassCutoffSweep` | High-pass sweep | 0 | -22050 to 22050 | Hz added to that cutoff over the sound |
+| `compression` | Compression | 1 | 0 to 5 | Power each sample is raised to: below 1 makes the quiet parts louder |
+| `normalization` | Normalization | `true` | `true`, `false` | Scales the sound so its loudest point is full volume |
+| `amplification` | Amplification | 100 | 0 to 500 | Percent of that volume; above 100 distorts |
+| `sampleRate` | Sample rate | 44100 | 44100 | Always 44100 |
+
+- The sound lasts `attack` + `sustain` + `decay` seconds, 15 at most. A sound whose three are all 0 stops `Run` with an error.
+- jfxr makes every sound as loud as it gets, since `normalization` is on: a jfxr sound is louder than the recipes. Lower `amplification`, to about 30 or 40, or use `Sound.SetVolume`.
+- Numbers out of range are kept in range, as jfxr keeps them. A setting jfxr doesn't have, a value of the wrong kind, a waveform jfxr doesn't have, or a `_version` above 1 stops `Run` with an error. The `_version`, `_name` and `_locked` that jfxr writes are allowed.
+- GoLib's framework carries jfxr's synthesizer, rewritten in Go, under jfxr's BSD license, so `golib dist` adds jfxr's license to every game's `THIRD-PARTY-LICENSES.txt`. The sounds made with jfxr belong to whoever made them.
 
 ## Music
 
@@ -694,6 +888,45 @@ func main() {
 
 Let the player turn effects off, with `golib.SetPostProcess()`. `games/asteroids` has a glow and a CRT shader, switched with F2.
 
+## Saving data
+
+Games keep high scores, settings and progress between runs with these functions. The data is JSON, in a file per name.
+
+| Name | What it does |
+| --- | --- |
+| `SaveData` | `SaveData(name string, value any) error`: stores `value` under `name`, such as `"progress"` or `"settings"`, replacing what was there. Only exported fields are saved: a struct whose fields are all in lower case stops `Run` with an error. |
+| `LoadData` | `LoadData(name string, value any) (found bool, err error)`: reads what was stored under `name` into `value`, a pointer. With nothing stored, `found` is false and `value` stays as it is. Stored data that can't be read, such as a file edited by hand, is an error. |
+| `DeleteData` | `DeleteData(name string) error`: removes what was stored under `name`, such as when the player starts over. |
+
+```go
+// progress is what the game remembers between runs. JSON saves only
+// exported fields, so their names start with a capital letter.
+type progress struct {
+	Level     int
+	BestMoves map[int]int
+}
+
+func newTitleScene() *titleScene {
+	s := &titleScene{progress: progress{Level: 1, BestMoves: map[int]int{}}}
+	if _, err := golib.LoadData("progress", &s.progress); err != nil {
+		s.message = "Your saved progress couldn't be read: starting again"
+	}
+	return s
+}
+
+// In Update, when a level is finished:
+s.progress.Level = max(s.progress.Level, level+1)
+if err := golib.SaveData("progress", s.progress); err != nil {
+	s.message = "Your progress couldn't be saved"
+}
+```
+
+- **Where it goes:** a `golib dist` build saves in the player's settings folder, in `GoLib games/<game>` (`%AppData%\GoLib games\<game>` on Windows); a debug build saves in `build/<game>/save/`, next to its executable, which `golib clean` deletes.
+- **Under `golib shot` and in tests, nothing is written:** data lives in memory while the program runs, so every shot and every test program starts with nothing saved. Tests of one game share their data, so a test that needs nothing saved calls `DeleteData` first, and a test can call `SaveData` to start from saved progress.
+- Save when something worth keeping changes, such as a finished level or a changed setting, not in every update.
+- Names are lowercase letters, digits, `-` and `_`. Keep the data small: settings, scores and how far the player got, not whole worlds.
+- A failed save or load returns an error: tell the player, and carry on playing.
+
 ## Files: the assets folder
 
 | Name | What it does |
@@ -785,10 +1018,13 @@ import rl "github.com/gen2brain/raylib-go/raylib"
 | --- | --- | --- |
 | Parts of an image that aren't on a grid, Aseprite slices and tilemap layers | Not on the roadmap yet | Save each part as its own PNG file, or put the parts on a grid |
 | Isometric and hexagonal maps; drawing a map's shapes and text | Not on the roadmap yet | Orthogonal maps; draw what objects stand for with sprites and shapes |
-| Looping sounds, stopping a sound | Not on the roadmap yet | Short sounds, played again |
-| Camera, vectors, rotation, physics | Not on the roadmap yet | `float32` math in the game: subtract a camera position, rotate with `math.Sin` and `math.Cos` |
+| Music without a music file | To consider in M6 | Ask the user for an OGG, MP3 or XM file; until then, leave music out and say so |
+| Additive blending, for glows | To consider in M6 | Bright, solid colors drawn last |
+| Listing the files in the assets folder | To consider in M6 | Name the files in code |
+| Another volume or pitch for each play of a sound | Not on the roadmap yet | A few sounds made with different settings |
+| Pausing when the window loses focus | Not on the roadmap yet | Pause with Esc or Start |
+| Physics | Not planned: GoLib is for games, not engines | Simple movement and `Rectangle` overlap checks in the game |
 | Trigger pressure, vibration | Not on the roadmap yet | Triggers read as buttons |
-| Saving high scores or settings | Not on the roadmap yet | Keep them while the game runs |
-| 3D | M6, after M4 | None |
+| 3D | M7, after M6 | None |
 
 When a game needs one of these, say so to the user and point to [docs/roadmap.md](../docs/roadmap.md), as [AGENTS.md](../AGENTS.md) asks, instead of building an engine to fill the gap.

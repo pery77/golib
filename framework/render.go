@@ -41,6 +41,7 @@ func (r *renderer) loadTarget() rl.RenderTexture2D {
 func (r *renderer) drawScene(scene Game, screen *Screen) error {
 	rl.BeginTextureMode(r.scene)
 	scene.Draw(screen)
+	screen.endCamera()
 	rl.EndTextureMode()
 	return takeError()
 }

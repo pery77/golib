@@ -1,18 +1,22 @@
 package main
 
 import (
-	"fmt"
 	"path/filepath"
-	"strings"
 )
 
 // test runs go vet and go test for every Go module in the project: the
-// framework, each game and GoLib's own programs.
+// framework, each game and GoLib's own programs. Given a game's name, it
+// tests only that game, so a game in progress elsewhere doesn't get in the
+// way.
 func (c *cli) test(options []string) int {
-	if len(options) > 0 {
-		return c.usage(fmt.Sprintf("test takes no options (got: %s)", strings.Join(options, " ")))
-	}
 	modules := c.modules()
+	if len(options) > 0 {
+		game, exitCode := c.resolveGame("test", options)
+		if game == "" {
+			return exitCode
+		}
+		modules = []string{"games/" + game}
+	}
 	if len(modules) == 0 {
 		c.check("warn", "no Go modules to test")
 	}

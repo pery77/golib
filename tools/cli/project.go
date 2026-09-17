@@ -100,7 +100,9 @@ func waitForGame(cmd *exec.Cmd, timeout time.Duration) (exitCode int, timedOut b
 	}
 	var exit *exec.ExitError
 	if errors.As(err, &exit) {
-		return exit.ExitCode(), false, nil
+		// Windows gives exit codes as unsigned 32-bit numbers: -1, the code
+		// of a game ended from Task Manager, comes as 4294967295.
+		return int(int32(exit.ExitCode())), false, nil
 	}
 	return 0, false, err
 }

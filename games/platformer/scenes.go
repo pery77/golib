@@ -26,10 +26,9 @@ const (
 // titleScene shows the game's name, its controls and a menu with two buttons,
 // over the level.
 type titleScene struct {
-	buttons        []menuButton
-	selected       int     // the highlighted button
-	mouseX, mouseY float32 // the pointer in the previous update, to notice when it moves
-	gamepad        string  // name of gamepad 0, or "" when none is connected
+	buttons  []menuButton
+	selected int    // the highlighted button
+	gamepad  string // name of gamepad 0, or "" when none is connected
 }
 
 func newTitleScene() *titleScene {
@@ -59,14 +58,14 @@ func (s *titleScene) Update(input *golib.Input, dt float32) {
 	s.selected = moveSelection(s.selected, step, len(s.buttons))
 
 	// The pointer picks the button under it when it moves or clicks, so a
-	// resting pointer doesn't fight the keys.
+	// resting pointer doesn't fight the keys, nor picks a button as the
+	// menu opens under it.
 	x, y := input.MousePosition()
 	pointed := buttonAt(s.buttons, x, y)
 	clicked := input.MousePressed(golib.MouseLeft) && pointed >= 0
-	if pointed >= 0 && (x != s.mouseX || y != s.mouseY || clicked) {
+	if pointed >= 0 && (input.MouseMoved() || clicked) {
 		s.selected = pointed
 	}
-	s.mouseX, s.mouseY = x, y
 
 	confirm := clicked || input.KeyPressed(golib.KeyEnter) ||
 		input.GamepadPressed(0, golib.GamepadA) || input.GamepadPressed(0, golib.GamepadStart)
@@ -107,10 +106,15 @@ func (s *titleScene) Draw(screen *golib.Screen) {
 type playScene struct {
 	world  world
 	clouds []cloud
+	camera *golib.Camera // follows the player, inside the level
 }
 
 func newPlayScene() *playScene {
-	return &playScene{world: newWorld(), clouds: newClouds()}
+	s := &playScene{world: newWorld(), clouds: newClouds(), camera: golib.NewCamera(screenWidth, screenHeight)}
+	s.camera.Bounds = golib.Rectangle{Width: s.world.width, Height: s.world.height}
+	s.camera.Target = s.world.player.bounds().Center()
+	s.camera.Snap() // ready to draw before the first update
+	return s
 }
 
 // Update reads the keyboard and gamepad 0, and advances the world. golib.Run
@@ -139,6 +143,8 @@ func (s *playScene) Update(input *golib.Input, dt float32) {
 	slash := input.KeyPressed(golib.KeyX) || input.KeyPressed(golib.KeyJ) || input.GamepadPressed(0, golib.GamepadX)
 
 	s.world.step(move, jump, slash, dt)
+	s.camera.Target = s.world.player.bounds().Center()
+	s.camera.Update(dt)
 	if s.world.won {
 		golib.SwitchScene(&wonScene{finished: s})
 	}
@@ -147,11 +153,11 @@ func (s *playScene) Update(input *golib.Input, dt float32) {
 // Draw draws the world, then the count of chests over it. It reads the state
 // and never changes it.
 func (s *playScene) Draw(screen *golib.Screen) {
-	drawWorld(screen, &s.world, s.clouds)
+	drawWorld(screen, &s.world, s.clouds, s.camera)
 	chests := fmt.Sprintf("Chests: %d/%d", s.world.chestsOpened(), len(s.world.chests))
 	drawShadowed(screen, chests, 4, 4, 10)
 	const hint = "Esc: pause"
-	drawShadowed(screen, hint, screenWidth-4-screen.TextWidth(hint, 10), 4, 10)
+	drawShadowed(screen, hint, screenWidth-4, 4, 10, golib.TextOptions{Align: golib.AlignRight})
 }
 
 // pauseScene freezes a play scene and shows a message over it. Resuming

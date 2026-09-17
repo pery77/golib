@@ -48,8 +48,8 @@ type SoundSpec struct {
 	Frequency   float32  // Hz the sound starts at. Default: 440.
 	Slide       float32  // Hz added every second; negative falls. Default: 0.
 	Duration    float32  // Seconds the sound lasts. Default: 0.25.
-	Attack      float32  // Seconds fading in, so the start doesn't click. Default: 0.005.
-	Release     float32  // Seconds fading out at the end. Default: 0.05.
+	Attack      float32  // Seconds fading in, so the start doesn't click. Default: 0.005; negative for none, in a loop.
+	Release     float32  // Seconds fading out at the end. Default: 0.05; negative for none, in a loop.
 	Volume      float32  // Loudness, from 0 to 1. Default: 0.5.
 	Duty        float32  // Part of each square wave that is high, from 0 to 1: 0.5 is even, 0.2 thin and nasal. Default: 0.5.
 	Vibrato     float32  // Hz the pitch wobbles up and down. Default: 0, no wobble.
@@ -178,9 +178,9 @@ func wav(samples []int16) []byte {
 	return data
 }
 
-// soundFormats are the file types raylib reads sound effects from, by
-// extension.
-var soundFormats = []string{".wav", ".ogg", ".mp3", ".qoa"}
+// soundFormats are the file types sound effects are read from, by extension:
+// raylib reads the first four, and GoLib makes the sound in a .jfxr file.
+var soundFormats = []string{".wav", ".ogg", ".mp3", ".qoa", ".jfxr"}
 
 // Sound is a sound effect, ready to play: made in code with NewSound or one of
 // the ready-made recipes, or read from a file with NewSoundFile. Keep it in
@@ -193,6 +193,11 @@ type Sound struct {
 	err    error
 	voices []rl.Sound // the same sound several times over, so it can overlap itself
 	next   int
+
+	looping    bool     // Loop was called, and Stop wasn't since
+	loop       rl.Music // the sound as a stream, which raylib repeats without a gap
+	loopData   []byte   // raylib streams from this, so it has to stay reachable
+	loopLoaded bool
 }
 
 // NewSound returns the sound effect spec describes. It is made the first time
@@ -204,9 +209,13 @@ func NewSound(spec SoundSpec) *Sound {
 // NewSoundFile returns the sound effect in the game's assets folder named
 // name, which is relative to that folder and uses forward slashes, as in
 // [ReadAsset]. The file is a .wav, .ogg, .mp3 or .qoa file, which the sound
-// keeps whole in memory: use [NewMusic] for long tracks.
+// keeps whole in memory: use [NewMusic] for long tracks. It can also be a
+// .jfxr file saved from jfxr, the sound effect maker at
+// https://jfxr.frozenfractal.com: GoLib makes the sound from its settings, as
+// jfxr does.
 //
 //	var coin = golib.NewSoundFile("sounds/coin.wav") // games/<game>/assets/sounds/coin.wav
+//	var jump = golib.NewSoundFile("sounds/jump.jfxr")
 //
 // The file is read the first time the sound plays, even when there is no
 // sound device, so a file that is missing or can't be read stops Run with an
@@ -228,6 +237,46 @@ func (s *Sound) Play() {
 	s.next = (s.next + 1) % len(s.voices)
 }
 
+// Loop plays the sound over and over, with no gap, until Stop: an engine, an
+// alarm, rain. Calling it while the sound loops changes nothing, so a game
+// can call it in every update that wants the sound:
+//
+//	if thrusting {
+//		engine.Loop()
+//	} else {
+//		engine.Stop()
+//	}
+//
+// Play still plays copies over the loop. As with Play, nothing is heard when
+// there is no sound device, under golib shot and in tests, but [Sound.Looping]
+// reports the loop all the same.
+func (s *Sound) Loop() {
+	s.looping = true
+	if !s.load() || !s.loadLoop() {
+		return
+	}
+	if !rl.IsMusicStreamPlaying(s.loop) {
+		rl.PlayMusicStream(s.loop)
+	}
+}
+
+// Stop silences the sound: its loop, and every copy Play started.
+func (s *Sound) Stop() {
+	s.looping = false
+	for _, voice := range s.voices {
+		rl.StopSound(voice)
+	}
+	if s.loopLoaded {
+		rl.StopMusicStream(s.loop)
+	}
+}
+
+// Looping reports whether the sound loops: Loop was called, and Stop wasn't
+// since.
+func (s *Sound) Looping() bool {
+	return s.looping
+}
+
 // SetVolume sets how loud this sound is, from 0 (silent) to 1 (full), under
 // the volume [SetVolume] sets for everything. Use it to balance sound files
 // that are louder than the rest. It works before the sound plays.
@@ -235,6 +284,9 @@ func (s *Sound) SetVolume(volume float32) {
 	s.volume = max(0, min(volume, 1))
 	for _, voice := range s.voices {
 		rl.SetSoundVolume(voice, s.volume)
+	}
+	if s.loopLoaded {
+		rl.SetMusicVolume(s.loop, s.volume)
 	}
 }
 
@@ -280,19 +332,35 @@ func (s *Sound) load() bool {
 	return true
 }
 
+// encoded returns the sound as a file in memory and its type, such as ".wav":
+// made from its spec, read from its file, or made from its .jfxr settings.
+func (s *Sound) encoded() (format string, data []byte, err error) {
+	if s.name == "" {
+		return ".wav", wav(s.spec.samples()), nil
+	}
+	format = strings.ToLower(path.Ext(s.name))
+	if !slices.Contains(soundFormats, format) {
+		return "", nil, fmt.Errorf("golib.NewSoundFile(%q): GoLib plays sound effects from %s files, not %q ones: convert the sound to one of those", s.name, strings.Join(soundFormats, ", "), format)
+	}
+	data, err = ReadAsset(s.name)
+	if err != nil {
+		return "", nil, fmt.Errorf("golib.NewSoundFile(%q): %w", s.name, err)
+	}
+	if format == ".jfxr" {
+		sound, err := parseJfxr(data)
+		if err != nil {
+			return "", nil, fmt.Errorf("golib.NewSoundFile(%q): %w", s.name, err)
+		}
+		return ".wav", wav(sound.samples()), nil
+	}
+	return format, data, nil
+}
+
 // wave returns the sound's samples, made from its spec or read from its file.
 func (s *Sound) wave() (rl.Wave, error) {
-	if s.name == "" {
-		file := wav(s.spec.samples())
-		return rl.LoadWaveFromMemory(".wav", file, int32(len(file))), nil
-	}
-	format := strings.ToLower(path.Ext(s.name))
-	if !slices.Contains(soundFormats, format) {
-		return rl.Wave{}, fmt.Errorf("golib.NewSoundFile(%q): GoLib plays sound effects from %s files, not %q ones: convert the sound to one of those", s.name, strings.Join(soundFormats, ", "), format)
-	}
-	data, err := ReadAsset(s.name)
+	format, data, err := s.encoded()
 	if err != nil {
-		return rl.Wave{}, fmt.Errorf("golib.NewSoundFile(%q): %w", s.name, err)
+		return rl.Wave{}, err
 	}
 	// Without the window, raylib would otherwise print a line for each file.
 	rl.SetTraceLogLevel(rl.LogWarning)
@@ -301,6 +369,38 @@ func (s *Sound) wave() (rl.Wave, error) {
 		return rl.Wave{}, fmt.Errorf("golib.NewSoundFile(%q): raylib could not read the sound: see the raylib warnings above", s.name)
 	}
 	return wave, nil
+}
+
+// loadLoop makes the stream Loop plays, the first time it loops, and reports
+// whether it is ready. It needs the voices loaded, and so a sound device.
+func (s *Sound) loadLoop() bool {
+	if s.loopLoaded {
+		return true
+	}
+	format, data, err := s.encoded()
+	if err != nil {
+		s.err = err
+		reportError(err)
+		return false
+	}
+	stream := rl.LoadMusicStreamFromMemory(format, data, int32(len(data)))
+	if !rl.IsMusicValid(stream) {
+		s.err = fmt.Errorf("golib: raylib could not loop the sound %s: see the raylib warnings above", s.describe())
+		reportError(s.err)
+		return false
+	}
+	stream.Looping = true
+	s.loop, s.loopData, s.loopLoaded = stream, data, true
+	rl.SetMusicVolume(stream, s.volume)
+	return true
+}
+
+// describe names the sound in messages: its file, or "made in code".
+func (s *Sound) describe() string {
+	if s.name == "" {
+		return "made in code"
+	}
+	return fmt.Sprintf("%q", s.name)
 }
 
 // unload frees the sound, so that it is made or read again if a game runs
@@ -313,7 +413,12 @@ func (s *Sound) unload() {
 			rl.UnloadSoundAlias(voice)
 		}
 	}
+	if s.loopLoaded {
+		rl.StopMusicStream(s.loop)
+		rl.UnloadMusicStream(s.loop)
+	}
 	s.voices, s.next, s.read, s.err = nil, 0, false, nil
+	s.looping, s.loop, s.loopData, s.loopLoaded = false, rl.Music{}, nil, false
 }
 
 // audioDevice is the sound device Run opens while a game plays. golib shot
@@ -393,8 +498,8 @@ func (a *audioDevice) trackMusic(music *Music) {
 	a.music = append(a.music, music)
 }
 
-// updateMusic gives every playing music the samples it needs for this frame,
-// and reports the first music that could not be read. Run calls it once a
+// updateMusic gives every playing music and looping sound the samples it
+// needs for this frame, and reports the first music that could not be read. Run calls it once a
 // frame: without it, music stops after a few seconds.
 func (a *audioDevice) updateMusic() error {
 	a.Lock()
@@ -406,6 +511,14 @@ func (a *audioDevice) updateMusic() error {
 		}
 		if track.Playing() {
 			rl.UpdateMusicStream(track.stream)
+		}
+	}
+	a.Lock()
+	sounds := a.sounds
+	a.Unlock()
+	for _, sound := range sounds {
+		if sound.looping && sound.loopLoaded {
+			rl.UpdateMusicStream(sound.loop)
 		}
 	}
 	return nil

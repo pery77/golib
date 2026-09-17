@@ -9,6 +9,7 @@ type Input struct {
 	pressed [keyCount]bool
 
 	mouseX, mouseY float32
+	mouseMoved     bool
 	mouseDown      [mouseButtonCount]bool
 	mousePressed   [mouseButtonCount]bool
 	mouseWheel     float32
@@ -37,6 +38,19 @@ func (in *Input) KeyPressed(key Key) bool {
 // screen.
 func (in *Input) MousePosition() (x, y float32) {
 	return in.mouseX, in.mouseY
+}
+
+// MouseMoved reports whether the mouse pointer moved since the previous update,
+// in any scene. It is false in the first update. Let the pointer pick a menu
+// item only when it moves or clicks, so that a pointer resting over a button
+// doesn't fight the arrow keys, or pick a button as a menu opens under it:
+//
+//	x, y := input.MousePosition()
+//	if pointed := buttonAt(x, y); pointed >= 0 && (input.MouseMoved() || input.MousePressed(golib.MouseLeft)) {
+//		s.selected = pointed
+//	}
+func (in *Input) MouseMoved() bool {
+	return in.mouseMoved
 }
 
 // MouseDown reports whether button is held down. Use it for things that last,
@@ -155,7 +169,10 @@ type inputQueue struct {
 	mouseX, mouseY float32
 	mouseDown      [mouseButtonCount]bool
 	mousePending   [mouseButtonCount]bool // clicked, not yet delivered to an update
-	mouseWheel     float32                // turned, not yet delivered to an update
+	deliveredX     float32                // the pointer, as the previous update saw it
+	deliveredY     float32
+	deliveredAny   bool    // an update has seen the pointer
+	mouseWheel     float32 // turned, not yet delivered to an update
 
 	gamepads [maxGamepads]gamepadState // pressed holds presses not yet delivered to an update
 }
@@ -210,6 +227,8 @@ func (q *inputQueue) next(input *Input) {
 	input.down = q.down
 	input.pressed = q.pending
 	input.mouseX, input.mouseY = q.mouseX, q.mouseY
+	input.mouseMoved = q.deliveredAny && (q.mouseX != q.deliveredX || q.mouseY != q.deliveredY)
+	q.deliveredX, q.deliveredY, q.deliveredAny = q.mouseX, q.mouseY, true
 	input.mouseDown = q.mouseDown
 	input.mousePressed = q.mousePending
 	input.mouseWheel = q.mouseWheel

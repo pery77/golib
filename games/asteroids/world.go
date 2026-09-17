@@ -186,6 +186,7 @@ func newRock(x, y float32, size int) rock {
 func (w *world) moveShip(c controls, dt float32) {
 	s := &w.ship
 	if !s.alive {
+		thrustSound.Stop()
 		w.respawn -= dt
 		if w.respawn <= 0 {
 			w.spawnShip()
@@ -194,7 +195,11 @@ func (w *world) moveShip(c controls, dt float32) {
 	}
 	s.angle += c.turn * turnSpeed * dt
 	s.thrusting = c.thrust
+	if !c.thrust {
+		thrustSound.Stop()
+	}
 	if c.thrust {
+		thrustSound.Loop()
 		fx, fy := s.facing()
 		s.vx += fx * thrustPower * dt
 		s.vy += fy * thrustPower * dt

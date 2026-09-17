@@ -17,6 +17,11 @@ const noticesFile = "THIRD-PARTY-LICENSES.txt"
 // weren't made for the game come from, and under which license.
 const attributionFile = "ATTRIBUTION.md"
 
+// jfxrLicenseFile, in the framework folder, is the license of jfxr, whose
+// synthesizer the framework carries in Go (framework/jfxr.go), so every game
+// has it.
+const jfxrLicenseFile = "LICENSE-jfxr.txt"
+
 // licenseFilePrefixes start the names of the files, in a module's folder,
 // that hold its license and notices, in capitals.
 var licenseFilePrefixes = []string{"LICENSE", "LICENCE", "COPYING", "COPYRIGHT", "NOTICE"}

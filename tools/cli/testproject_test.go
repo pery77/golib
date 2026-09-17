@@ -45,6 +45,7 @@ func newTestProject(t *testing.T, goos string, games ...string) *testProject {
 	}
 	writeFile(t, filepath.Join(root, ".tools", "go", "VERSION"), "go1.27.1\ntime 2026-09-01\n")
 	writeFile(t, filepath.Join(root, ".tools", "go", "LICENSE"), "Go's license\n")
+	writeFile(t, filepath.Join(root, "framework", jfxrLicenseFile), "jfxr's license\n")
 
 	// The modules a game is built from, with the files golib reads.
 	cache := filepath.Join(root, ".tools", "gopath", "pkg", "mod")

@@ -160,15 +160,21 @@ func TestSoundFiles(t *testing.T) {
 		"sounds/coin.wav":   wav(SoundSpec{Duration: 0.05}.resolve().samples()),
 		"sounds/broken.ogg": []byte("not a sound"),
 		"sounds/tune.flac":  []byte("fLaC"),
+		"sounds/jump.jfxr":  []byte(`{"_version":1,"sustain":0.05,"frequencySweep":800}`),
+		"sounds/loud.jfxr":  []byte(`{"_version":1,"sustain":0.05,"volume":2}`),
 	})
 	// Without a sound device, the file is still read once, and nothing plays.
 	coin := NewSoundFile("sounds/coin.wav")
 	coin.Play()
+	jump := NewSoundFile("sounds/jump.jfxr")
+	jump.Play()
 	if err := takeError(); err != nil {
 		t.Errorf("reported error: %v", err)
 	}
-	if !coin.read || len(coin.voices) != 0 {
-		t.Errorf("after Play: read %v, %d voices, want read and none", coin.read, len(coin.voices))
+	for _, sound := range []*Sound{coin, jump} {
+		if !sound.read || len(sound.voices) != 0 {
+			t.Errorf("after playing %s: read %v, %d voices, want read and none", sound.name, sound.read, len(sound.voices))
+		}
 	}
 	if err := os.Remove(filepath.Join("assets", "sounds", "coin.wav")); err != nil {
 		t.Fatal(err)
@@ -181,7 +187,8 @@ func TestSoundFiles(t *testing.T) {
 	tests := map[string]string{
 		"sounds/missing.wav": `golib.NewSoundFile("sounds/missing.wav"): golib.ReadAsset: assets/sounds/missing.wav not found`,
 		"sounds/broken.ogg":  `golib.NewSoundFile("sounds/broken.ogg"): raylib could not read the sound`,
-		"sounds/tune.flac":   `golib.NewSoundFile("sounds/tune.flac"): GoLib plays sound effects from .wav, .ogg, .mp3, .qoa files, not ".flac" ones`,
+		"sounds/tune.flac":   `golib.NewSoundFile("sounds/tune.flac"): GoLib plays sound effects from .wav, .ogg, .mp3, .qoa, .jfxr files, not ".flac" ones`,
+		"sounds/loud.jfxr":   `golib.NewSoundFile("sounds/loud.jfxr"): jfxr has no setting called "volume"`,
 		"sounds/music.xm":    `not ".xm" ones`,
 	}
 	for name, want := range tests {
@@ -196,6 +203,31 @@ func TestSoundFiles(t *testing.T) {
 			t.Errorf("%s: unload kept read %v, error %v", name, sound.read, sound.err)
 		}
 	}
+}
+
+func TestLoopWithoutASoundDevice(t *testing.T) {
+	if audio.isReady() {
+		t.Skip("a sound device is open")
+	}
+	engine := NewSound(SoundSpec{})
+	if engine.Looping() {
+		t.Error("a new sound loops")
+	}
+	// Tests see the loop, though nothing is heard.
+	engine.Loop()
+	engine.Loop()
+	if !engine.Looping() || engine.loopLoaded {
+		t.Errorf("after Loop: looping %v, stream loaded %v; want looping, with no stream", engine.Looping(), engine.loopLoaded)
+	}
+	engine.Stop()
+	if engine.Looping() {
+		t.Error("the sound still loops after Stop")
+	}
+
+	// A sound file that can't be read stops Run when it loops, as when it plays.
+	useAssets(t, map[string][]byte{})
+	NewSoundFile("sounds/missing.wav").Loop()
+	wantError(t, `golib.NewSoundFile("sounds/missing.wav")`)
 }
 
 func TestSoundVolume(t *testing.T) {
@@ -224,7 +256,10 @@ func TestSoundFilesWithADevice(t *testing.T) {
 	if !audio.isReady() {
 		t.Skip("this machine has no sound device")
 	}
-	useAssets(t, map[string][]byte{"coin.wav": wav(SoundSpec{Duration: 0.05}.resolve().samples())})
+	useAssets(t, map[string][]byte{
+		"coin.wav":  wav(SoundSpec{Duration: 0.05}.resolve().samples()),
+		"coin.jfxr": []byte(`{"_version":1,"sustain":0.03,"decay":0.02,"frequency":1200}`),
+	})
 	// raylib writes QOA files, but not OGG or MP3 ones.
 	wave := rl.LoadWave(filepath.Join("assets", "coin.wav"))
 	if !rl.IsWaveValid(wave) || !rl.ExportWave(wave, filepath.Join("assets", "coin.qoa")) {
@@ -232,7 +267,7 @@ func TestSoundFilesWithADevice(t *testing.T) {
 	}
 	rl.UnloadWave(wave)
 
-	for _, name := range []string{"coin.wav", "coin.qoa"} {
+	for _, name := range []string{"coin.wav", "coin.qoa", "coin.jfxr"} {
 		sound := NewSoundFile(name)
 		sound.SetVolume(0.5)
 		sound.Play()
@@ -253,7 +288,59 @@ func TestSoundFilesWithADevice(t *testing.T) {
 	if len(made.voices) != soundVoices {
 		t.Errorf("a sound made in code has %d voices", len(made.voices))
 	}
-	if len(audio.sounds) != 3 {
-		t.Errorf("the device tracks %d sounds, want 3", len(audio.sounds))
+	if len(audio.sounds) != 4 {
+		t.Errorf("the device tracks %d sounds, want 4", len(audio.sounds))
+	}
+
+	// Looping plays the sound as a stream, which Run feeds every frame, until
+	// Stop, which also silences the copies Play started.
+	for _, sound := range []*Sound{made, NewSoundFile("coin.qoa"), NewSoundFile("coin.jfxr")} {
+		sound.Loop()
+		sound.Loop()
+		if err := takeError(); err != nil {
+			t.Fatalf("looping %s: %v", sound.describe(), err)
+		}
+		if !sound.Looping() || !sound.loopLoaded || !rl.IsMusicStreamPlaying(sound.loop) {
+			t.Fatalf("%s: looping %v, stream loaded %v; want a playing stream", sound.describe(), sound.Looping(), sound.loopLoaded)
+		}
+		if err := audio.updateMusic(); err != nil {
+			t.Fatal(err)
+		}
+		sound.SetVolume(0.25)
+		sound.Play()
+		sound.Stop()
+		if sound.Looping() || rl.IsMusicStreamPlaying(sound.loop) || rl.IsSoundPlaying(sound.voices[0]) {
+			t.Errorf("%s: still playing after Stop", sound.describe())
+		}
+		sound.Loop()
+		if !rl.IsMusicStreamPlaying(sound.loop) {
+			t.Errorf("%s: Loop after Stop doesn't play", sound.describe())
+		}
+	}
+	audio.close()
+	if made.loopLoaded || made.Looping() {
+		t.Error("closing the device kept the loop")
+	}
+}
+
+func TestNegativeFadesMeanNone(t *testing.T) {
+	// A loop needs full volume from its first sample to its last.
+	samples := SoundSpec{Attack: -1, Release: -1, Duration: 0.25}.samples()
+	loudest := samples[len(samples)/2]
+	if loudest < 0 {
+		loudest = -loudest
+	}
+	for _, i := range []int{0, len(samples) - 1} {
+		sample := samples[i]
+		if sample < 0 {
+			sample = -sample
+		}
+		if sample != loudest {
+			t.Errorf("sample %d is %d, want %d: no fade", i, samples[i], loudest)
+		}
+	}
+	faded := SoundSpec{Duration: 0.25}.samples()
+	if faded[0] == samples[0] {
+		t.Errorf("with the default attack, the first sample is %d, as loud as without one", faded[0])
 	}
 }

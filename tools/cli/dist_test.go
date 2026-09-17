@@ -57,9 +57,9 @@ func TestDistWindows(t *testing.T) {
 [ok]   games/rocks/icon.png (64 by 64 pixels): the game's icon, in 8 sizes from 16 to 256 pixels
 [ok]   built games/rocks into build/rocks/dist/rocks/rocks.exe
 [ok]   copied raylib.dll and libffi-8.dll next to it: the game loads them when it starts
-[ok]   wrote THIRD-PARTY-LICENSES.txt next to it, with the licenses of Go 1.27.1, github.com/ebitengine/purego v0.10.0, github.com/gen2brain/raylib-go/raylib v0.60.1, github.com/jupiterrider/ffi v0.7.0, raylib 6.0, libffi and assets/ATTRIBUTION.md
+[ok]   wrote THIRD-PARTY-LICENSES.txt next to it, with the licenses of Go 1.27.1, jfxr, github.com/ebitengine/purego v0.10.0, github.com/gen2brain/raylib-go/raylib v0.60.1, github.com/jupiterrider/ffi v0.7.0, raylib 6.0, libffi and assets/ATTRIBUTION.md
 [ok]   zipped build/rocks/dist/rocks/ into build/rocks/dist/rocks-1.0.0-windows-amd64.zip (0.0 MB): share this file
-[info] players unzip it and start rocks.exe, which needs the files next to it and writes nothing to their machine
+[info] players unzip it and start rocks.exe, which needs the files next to it and writes nothing to their machine but what the game saves with golib.SaveData, in %AppData%\GoLib games\rocks
 
 dist: 0 failed, 0 warning(s)
 `
@@ -73,7 +73,7 @@ dist: 0 failed, 0 warning(s)
 	dir := tp.c.path("games", "rocks")
 	const tags = "-tags=golib_dist,raylib_no_embed,ffi_no_embed"
 	wantList := []string{"list", "-deps", tags, "-json=ImportPath,DepOnly,Module,EmbedPatterns", "."}
-	wantBuild := []string{"build", "-trimpath", tags, "-ldflags=-s -w -H=windowsgui", "-o", tp.c.path("build", "rocks", "dist", "rocks", "rocks.exe"), "."}
+	wantBuild := []string{"build", "-trimpath", tags, "-ldflags=-s -w -X golib.saveName=rocks -H=windowsgui", "-o", tp.c.path("build", "rocks", "dist", "rocks", "rocks.exe"), "."}
 	if len(tp.calls) != 2 || !slices.Equal(tp.calls[0].args, wantList) || !slices.Equal(tp.calls[1].args, wantBuild) {
 		t.Errorf("go calls = %+v, want %q and %q", tp.calls, wantList, wantBuild)
 	}
@@ -108,6 +108,7 @@ dist: 0 failed, 0 warning(s)
 		"Third-party licenses for Rocks\n\nRocks includes the software and files below, made by others.",
 		"\nGo 1.27.1\nhttps://go.dev\nBuilt into rocks.exe: the Go runtime and standard library\n",
 		"\n--- LICENSE ---\n\nGo's license\n",
+		"\njfxr\nhttps://github.com/ttencate/jfxr\nBuilt into rocks.exe, in GoLib's framework: the synthesizer that makes sound effects from .jfxr files\n" + rule + "\n\n--- LICENSE-jfxr.txt ---\n\njfxr's license\n",
 		"\ngithub.com/ebitengine/purego v0.10.0\nhttps://pkg.go.dev/github.com/ebitengine/purego@v0.10.0\nBuilt into rocks.exe\n",
 		"\n--- LICENSE ---\n\npurego's license\n",
 		"\n--- LICENSE ---\n\n  raylib-go's license, indented\n",
@@ -126,7 +127,7 @@ dist: 0 failed, 0 warning(s)
 		t.Errorf("%s lists GoLib, a README or carriage returns:\n%s", noticesFile, notices)
 	}
 
-	const syso = "golib_dist_windows_amd64.syso"
+	const syso = "golib_windows_amd64.syso"
 	data, found := tp.resources[syso]
 	if !found || len(tp.resources) != 1 {
 		t.Fatalf("the build saw %d .syso files, want only %s", len(tp.resources), syso)
@@ -168,7 +169,7 @@ func TestDistWindowsWithoutGameInfoOrIcon(t *testing.T) {
 	if notices := tp.folder(t, "rocks")[noticesFile]; !strings.HasPrefix(notices, "Third-party licenses for rocks\n") {
 		t.Errorf("%s starts:\n%s\nwant the folder name as the title", noticesFile, notices)
 	}
-	file, err := pe.NewFile(bytes.NewReader(tp.resources["golib_dist_windows_amd64.syso"]))
+	file, err := pe.NewFile(bytes.NewReader(tp.resources["golib_windows_amd64.syso"]))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,7 +196,7 @@ func TestDistWindowsOnARM(t *testing.T) {
 	if folder := tp.folder(t, "rocks"); len(folder) != 3 || folder["raylib.dll"] != "raylib for winarm64_msvc16" {
 		t.Errorf("build/rocks/dist/rocks/ holds %q, want the game, the ARM raylib.dll and %s", folder, noticesFile)
 	}
-	if _, found := tp.resources["golib_dist_windows_arm64.syso"]; !found {
+	if _, found := tp.resources["golib_windows_arm64.syso"]; !found {
 		t.Errorf("the build saw %v, want the arm64 resources", tp.resources)
 	}
 	if _, err := os.Stat(tp.c.path("build", "rocks", "dist", "rocks-0.0.0-windows-arm64.zip")); err != nil {
@@ -210,14 +211,14 @@ func TestDistLinux(t *testing.T) {
 	}
 	want := `[ok]   built games/snake into build/snake/dist/snake/snake
 [ok]   copied libraylib.so.6.0.0 next to it: the game loads them when it starts
-[ok]   wrote THIRD-PARTY-LICENSES.txt next to it, with the licenses of Go 1.27.1, github.com/ebitengine/purego v0.10.0, github.com/gen2brain/raylib-go/raylib v0.60.1, github.com/jupiterrider/ffi v0.7.0 and raylib 6.0
+[ok]   wrote THIRD-PARTY-LICENSES.txt next to it, with the licenses of Go 1.27.1, jfxr, github.com/ebitengine/purego v0.10.0, github.com/gen2brain/raylib-go/raylib v0.60.1, github.com/jupiterrider/ffi v0.7.0 and raylib 6.0
 [ok]   zipped build/snake/dist/snake/ into build/snake/dist/snake-0.0.0-linux-amd64.zip (0.0 MB): share this file
-[info] players unzip it and start snake, which needs the files next to it, and libX11.so.6, libGL.so.1 and libffi.so.8 from their system
+[info] players unzip it and start snake, which needs the files next to it, and libX11.so.6, libGL.so.1 and libffi.so.8 from their system. What the game saves with golib.SaveData goes in ~/.config/GoLib games/snake
 `
 	if !strings.HasPrefix(tp.stdout.String(), want) {
 		t.Errorf("output:\n%s\nwant it to start with:\n%s", tp.stdout.String(), want)
 	}
-	wantBuild := []string{"build", "-trimpath", "-tags=golib_dist,raylib_no_embed,ffi_no_embed", "-ldflags=-s -w -r $ORIGIN", "-o", tp.c.path("build", "snake", "dist", "snake", "snake"), "."}
+	wantBuild := []string{"build", "-trimpath", "-tags=golib_dist,raylib_no_embed,ffi_no_embed", "-ldflags=-s -w -X golib.saveName=snake -r $ORIGIN", "-o", tp.c.path("build", "snake", "dist", "snake", "snake"), "."}
 	if builds := tp.builds(); len(builds) != 1 || !slices.Equal(builds[0], wantBuild) {
 		t.Errorf("go builds = %q, want one: %q", builds, wantBuild)
 	}
@@ -252,15 +253,15 @@ func TestDistMacOS(t *testing.T) {
 		t.Fatalf("exit code %d, output:\n%s%s", code, tp.stdout.String(), tp.stderr.String())
 	}
 	want := `[ok]   built games/rocks into build/rocks/dist/rocks/rocks
-[ok]   wrote THIRD-PARTY-LICENSES.txt next to it, with the licenses of Go 1.27.1, github.com/ebitengine/purego v0.10.0, github.com/gen2brain/raylib-go/raylib v0.60.1, github.com/jupiterrider/ffi v0.7.0, raylib 6.0 and libffi
+[ok]   wrote THIRD-PARTY-LICENSES.txt next to it, with the licenses of Go 1.27.1, jfxr, github.com/ebitengine/purego v0.10.0, github.com/gen2brain/raylib-go/raylib v0.60.1, github.com/jupiterrider/ffi v0.7.0, raylib 6.0 and libffi
 [ok]   zipped build/rocks/dist/rocks/ into build/rocks/dist/rocks-0.0.0-macos-amd64.zip (0.0 MB): share this file
-[info] players unzip it and start rocks. On macOS it carries libraylib.6.0.0.dylib and libffi.8.dylib inside, and copies them into the player's ~/Library/Caches folder when it first starts
+[info] players unzip it and start rocks. On macOS it carries libraylib.6.0.0.dylib and libffi.8.dylib inside, and copies them into the player's ~/Library/Caches folder when it first starts. What the game saves with golib.SaveData goes in ~/Library/Application Support/GoLib games/rocks
 `
 	if !strings.HasPrefix(tp.stdout.String(), want) {
 		t.Errorf("output:\n%s\nwant it to start with:\n%s", tp.stdout.String(), want)
 	}
 	// The libraries stay embedded: no raylib_no_embed and ffi_no_embed.
-	wantBuild := []string{"build", "-trimpath", "-tags=golib_dist", "-ldflags=-s -w", "-o", tp.c.path("build", "rocks", "dist", "rocks", "rocks"), "."}
+	wantBuild := []string{"build", "-trimpath", "-tags=golib_dist", "-ldflags=-s -w -X golib.saveName=rocks", "-o", tp.c.path("build", "rocks", "dist", "rocks", "rocks"), "."}
 	if builds := tp.builds(); len(builds) != 1 || !slices.Equal(builds[0], wantBuild) {
 		t.Errorf("go builds = %q, want one: %q", builds, wantBuild)
 	}
@@ -294,6 +295,39 @@ func TestDistRaylibWithoutNotices(t *testing.T) {
 	notices := tp.folder(t, "rocks")[noticesFile]
 	if !strings.Contains(notices, "\nraylib 9.9\n") || strings.Contains(notices, "libraries inside raylib") {
 		t.Errorf("%s:\n%s\nwant raylib 9.9 with its LICENSE only", noticesFile, notices)
+	}
+}
+
+func TestDistWithoutJfxrLicense(t *testing.T) {
+	tp := newTestProject(t, "linux", "rocks")
+	if err := os.Remove(tp.c.path("framework", jfxrLicenseFile)); err != nil {
+		t.Fatal(err)
+	}
+	if code := tp.c.dist(nil); code != 0 {
+		t.Fatalf("exit code %d, output:\n%s", code, tp.stdout.String())
+	}
+	want := "[warn] framework/LICENSE-jfxr.txt is missing: copy it back from GoLib, or add jfxr's license to THIRD-PARTY-LICENSES.txt by hand\n"
+	if !strings.Contains(tp.stdout.String(), want) {
+		t.Errorf("output:\n%s\nwant a warning:\n%s", tp.stdout.String(), want)
+	}
+	if notices := tp.folder(t, "rocks")[noticesFile]; !strings.Contains(notices, "\njfxr\n") {
+		t.Errorf("%s:\n%s\nwant jfxr's heading, to fill in by hand", noticesFile, notices)
+	}
+}
+
+// TestJfxrLicenseForTheProject checks that the framework has the license dist
+// copies for jfxr.
+func TestJfxrLicenseForTheProject(t *testing.T) {
+	framework := filepath.Join("..", "..", "framework")
+	if _, err := os.Stat(filepath.Join(framework, "go.mod")); err != nil {
+		t.Skip("not in a GoLib project:", err)
+	}
+	license, err := os.ReadFile(filepath.Join(framework, jfxrLicenseFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(string(license), "Copyright (c) 2014, Thomas ten Cate") {
+		t.Errorf("framework/%s starts:\n%.80s\nwant jfxr's license", jfxrLicenseFile, license)
 	}
 }
 

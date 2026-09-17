@@ -189,6 +189,21 @@ func (c *cli) syncRaylib(dir string) (raylibFolder, error) {
 	return synced, os.WriteFile(versionFile, []byte(versions), 0o644)
 }
 
+// syncFile copies the file at source to target, unless target already holds
+// the same bytes. A running game keeps the libraries next to it open, and
+// Windows can't write to them, so this lets golib build and shot build a game
+// that golib run has open.
+func syncFile(source, target string) error {
+	want, err := os.ReadFile(source)
+	if err != nil {
+		return err
+	}
+	if have, err := os.ReadFile(target); err == nil && bytes.Equal(have, want) {
+		return nil
+	}
+	return copyFile(source, target)
+}
+
 // copyFile copies the file at source to target, replacing target.
 func copyFile(source, target string) error {
 	from, err := os.Open(source)

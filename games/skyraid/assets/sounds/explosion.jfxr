@@ -1,0 +1,15 @@
+{
+  "_version": 1,
+  "_name": "explosion",
+  "waveform": "brownnoise",
+  "attack": 0,
+  "sustain": 0.06,
+  "sustainPunch": 50,
+  "decay": 0.42,
+  "frequency": 1400,
+  "frequencySweep": -900,
+  "lowPassCutoff": 6000,
+  "lowPassCutoffSweep": -5000,
+  "compression": 0.8,
+  "amplification": 35
+}
