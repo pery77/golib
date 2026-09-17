@@ -401,7 +401,7 @@ A map is a level made in [Tiled](https://www.mapeditor.org): a `.tmx` file in th
 | `Map.TilesIn` | `TilesIn(layer string, area Rectangle) []MapTile`: the tiles of a tile layer whose cells overlap `area`, row by row, leaving out empty cells. Use it for collisions. |
 | `Map.Objects` | `Objects(layer string) []MapObject`: the objects of an object layer, in Tiled's order, or of every object layer for `""`. |
 | `Map.Object` | `Object(name string) (MapObject, bool)`: the first object with that name, such as the player's start, and whether there is one. |
-| `Map.Err` | `Err() error`: what stopped the map from loading, or nil. Drawing or asking a map that didn't load stops `Run` with the same mistake, so use `Err` only to handle it: to skip a level, or to name the wrong file in a test. |
+| `Map.Err` | `Err() error`: what stopped the map from loading, or nil. Ask it before anything else, since the other methods give zero values for a map that didn't load. Its message already names the file, so pass it on as it is. Drawing or asking such a map stops `Run` with the same mistake, so use `Err` only to handle it yourself: to skip a level, or to name the wrong file in a test. |
 | `Map.Properties` | `Properties() Properties`: the map's custom properties. |
 | `Map.LayerProperties` | `LayerProperties(layer string) Properties`: a layer's custom properties, with those of the groups around it. |
 
@@ -800,6 +800,7 @@ The settings, with the labels jfxr shows for them. "Over the sound" means from i
 | `Music.Stop` | `Stop()`: ends it; the next `Play` starts from the beginning. |
 | `Music.Playing` | `Playing() bool`: it is playing now, not paused, stopped or waiting for a sound device. |
 | `Music.SetVolume` | `SetVolume(volume float32)`: how loud this music is, from 0 to 1, under `SetVolume`. Around 0.2 to 0.4 keeps it under the sound effects. |
+| `Music.Err` | `Err() error`: what stopped the music from playing, or nil. For a tune it makes the tune, so a test can check its notes; for a file it tells only what playing it has found so far. |
 
 ```go
 var theme = golib.NewMusic("music/theme.xm") // games/<game>/assets/music/theme.xm
@@ -828,28 +829,35 @@ Music can also be made from notes, with no file at all, for a game whose user ha
 | --- | --- |
 | `NewTune` | `NewTune(spec TuneSpec) *Music`: music made from notes. It plays like any other `Music`, and loops. The tune is made the first time it plays. |
 | `TuneSpec` | The recipe: the speed, and the voices that play together. |
-| `TuneSpec.Tempo` | Beats per minute, from 20 to 400. Default: 120. |
+| `TuneSpec.Tempo` | Beats per minute, from 20 to 400. A beat is what a note with no length lasts, so a tune written in eighth notes at 110 beats per minute has a `Tempo` of 220. Default: 120. |
 | `TuneSpec.Voices` | The lines that play together, at most 8. |
 | `Voice` | One line of the tune. |
 | `Voice.Wave` | Its sound, as in `SoundSpec`. Default: `WaveSquare`. |
 | `Voice.Volume` | How loud it is, from 0 to 1, before the music's own volume. Default: 0.5. |
 | `Voice.Duty` | Shapes a square wave, from 0.05 to 0.95, as in `SoundSpec`. Default: 0.5. |
+| `Voice.Vibrato`, `Voice.VibratoRate` | Wobble the pitch, as in `SoundSpec`. Default: no wobble. |
+| `Voice.Gap` | The silence at the end of every note, in seconds. Default: 0.04. 0 runs notes together; more makes a short, clipped sound, such as a drum. |
 | `Voice.Notes` | The notes, separated by spaces. |
 
-A note is a letter from `a` to `g`, an optional `#` or `b`, and its octave: `c4` is middle C, `f#3` and `eb5`. A dot is a silence. `/` and a number make a note last that many beats: `c4/2` lasts two beats, `c4/0.5` half a beat. A tune lasts at most two minutes, and loops.
+A note is a letter from `a` to `g`, an optional `#` or `b`, and its octave: `c4` is middle C, `f#3` and `eb5`; capitals work too, and octaves go from 0 to 8. A dot is a silence, and a dash holds the note before it for another beat. `/` and a number give a length in beats: `c4/2` lasts two beats, `c4/0.5` half a beat. A tune lasts at most two minutes, and loops.
 
 ```go
-var theme = golib.NewTune(golib.TuneSpec{
-	Tempo: 132,
+// Sixteen beats a voice, so every voice loops in step.
+var themeSpec = golib.TuneSpec{
+	Tempo: 264, // the tune is written in eighth notes, at 132 a minute
 	Voices: []golib.Voice{
-		{Notes: "c5 . g4 . a4 g4 e4 c4 d4/2 g4/2"},                                  // the melody
-		{Wave: golib.WaveTriangle, Volume: 0.35, Duty: 0.5, Notes: "c3/2 c3/2 f3/2 g3/2"}, // the bass
+		{Notes: "c5 - g4 . a4 g4 e4 c4 d4/2 g4/2 c5/4"},                                    // the melody
+		{Wave: golib.WaveTriangle, Volume: 0.35, Notes: "c3/2 g3/2 c3/2 g3/2 f3/2 c4/2 g3/2 g3/2"}, // the bass
+		{Wave: golib.WaveNoise, Volume: 0.05, Gap: 0.1, Notes: ". a7 . a7 . a7 . a7 . a7 . a7 . a7 . a7"}, // a tick on the off-beats
 	},
-})
+}
+
+var theme = golib.NewTune(themeSpec)
 ```
 
-- A mistake in the notes, or a tune longer than two minutes, stops `Run` with a message, in `golib shot` and in tests too, where nothing can be heard.
-- Voices play together from the first beat; the longest one sets the tune's length, and the others end in silence.
+- A mistake in the notes, or a tune longer than two minutes, stops `Run` with a message, under `golib shot` too, where nothing can be heard. In a test, where nothing calls `Run`, `Music.Err` returns it: keep the `TuneSpec` in a variable of its own and test the tune made from it.
+- Voices play together from the first beat; the longest one sets the tune's length, and the others end in silence. Make them add up to the same number of beats, or the loop falls out of step, and count those beats in a test.
+- The tune is made the first time it plays, which takes a moment: start it on a title screen rather than in the middle of the action.
 - Made music is a last resort: a tracker module or an OGG file from the user sounds better. Say so, and how to swap it in: only the `golib.NewTune` line changes.
 
 ## Window, fullscreen and screen effects
@@ -965,7 +973,7 @@ if err := golib.SaveData("progress", s.progress); err != nil {
 | Name | What it does |
 | --- | --- |
 | `ReadAsset` | `ReadAsset(name string) ([]byte, error)`: the contents of a file in `games/<game>/assets/`. `name` is relative to that folder, with forward slashes: `"levels/1.txt"`. |
-| `ListAssets` | `ListAssets(folder string) ([]string, error)`: the names of the files in a folder of the assets folder, sorted, such as every level in `maps`, as `ReadAsset` takes them. Folders inside are left out; `""` lists the assets folder itself. |
+| `ListAssets` | `ListAssets(folder string) ([]string, error)`: the names of the files in a folder of the assets folder, such as every level in `maps`, as `ReadAsset` takes them. Sorted by name, character by character, so number the files with the same number of digits: `level01.tmx`, not `level1.tmx`. Folders inside are left out; `""` lists the assets folder itself. |
 | `EmbedAssets` | `EmbedAssets(files embed.FS)`: puts the assets folder inside a `golib dist` build. Only `assets.go` calls it. |
 
 Debug builds (`golib run`, `shot`, `test`, F5) read files from disk, so an edited file shows up on the next run; `golib dist` builds read the copy inside the executable. A game with an `assets/` folder therefore needs this `assets.go` next to `main.go`, exactly as it is, or `golib dist` stops:

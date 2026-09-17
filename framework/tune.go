@@ -12,7 +12,7 @@ import (
 const (
 	tuneMaxSeconds = 120
 	tuneMaxVoices  = 8
-	tuneBeatGap    = 0.04 // seconds of silence at the end of a note, so notes are told apart
+	tuneBeatGap    = 0.04 // seconds of silence at the end of a note by default, so notes are told apart
 )
 
 // TuneSpec is the recipe for music made from notes, without a music file:
@@ -26,8 +26,9 @@ const (
 //		},
 //	})
 type TuneSpec struct {
-	// Tempo is the speed, in beats per minute, from 20 to 400.
-	// Default: 120.
+	// Tempo is the speed, in beats per minute, from 20 to 400. A beat is
+	// what a note without a length lasts, so a tune written in eighth notes
+	// at 110 beats per minute has a Tempo of 220. Default: 120.
 	Tempo float32
 
 	// Voices are the lines that play together, at most 8. A tune needs one.
@@ -47,12 +48,30 @@ type Voice struct {
 	// Default: 0.5.
 	Duty float32
 
+	// Vibrato wobbles the pitch by this many Hz, as in [SoundSpec], and
+	// VibratoRate says how many times a second. Default: no wobble, 12 times
+	// a second.
+	Vibrato     float32
+	VibratoRate float32
+
+	// Gap is the silence at the end of every note, in seconds, so that two of
+	// the same note in a row are heard as two. Default: 0.04. Use 0 for
+	// notes that run into each other, and more for a short, clipped sound,
+	// such as a drum: a note is never shorter than half its length.
+	Gap float32
+
 	// Notes are the notes to play, separated by spaces, each of them a letter
 	// from a to g, an optional # or b, and the octave, such as "c4", "f#3" or
-	// "eb5". A dot is a silence. "/" and a number make a note last that many
-	// beats: "c4/2" lasts two beats and "c4/0.5" half a beat. Middle C is c4.
+	// "eb5"; capital letters work too. Middle C is c4, and octaves go from 0
+	// to 8. A dot is a silence, and a dash holds the note before it for
+	// another beat. "/" and a number give a length in beats: "c4/2" lasts two
+	// beats and "c4/0.5" half a beat.
 	//
-	//	"c4 e4 g4 c5/2 . g4/0.5 e4/0.5 c4/2"
+	//	"c4 e4 g4 c5 - - . g4/0.5 e4/0.5 c4/2"
+	//
+	// Every voice of a tune should add up to the same number of beats, or the
+	// short ones end in silence and the loop falls out of step. Counting the
+	// beats of each voice is worth a test in the game.
 	Notes string
 }
 
@@ -63,8 +82,14 @@ type Voice struct {
 //	theme.Pause() // while the game is paused
 //
 // The tune is made the first time it plays, so a game can create it before
-// Run opens the window, as a package variable. A mistake in the notes, or a
-// tune longer than two minutes, stops Run with a message.
+// Run opens the window, as a package variable. Making it takes a moment, a
+// few tens of milliseconds for a tune of half a minute, so start it on a
+// title screen rather than in the middle of the action. A mistake in the
+// notes, or a tune longer than two minutes, stops Run with a message, and
+// [Music.Err] returns it, in tests too:
+//
+//	var themeSpec = golib.TuneSpec{...} // keep the recipe to test it
+//	var theme = golib.NewTune(themeSpec)
 func NewTune(spec TuneSpec) *Music {
 	tune := spec
 	return &Music{name: "the tune", tune: &tune, volume: 1}
@@ -132,15 +157,21 @@ func (v Voice) render(notes []note, beat float64, volume float32) ([]int16, erro
 		}
 		// The note stops a little before the next one starts, so that two of
 		// the same note in a row are heard as two.
-		sound := min(length, max(length-tuneBeatGap, length/2))
+		gap := float64(tuneBeatGap)
+		if v.Gap != 0 {
+			gap = float64(max(0, v.Gap))
+		}
+		sound := min(length, max(length-gap, length/2))
 		spec := SoundSpec{
-			Wave:      v.Wave,
-			Frequency: float32(n.frequency),
-			Duration:  float32(sound),
-			Attack:    0.005,
-			Release:   float32(min(0.05, sound/2)),
-			Volume:    volume,
-			Duty:      v.Duty,
+			Wave:        v.Wave,
+			Frequency:   float32(n.frequency),
+			Duration:    float32(sound),
+			Attack:      0.005,
+			Release:     float32(min(0.05, sound/2)),
+			Volume:      volume,
+			Duty:        v.Duty,
+			Vibrato:     v.Vibrato,
+			VibratoRate: v.VibratoRate,
 		}
 		played := spec.samples()
 		if len(played) > count {
@@ -175,6 +206,13 @@ func parseNotes(notes string) ([]note, error) {
 			}
 			text, beats = name, value
 		}
+		if text == "-" {
+			if len(parsed) == 0 {
+				return nil, fmt.Errorf("%q: a dash holds the note before it, so it can't come first", item)
+			}
+			parsed[len(parsed)-1].beats += beats
+			continue
+		}
 		if text == "." {
 			parsed = append(parsed, note{beats: beats})
 			continue
@@ -191,7 +229,7 @@ func parseNotes(notes string) ([]note, error) {
 // noteFrequency returns the pitch of a note such as "c4", "f#3" or "eb5", in
 // Hz, with a4 at 440 Hz.
 func noteFrequency(text string) (float64, error) {
-	invalid := fmt.Errorf(`write a note as a letter from a to g, an optional # or b, and its octave, such as "c4", "f#3" or "eb5", or "." for a silence`)
+	invalid := fmt.Errorf(`write a note as a letter from a to g, an optional # or b, and its octave, such as "c4", "f#3" or "eb5", "." for a silence, or "-" to hold the note before it`)
 	if len(text) < 2 {
 		return 0, invalid
 

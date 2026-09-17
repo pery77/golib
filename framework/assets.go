@@ -31,7 +31,7 @@ var embeddedAssets fs.FS
 // golib dist builds read the copy embedded in the executable instead: see
 // EmbedAssets.
 func ReadAsset(name string) ([]byte, error) {
-	files, where, err := assetSource(embeddedAssets, distBuild)
+	files, where, err := assetSource("golib.ReadAsset", embeddedAssets, distBuild)
 	if err != nil {
 		return nil, err
 	}
@@ -65,18 +65,19 @@ func EmbedAssets(files embed.FS) {
 	embeddedAssets = files
 }
 
-// assetSource returns the files ReadAsset reads from, rooted at the game's
-// folder, and says where they are, for error messages.
-func assetSource(embedded fs.FS, dist bool) (fs.FS, string, error) {
+// assetSource returns the files ReadAsset and ListAssets read from, rooted at
+// the game's folder, and says where they are, for error messages. caller names
+// the function that asked, for the same messages.
+func assetSource(caller string, embedded fs.FS, dist bool) (fs.FS, string, error) {
 	if embedded != nil {
 		return embedded, "in the executable", nil
 	}
 	if dist {
-		return nil, "", errors.New("golib.ReadAsset: this golib dist build has no embedded assets: add assets.go to the game, as the golib.EmbedAssets documentation shows")
+		return nil, "", fmt.Errorf("%s: this golib dist build has no embedded assets: add assets.go to the game, as the golib.EmbedAssets documentation shows", caller)
 	}
 	workDir, err := os.Getwd()
 	if err != nil {
-		return nil, "", fmt.Errorf("golib.ReadAsset: cannot find the working directory: %w", err)
+		return nil, "", fmt.Errorf("%s: cannot find the working directory: %w", caller, err)
 	}
 	exe, err := os.Executable()
 	if err != nil {
@@ -141,7 +142,7 @@ func readAsset(files fs.FS, where, name string) ([]byte, error) {
 // those embedded in the executable in a golib dist build, which are the files
 // that were in the assets folder when the game was built.
 func ListAssets(folder string) ([]string, error) {
-	files, where, err := assetSource(embeddedAssets, distBuild)
+	files, where, err := assetSource("golib.ListAssets", embeddedAssets, distBuild)
 	if err != nil {
 		return nil, err
 	}

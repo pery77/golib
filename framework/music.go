@@ -96,6 +96,28 @@ func (m *Music) Stop() {
 	m.playing, m.paused = false, false
 }
 
+// Err returns what stopped the music from playing, or nil: a missing or
+// unreadable file for [NewMusic], or a mistake in the notes for [NewTune].
+// Playing music reports the same mistake to Run, so a game needs Err only to
+// handle it itself, or to check its own tune in a test, where nothing plays:
+//
+//	if err := theme.Err(); err != nil {
+//		t.Error(err)
+//	}
+//
+// For a tune, Err makes it once, as playing it would; for a music file, it
+// tells only what playing it has found so far, since the file is read when the
+// music first plays, with a sound device.
+func (m *Music) Err() error {
+	if m.tune != nil && !m.checked {
+		m.checked = true
+		if _, err := m.tune.samples(); err != nil {
+			m.err = err
+		}
+	}
+	return m.err
+}
+
 // Playing reports whether the music is playing now: false while it is paused,
 // stopped, or waiting for a sound device.
 func (m *Music) Playing() bool {

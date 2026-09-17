@@ -106,13 +106,13 @@ func TestDebugGameDir(t *testing.T) {
 }
 
 func TestAssetSource(t *testing.T) {
-	if _, where, err := assetSource(fstest.MapFS{}, true); err != nil || where != "in the executable" {
+	if _, where, err := assetSource("golib.ReadAsset", fstest.MapFS{}, true); err != nil || where != "in the executable" {
 		t.Errorf("with embedded assets: where = %q, error = %v; want %q and no error", where, err, "in the executable")
 	}
-	if _, _, err := assetSource(nil, true); err == nil || !strings.Contains(err.Error(), "assets.go") {
+	if _, _, err := assetSource("golib.ListAssets", nil, true); err == nil || !strings.Contains(err.Error(), "assets.go") {
 		t.Errorf("dist build without embedded assets: error = %v, want one that mentions assets.go", err)
 	}
-	if _, where, err := assetSource(nil, false); err != nil || !strings.HasPrefix(where, "in ") {
+	if _, where, err := assetSource("golib.ReadAsset", nil, false); err != nil || !strings.HasPrefix(where, "in ") {
 		t.Errorf("debug build: where = %q, error = %v; want the working directory and no error", where, err)
 	}
 }
