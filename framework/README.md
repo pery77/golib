@@ -258,7 +258,7 @@ screen.DrawPolygonOutline(corners, 2, golib.White)
 
 The named colors are raylib's palette: `LightGray` `Gray` `DarkGray` `Yellow` `Gold` `Orange` `Pink` `Red` `Maroon` `Green` `Lime` `DarkGreen` `SkyBlue` `Blue` `DarkBlue` `Purple` `Violet` `DarkPurple` `Beige` `Brown` `DarkBrown` `White` `Black` `Magenta`, `RayWhite` (the off-white raylib uses for backgrounds) and `Blank` (fully transparent).
 
-`WithOpacity`, `WithOpacity(color Color, opacity float32) Color`, returns the color with its opacity set, from 0, invisible, to 1, solid: `golib.WithOpacity(golib.White, flashLeft/flashTime)` fades a flash out.
+`WithOpacity`, `WithOpacity(color Color, opacity float32) Color`, returns the color with its opacity set, from 0, invisible, to 1, solid: `golib.WithOpacity(golib.White, flashLeft/flashTime)` fades a flash out. It sets the opacity instead of scaling the color's own, so fading a color that is already see-through means multiplying: `golib.WithOpacity(c, float32(c.A)/255*fade)`.
 
 Keep a game's colors together as named variables, as `games/platformer/main.go` does, so its look changes in one place.
 
@@ -538,8 +538,8 @@ A camera shows part of a world larger than the screen: a level that scrolls, an 
 | `Camera.Bounds` | The part of the world the view stays inside, such as the whole level, so the screen never shows beyond it. The zero `Rectangle` sets no limit. |
 | `Camera.Update` | `Update(dt float32)`: moves the view towards `Target`, inside `Bounds`, and moves the shake on. Call it in every `Update`, after setting `Target`. |
 | `Camera.Snap` | `Snap()`: puts the view on `Target` at once, without `Lag`: at the start of a level, or after a teleport. |
-| `Camera.Shake` | `Shake(strength, seconds float32)`: shakes the view by up to `strength` world pixels, fading out over `seconds`, such as for an explosion. Call it from `Update`. |
-| `Camera.Center` | `Center() Vector2`: the point of the world in the middle of the screen, shake included. |
+| `Camera.Shake` | `Shake(strength, seconds float32)`: shakes the view by up to `strength` world pixels, fading out over `seconds`, such as for an explosion. A stronger shake replaces a weaker one, so a game with a "how shaken is it" value can call it in every update. Call it from `Update`. |
+| `Camera.Center` | `Center() Vector2`: the point of the world in the middle of the screen, shake included, so whatever a game places from it shakes too. |
 | `Camera.View` | `View() Rectangle`: the part of the world on the screen, to skip drawing what isn't, or to place things just outside it. |
 | `Camera.ToWorld` | `ToWorld(x, y float32) Vector2`: the world point at a screen point, such as `camera.ToWorld(input.MousePosition())`. |
 | `Camera.ToScreen` | `ToScreen(point Vector2) Vector2`: where a world point is on the screen, possibly outside it, to draw a marker over it in screen pixels. |

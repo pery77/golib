@@ -47,6 +47,10 @@ var (
 // invisible, to 1, solid, such as to fade something in or out:
 //
 //	screen.DrawRectangle(whole, golib.WithOpacity(golib.White, s.flashLeft/flashTime))
+//
+// It sets the opacity rather than scaling the color's own, so fading a color
+// that is already see-through means multiplying: WithOpacity(c,
+// float32(c.A)/255*fade).
 func WithOpacity(color Color, opacity float32) Color {
 	color.A = uint8(math.Round(float64(max(0, min(opacity, 1)) * 255)))
 	return color

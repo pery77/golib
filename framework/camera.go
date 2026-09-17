@@ -97,8 +97,13 @@ func (c *Camera) Snap() {
 
 // Shake shakes the view for seconds, by up to strength pixels of the world at
 // first, fading out to none, such as for an explosion. A shake replaces one
-// that would move the view less. Call it from Update: the shake moves the
-// view by random amounts, which golib shot repeats.
+// that would move the view less, so a game that keeps a "how shaken is it"
+// value can call Shake in every update, with the strength and the time that
+// value asks for, and the view follows it. Call it from Update: the shake
+// moves the view by random amounts, which golib shot repeats.
+//
+// [Camera.Center] and [Camera.View] include the shake, so whatever a game
+// places from them, such as a parallax background, shakes with the view.
 func (c *Camera) Shake(strength, seconds float32) {
 	if strength <= 0 || seconds <= 0 {
 		return
