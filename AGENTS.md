@@ -12,7 +12,7 @@ The promise: someone downloads the template, runs a couple of commands, and buil
 
 Keep this section true: update it in the same change that lands or removes a feature. Never describe planned work as if it existed.
 
-Last updated: 2026-09-17 (milestone M5, Shipping, done on Windows; M6, 2D essentials, in progress; other platforms on hold).
+Last updated: 2026-09-17 (milestone M5, Shipping, done on Windows; M6, 2D essentials, done but for two ideas; other platforms on hold).
 
 | Area | State |
 | --- | --- |
@@ -53,6 +53,7 @@ Last updated: 2026-09-17 (milestone M5, Shipping, done on Windows; M6, 2D essent
 | Saving high scores, settings and progress: `golib.SaveData`, `golib.LoadData`, `golib.DeleteData` | Done (M6) |
 | Looping sounds and stopping them: `Sound.Loop`, `Sound.Stop` | Done (M6) |
 | Outlines, polygons, aligned text, a color's opacity, additive blending; hiding the mouse pointer | Done (M6) |
+| `games/skyraid` and `games/crates`: the test games, on the framework's camera, saving, tune and asset listing | Done (M6) |
 | Music from notes, with no music file: `golib.NewTune` | Done (M6) |
 | `Map.Err` and `golib.ListAssets`: whether a map loaded, and what is in the assets folder | Done (M6) |
 | 3D: glTF models from Blender, a 3D camera, basic lighting | Planned (M7, after M6); nothing built |
