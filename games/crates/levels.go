@@ -1,37 +1,38 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"strings"
 
 	"golib"
 )
 
-// levelFiles are the levels, in the order they are played: Tiled maps in
-// assets/maps/ that share the tileset assets/maps/tiles.tsx. To add a level,
-// save a new map there and add its name here; levels_test.go checks it.
-var levelFiles = []string{
-	"maps/level01.tmx",
-	"maps/level02.tmx",
-	"maps/level03.tmx",
-	"maps/level04.tmx",
-	"maps/level05.tmx",
-	"maps/level06.tmx",
-	"maps/level07.tmx",
-	"maps/level08.tmx",
-	"maps/level09.tmx",
-	"maps/level10.tmx",
-}
-
-// levelMaps holds the maps of levelFiles, made once, as GoLib asks.
-var levelMaps = newLevelMaps()
-
-func newLevelMaps() []*golib.Map {
-	maps := make([]*golib.Map, len(levelFiles))
-	for i, name := range levelFiles {
-		maps[i] = golib.NewMap(name)
+// levelFiles returns the levels in the order they are played: every Tiled map
+// in assets/maps/, sorted by name, which is why they are named level01.tmx and
+// up. To add a level, save a new map there, and nothing else: golib.ListAssets
+// finds it. The tileset they share, tiles.tsx, is not a level.
+func levelFiles() ([]string, error) {
+	names, err := golib.ListAssets("maps")
+	if err != nil {
+		return nil, err
 	}
-	return maps
+	var levels []string
+	for _, name := range names {
+		if strings.HasSuffix(name, ".tmx") {
+			levels = append(levels, name)
+		}
+	}
+	if len(levels) == 0 {
+		return nil, errors.New("there are no levels in assets/maps/: save a Tiled map there, named level01.tmx")
+	}
+	return levels, nil
 }
+
+// levelMaps holds the map of every level, in the order of the levels
+// loadLevels returns, for play.go to draw the floor with. Each map is made
+// once, as GoLib asks.
+var levelMaps []*golib.Map
 
 // The layers of a level map, and the tile classes the tileset gives its tiles.
 // The rules read classes, never tile IDs, so the tileset can be redrawn.
@@ -53,26 +54,33 @@ const (
 	maxRows    = 9
 )
 
-// loadLevels reads every level in levelFiles, and returns the first mistake
-// found in them.
+// loadLevels reads every level, in the order they are played, and returns the
+// first mistake found in them.
 func loadLevels() ([]*layout, error) {
-	levels := make([]*layout, len(levelMaps))
-	for i, m := range levelMaps {
-		l, err := loadLayout(m, levelFiles[i])
-		if err != nil {
+	names, err := levelFiles()
+	if err != nil {
+		return nil, err
+	}
+	levels := make([]*layout, len(names))
+	maps := make([]*golib.Map, len(names))
+	for i, name := range names {
+		maps[i] = golib.NewMap(name)
+		if levels[i], err = loadLayout(maps[i], name); err != nil {
 			return nil, err
 		}
-		levels[i] = l
 	}
+	levelMaps = maps
 	return levels, nil
 }
 
 // loadLayout reads the level in map m, whose file is name, and checks that it
 // can be played.
 func loadLayout(m *golib.Map, name string) (*layout, error) {
+	if err := m.Err(); err != nil {
+		return nil, err // missing, not a Tiled map, or one GoLib can't read
+	}
 	if m.TileWidth() != tileSize || m.TileHeight() != tileSize {
-		// A map GoLib can't read measures 0; golib.Run says why.
-		return nil, fmt.Errorf("%s: the map can't be read, or its tiles aren't %d by %d pixels", name, tileSize, tileSize)
+		return nil, fmt.Errorf("%s: its tiles are %g by %g pixels, not %d by %d", name, m.TileWidth(), m.TileHeight(), tileSize, tileSize)
 	}
 	l := &layout{
 		name:    name,

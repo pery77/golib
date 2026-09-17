@@ -20,11 +20,7 @@ func newTestSession(t *testing.T) *session {
 	if err := golib.DeleteData(progressName); err != nil {
 		t.Fatal(err)
 	}
-	s, err := newSession(levels)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return s
+	return newSession(levels)
 }
 
 func TestLevelsUnlockInOrder(t *testing.T) {
@@ -56,10 +52,7 @@ func TestProgressSurvivesARestart(t *testing.T) {
 		t.Fatal(s.saveErr)
 	}
 
-	again, err := newSession(s.levels)
-	if err != nil {
-		t.Fatal(err)
-	}
+	again := newSession(s.levels)
 	if next := again.nextLevel(); next != 2 {
 		t.Errorf("after a restart, the game continues from level %d, want 2", next)
 	}

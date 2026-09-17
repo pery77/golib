@@ -7,36 +7,33 @@ import (
 	"golib"
 )
 
-// session is what every scene shares: the levels, the player's progress and
-// the music. main makes one, and each scene keeps a pointer to it.
+// session is what every scene shares: the levels and the player's progress,
+// which says whether the music plays. main makes one, and each scene keeps a
+// pointer to it.
 type session struct {
 	levels   []*layout
 	progress progress
 	saveData func(name string, value any) error // golib.SaveData; tests replace it
 	saveErr  error                              // the last failure to load or save the progress, shown on the title
-	music    *jukebox
-	gamepad  bool // gamepad 0 is connected, so the scenes show its controls
+	gamepad  bool                               // gamepad 0 is connected, so the scenes show its controls
 }
 
 // newSession loads the saved progress. Progress that can't be read is a
 // message on the title, not the end of the game.
-func newSession(levels []*layout) (*session, error) {
-	music, err := newJukebox(tune)
-	if err != nil {
-		return nil, err
-	}
+func newSession(levels []*layout) *session {
 	var p progress
-	if _, err = golib.LoadData(progressName, &p); err != nil {
+	_, err := golib.LoadData(progressName, &p)
+	if err != nil {
 		p = progress{} // damaged: start over
 		err = fmt.Errorf("the saved progress is damaged, so the game starts over: %w", err)
 		log.Print(err)
 	}
-	return &session{levels: levels, progress: p, saveData: golib.SaveData, saveErr: err, music: music}, nil
+	return &session{levels: levels, progress: p, saveData: golib.SaveData, saveErr: err}
 }
 
 // update reads the keys that work in every scene, fullscreen and music, and
-// keeps the music going. Every scene calls it first thing in its Update.
-func (s *session) update(input *golib.Input, dt float32) {
+// keeps the tune playing. Every scene calls it first thing in its Update.
+func (s *session) update(input *golib.Input) {
 	s.gamepad = input.GamepadConnected(0)
 	if input.KeyPressed(golib.KeyF11) || (altDown(input) && input.KeyPressed(golib.KeyEnter)) {
 		golib.SetFullscreen(!golib.IsFullscreen())
@@ -44,7 +41,11 @@ func (s *session) update(input *golib.Input, dt float32) {
 	if input.KeyPressed(golib.KeyM) || input.GamepadPressed(0, golib.GamepadBack) {
 		s.toggleMusic()
 	}
-	s.music.update(s.musicOn(), dt)
+	if s.musicOn() {
+		theme.Play() // safe every update: the tune keeps playing
+	} else {
+		theme.Pause()
+	}
 }
 
 func (s *session) musicOn() bool {

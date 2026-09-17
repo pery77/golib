@@ -50,16 +50,16 @@ The game saves the fewest moves for each finished level, and whether the music i
   - The layer `floor` holds tiles of class `floor`, `goal` and `wall`. Cells with no tile are outside the room.
   - The layer `things` holds tiles of class `crate`, and one of class `start`, where the player starts. The game draws the crates and the player itself, so this layer only matters in Tiled.
   - The map's custom properties are `title` (string) and `par` (int).
-  - The order of levels is `levelFiles` in `levels.go`: add a new map there. `levels_test.go` solves every level, and says the right par when a map's is wrong.
+  - The levels are every `.tmx` file in `assets/maps/`, played in the order of their names, which is why they are numbered: `levelFiles` in `levels.go` finds them with `golib.ListAssets`, so saving a new map there adds a level and nothing else changes. `levels_test.go` solves every level it finds, and says the right par when a map's is wrong.
 - `assets/sprites/tiles.png` is the only picture, drawn for this game: 8 by 2 tiles of 16 by 16 pixels. Top row: floor, wall, goal, crate, crate on a goal, the start (the player facing down), cracked floor, cracked wall. Bottom row: the player facing down, up, left and right, standing and mid-step. Edit it in Aseprite, keeping the grid; `art.go` names the frames.
 - Sound effects are recipes in `sounds.go`, except the level-complete fanfare, `assets/sounds/complete.jfxr`, which opens in jfxr (<https://jfxr.frozenfractal.com>).
-- The music is a tune written in `music.go`: a lead, a bass and a soft tick, 16 bars that loop, played note by note with sound effects, since GoLib plays music only from files. To use a music file instead, see the comment at the top of `music.go`.
+- The music is a tune written in `music.go` as notes for `golib.NewTune`: a lead, a bass and a soft tick, 16 bars of 8 beats that loop, about 34 seconds, so the game needs no music file. It is an ordinary `golib.Music`, which `session.go` plays and pauses with the music switch. To use a music file instead, see the comment at the top of `music.go`.
 - Every file in `assets/` was made for this game, so `assets/ATTRIBUTION.md` isn't needed. Add it for any file that comes from elsewhere.
 
 ## Tuning
 - `play.go`, top: how fast the player and a pushed crate slide (`slideTime`), the delay and pace of walking and undoing while a key is held (`repeatDelay`, `repeatTime`), the glow of a crate that lands (`flashTime`), and the pause before the complete screen (`solvedDelay`).
 - `controls.go`, top: how far the stick tilts before it counts (`stickTilt`).
-- `music.go`, top: tempo (`tuneStep`) and the volume of each part.
+- `music.go`, top: tempo (`tuneTempo`, in eighth notes) and the volume of each voice.
 - `sounds.go`: every sound effect's recipe.
 - `main.go`: the screen size and the colors. `draw.go` and `scenes.go`: where things go on the screen.
 
@@ -72,3 +72,4 @@ The game saves the fewest moves for each finished level, and whether the music i
 ## Changelog
 - 2026-09-17: created with `golib new`, then built as a Sokoban game: 10 Tiled levels checked by a solver, undo and restart, par and stars, a level list, saved progress, sound effects and a background tune made in code, pixel art tiles drawn for the game.
 - 2026-09-17: progress is saved with `golib.SaveData` (GoLib M6), instead of the game's own files and build tags; the save folder is now `GoLib games\crates` in the player's settings folder.
+- 2026-09-17: the game moved onto three new pieces of GoLib: the tune is `golib.NewTune` notes instead of the game's own note-by-note jukebox, the level list comes from `golib.ListAssets("maps")` instead of a hard-coded list, and a level that can't be read is reported by `(*golib.Map).Err`. The game lost about 150 lines, 110 of them the jukebox in `music.go`.

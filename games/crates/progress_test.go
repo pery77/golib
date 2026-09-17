@@ -31,10 +31,7 @@ func TestNoProgressYet(t *testing.T) {
 	if err := golib.DeleteData(progressName); err != nil {
 		t.Fatal(err)
 	}
-	s, err := newSession(nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	s := newSession(nil)
 	if len(s.progress.Best) != 0 || s.progress.MusicOff || s.saveErr != nil {
 		t.Errorf("with nothing saved: %+v, %v; want no progress, music on and no error", s.progress, s.saveErr)
 	}
@@ -46,10 +43,7 @@ func TestDamagedProgress(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { golib.DeleteData(progressName) })
-	s, err := newSession(nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	s := newSession(nil)
 	if s.saveErr == nil || !strings.Contains(s.saveErr.Error(), "damaged") {
 		t.Errorf("loading damaged progress: %v; want an error that says so", s.saveErr)
 	}

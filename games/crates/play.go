@@ -48,7 +48,7 @@ func newPlayScene(s *session, level int) *playScene {
 // Update reads the input and steps the world. golib.Run calls it 60 times per
 // second, always with dt = 1/60.
 func (s *playScene) Update(input *golib.Input, dt float32) {
-	s.session.update(input, dt)
+	s.session.update(input)
 	s.slide = max(0, s.slide-dt)
 	s.flash = max(0, s.flash-dt)
 

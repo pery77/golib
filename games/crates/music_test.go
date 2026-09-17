@@ -1,96 +1,43 @@
 package main
 
 import (
-	"math"
+	"strconv"
+	"strings"
 	"testing"
-
-	"golib"
 )
 
-func TestTuneIsWellFormed(t *testing.T) {
-	j, err := newJukebox(tune)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(j.steps) != 16*16 {
-		t.Errorf("the tune has %d steps, want 16 bars of 16", len(j.steps))
-	}
-	if len(j.steps[0]) == 0 {
-		t.Error("the tune starts with silence")
-	}
-}
-
-func TestNoteFrequency(t *testing.T) {
-	tests := []struct {
-		name string
-		want float64
-	}{
-		{"A4", 440},
-		{"A3", 220},
-		{"C4", 261.63},
-		{"C#5", 554.37},
-		{"Bb3", 233.08},
-		{"G#4", 415.30},
-	}
-	for _, tt := range tests {
-		got, err := noteFrequency(tt.name)
-		if err != nil || math.Abs(float64(got)-tt.want) > 0.01 {
-			t.Errorf("noteFrequency(%q) = %v, %v; want %v", tt.name, got, err, tt.want)
+// tuneBeats returns how many beats the notes of a voice last. GoLib checks the
+// notes themselves, and golib.Run reports a mistake in them, so this only
+// counts lengths.
+func tuneBeats(t *testing.T, notes string) float64 {
+	t.Helper()
+	total := 0.0
+	for _, item := range strings.Fields(notes) {
+		beats := 1.0
+		if _, length, found := strings.Cut(item, "/"); found {
+			value, err := strconv.ParseFloat(length, 64)
+			if err != nil {
+				t.Fatalf("the note %q doesn't say how many beats it lasts: %v", item, err)
+			}
+			beats = value
 		}
+		total += beats
 	}
-	for _, bad := range []string{"", "H4", "A", "A#", "A9", "C#10", "x"} {
-		if _, err := noteFrequency(bad); err == nil {
-			t.Errorf("noteFrequency(%q) didn't fail", bad)
+	return total
+}
+
+// The melody, the bass and the tick must all last the same number of beats:
+// the longest voice sets the length of the tune, and a short one would fall
+// out of step with the others every time it loops.
+func TestTuneVoicesLineUp(t *testing.T) {
+	const beats = 16 * 8 // 16 bars of 8 beats
+	if len(themeSpec.Voices) != 3 {
+		t.Fatalf("the tune has %d voices, want the melody, the bass and the tick", len(themeSpec.Voices))
+	}
+	for i, voice := range themeSpec.Voices {
+		if got := tuneBeats(t, voice.Notes); got != beats {
+			t.Errorf("voice %d lasts %g beats, want %d", i+1, got, beats)
 		}
-	}
-}
-
-func TestBadScores(t *testing.T) {
-	for _, voices := range [][]voice{
-		{{score: "A4 - - -"}},                                                  // not a whole bar
-		{{score: "A4 - - - - - - - - - - - - - - Q"}},                          // not a note
-		{{score: sixteen("A4")}, {score: sixteen("A4") + " " + sixteen("A4")}}, // voices of different lengths
-	} {
-		if _, err := newJukebox(voices); err == nil {
-			t.Errorf("newJukebox(%+v) didn't fail", voices)
-		}
-	}
-}
-
-// sixteen returns one bar of a note held for the whole bar.
-func sixteen(note string) string {
-	bar := note
-	for range 15 {
-		bar += " -"
-	}
-	return bar
-}
-
-func TestJukeboxKeepsTime(t *testing.T) {
-	j, err := newJukebox([]voice{{wave: golib.WaveSine, score: sixteen("A4")}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	// A step is 8 updates: after 80 updates, 10 steps have started.
-	for range 80 {
-		j.update(true, dt)
-	}
-	if j.next != 10 {
-		t.Errorf("after 80 updates the tune is at step %d, want 10", j.next)
-	}
-	// Off, it waits.
-	for range 80 {
-		j.update(false, dt)
-	}
-	if j.next != 10 {
-		t.Errorf("with the music off the tune moved to step %d", j.next)
-	}
-	// It loops after its last step.
-	for range 6 * 8 {
-		j.update(true, dt)
-	}
-	if j.next != 0 {
-		t.Errorf("after 16 steps the tune is at step %d, want 0", j.next)
 	}
 }
 

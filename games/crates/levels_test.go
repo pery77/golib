@@ -177,6 +177,26 @@ func TestSolveFindsTheFewestMoves(t *testing.T) {
 	}
 }
 
+// The levels are the .tmx files in assets/maps/, in the order of their names,
+// and nothing else in that folder.
+func TestLevelFilesAreTheMapsInOrder(t *testing.T) {
+	names, err := levelFiles()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.IsSorted(names) {
+		t.Errorf("the levels are out of order: %v", names)
+	}
+	for _, name := range names {
+		if !strings.HasPrefix(name, "maps/") || !strings.HasSuffix(name, ".tmx") {
+			t.Errorf("%q isn't a Tiled map in assets/maps/", name)
+		}
+	}
+	if slices.Contains(names, "maps/tiles.tsx") {
+		t.Error("the tileset is in the levels")
+	}
+}
+
 func TestLevelsCanBeFinished(t *testing.T) {
 	levels, err := loadLevels()
 	if err != nil {

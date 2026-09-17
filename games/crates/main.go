@@ -8,8 +8,8 @@
 //     screen.
 //   - world.go holds the rules of Sokoban as plain Go, with no input or
 //     drawing, so that world_test.go can test them.
-//   - levels.go lists the levels, which are Tiled maps in assets/maps/, and
-//     reads them; levels_test.go solves every one.
+//   - levels.go finds the levels, which are every Tiled map in assets/maps/,
+//     and reads them; levels_test.go solves every one.
 //   - play.go is the scene where a level is played: it turns the keyboard and
 //     gamepad into steps, slides the player and the crates, and draws the
 //     room with its heading.
@@ -22,7 +22,7 @@
 //     behind the menus, panels, text and stars. art.go names the frames of
 //     the tileset picture.
 //   - sounds.go holds the sound effects, and music.go the background tune,
-//     both made in code.
+//     which golib.NewTune makes from notes; both need no sound file.
 //   - progress.go is how far the player got, which session.go loads and
 //     saves with golib.LoadData and golib.SaveData.
 //   - assets/ holds the levels, the tileset picture and one sound made in
@@ -67,10 +67,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	session, err := newSession(levels)
-	if err != nil {
-		log.Fatal(err)
-	}
+	session := newSession(levels)
 	config := golib.Config{Title: "Crates", Width: screenWidth, Height: screenHeight, PixelArt: true}
 	if err := golib.Run(newTitleScene(session), config); err != nil {
 		log.Fatal(err)

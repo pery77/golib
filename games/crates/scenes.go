@@ -54,7 +54,7 @@ func (t *titleScene) setLabels() {
 }
 
 func (t *titleScene) Update(input *golib.Input, dt float32) {
-	t.session.update(input, dt)
+	t.session.update(input)
 	choice := t.menu.update(input)
 	if input.GamepadPressed(0, golib.GamepadStart) {
 		choice = t.menu.selected
@@ -138,7 +138,7 @@ func newLevelsScene(s *session, selected int) *levelsScene {
 }
 
 func (s *levelsScene) Update(input *golib.Input, dt float32) {
-	s.session.update(input, dt)
+	s.session.update(input)
 	count := len(s.session.levels)
 	selected := s.selected
 	switch s.directions.pressed(input) {
@@ -260,7 +260,7 @@ func (p *pauseScene) setLabels() {
 
 func (p *pauseScene) Update(input *golib.Input, dt float32) {
 	s := p.paused.session
-	s.update(input, dt)
+	s.update(input)
 	choice := p.menu.update(input)
 	switch {
 	case pausePressed(input) || backPressed(input) || choice == resumeButton:
@@ -313,7 +313,7 @@ func newCompleteScene(finished *playScene) *completeScene {
 
 func (c *completeScene) Update(input *golib.Input, dt float32) {
 	f := c.finished
-	f.session.update(input, dt)
+	f.session.update(input)
 	choice := c.menu.update(input)
 	if input.GamepadPressed(0, golib.GamepadStart) {
 		choice = c.menu.selected
@@ -356,7 +356,7 @@ type endScene struct {
 }
 
 func (e *endScene) Update(input *golib.Input, dt float32) {
-	e.session.update(input, dt)
+	e.session.update(input)
 	if confirmPressed(input) || backPressed(input) || input.GamepadPressed(0, golib.GamepadStart) ||
 		input.MousePressed(golib.MouseLeft) {
 		menuSelectSound.Play()
