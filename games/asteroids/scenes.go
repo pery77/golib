@@ -225,16 +225,22 @@ func (s *gameOverScene) Draw(screen *golib.Screen) {
 // ship. It reads the state and never changes it.
 func drawWorld(screen *golib.Screen, w *world) {
 	screen.Clear(spaceColor)
+	// Sparks and bullets add their light to what is behind them, so that
+	// overlapping ones glow brighter instead of covering each other.
+	screen.SetBlendMode(golib.BlendAdd)
 	for _, p := range w.particles {
 		fade := p.life / particleLifetime
-		screen.DrawCircle(p.x, p.y, 1+2*fade, withAlpha(sparkColor, fade))
+		screen.DrawCircle(p.x, p.y, 1+2*fade, golib.WithOpacity(sparkColor, fade))
 	}
+	screen.SetBlendMode(golib.BlendNormal)
 	for _, r := range w.rocks {
 		drawWrapped(r.x, r.y, r.radius()*1.15, func(x, y float32) { drawRock(screen, r, x, y) })
 	}
+	screen.SetBlendMode(golib.BlendAdd)
 	for _, b := range w.bullets {
 		screen.DrawCircle(b.x, b.y, 2.5, bulletColor)
 	}
+	screen.SetBlendMode(golib.BlendNormal)
 	// A new ship blinks while it can't crash.
 	blinking := w.ship.invulnerable > 0 && int(w.time*12)%2 == 0
 	if w.ship.alive && !blinking {
@@ -245,8 +251,7 @@ func drawWorld(screen *golib.Screen, w *world) {
 // drawHUD draws the score, the wave and the ships left.
 func drawHUD(screen *golib.Screen, w *world) {
 	screen.DrawText(fmt.Sprintf("SCORE %d", w.score), 24, 20, 32, textColor)
-	wave := fmt.Sprintf("WAVE %d", w.wave)
-	screen.DrawText(wave, (screen.Width()-screen.TextWidth(wave, 24))/2, 24, 24, textColor)
+	screen.DrawText(fmt.Sprintf("WAVE %d", w.wave), screen.Width()/2, 24, 24, textColor, golib.TextOptions{Align: golib.AlignCenter})
 	for i := range w.lives {
 		drawShip(screen, ship{}, screen.Width()-40-float32(i)*34, 42, 0)
 	}
@@ -319,10 +324,4 @@ func drawMessage(screen *golib.Screen, heading, hint string) {
 // drawCentered draws text centered across the screen, with its top at y.
 func drawCentered(screen *golib.Screen, text string, y, size float32, color golib.Color) {
 	screen.DrawText(text, (screen.Width()-screen.TextWidth(text, size))/2, y, size, color)
-}
-
-// withAlpha returns color made see-through: alpha 0 is invisible, 1 unchanged.
-func withAlpha(color golib.Color, alpha float32) golib.Color {
-	color.A = uint8(float32(color.A) * max(0, min(alpha, 1)))
-	return color
 }

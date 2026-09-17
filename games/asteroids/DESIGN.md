@@ -60,3 +60,4 @@ All the numbers are at the top of `world.go`: ship handling (`turnSpeed`, `thrus
 - 2026-09-16: music, a tracker module in `assets/`, streamed with `golib.NewMusic` and turned on and off with F3 or X.
 - 2026-09-16: `game.json` (title, version 0.1.0, author) and a placeholder `icon.png`, which `golib dist` puts in the Windows executable.
 - 2026-09-17: a thrust rumble that loops while the ship thrusts, with `golib.Sound.Loop` (M6). Not heard yet: listen for it when thrusting, and check that it stops on a crash and on pause.
+- 2026-09-17: sparks and bullets glow with `golib.BlendAdd`, the wave counter is centered with `TextOptions.Align`, and the game's own `withAlpha` gave way to `golib.WithOpacity` (GoLib M6).
