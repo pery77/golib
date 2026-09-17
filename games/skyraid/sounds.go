@@ -33,13 +33,10 @@ var (
 	}
 
 	// hitSound is a bullet that hits an enemy without destroying it.
-	hitSound = golib.NewSound(golib.SoundSpec{
-		Wave: golib.WaveNoise, Frequency: 3000, Slide: -6000, Duration: 0.05,
-		Attack: 0.001, Release: 0.04, Volume: 0.14,
-	})
+	hitSound = soundFile("sounds/hitsound.jfxr", 0.4)
 
-	explosionSound    = soundFile("sounds/Hit_hurt 5.jfxr", 0.4) // a scout or gunship breaking apart
-	bigExplosionSound = golib.Explosion()                        // a heavy breaking apart
+	explosionSound    = soundFile("sounds/explosion.jfxr", 0.4) // a scout or gunship breaking apart
+	bigExplosionSound = golib.Explosion()                       // a heavy breaking apart
 
 	// dashSound is a quick rising whoosh.
 	dashSound = golib.NewSound(golib.SoundSpec{
@@ -48,15 +45,11 @@ var (
 	})
 
 	// warpSound is a group of enemies arriving somewhere in the arena.
-	warpSound = golib.NewSound(golib.SoundSpec{
-		Wave: golib.WaveSine, Frequency: 200, Slide: 900, Duration: 0.5,
-		Attack: 0.1, Release: 0.3, Volume: 0.18, Vibrato: 25, VibratoRate: 16,
-	})
-
+	warpSound        = soundFile("sounds/warpsound.jfxr", 0.4)
 	hurtSound        = soundFile("sounds/playerhit.jfxr", 0.6)        // the ship is hit
 	repairSound      = soundFile("sounds/powerup.jfxr", 0.5)          // a repair kit is picked up
 	shipLostSound    = soundFile("sounds/playerexplosion.jfxr", 0.45) // the ship's end
-	waveClearedSound = golib.PowerUp()                                // the last enemy of a wave is gone
+	waveClearedSound = soundFile("sounds/wavecleared.jfxr", 0.4)      // the last enemy of a wave is gone
 )
 
 // soundFiles is every file the sounds above are made from, for the test that

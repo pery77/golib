@@ -1,15 +1,1 @@
-{
-  "_version": 1,
-  "_name": "explosion",
-  "waveform": "brownnoise",
-  "attack": 0,
-  "sustain": 0.06,
-  "sustainPunch": 50,
-  "decay": 0.42,
-  "frequency": 1400,
-  "frequencySweep": -900,
-  "lowPassCutoff": 6000,
-  "lowPassCutoffSweep": -5000,
-  "compression": 0.8,
-  "amplification": 35
-}
+{"_version":1,"_name":"Hit/hurt 5","_locked":[],"sampleRate":44100,"attack":0,"sustain":0,"sustainPunch":10,"decay":0.3876307735490885,"tremoloDepth":0,"tremoloFrequency":10,"frequency":1730.016703353409,"frequencySweep":-1034.042316151794,"frequencyDeltaSweep":-21.044394065871305,"repeatFrequency":18.67135697809096,"frequencyJump1Onset":20,"frequencyJump1Amount":5,"frequencyJump2Onset":80,"frequencyJump2Amount":-50,"harmonics":0,"harmonicsFalloff":0.5,"waveform":"whitenoise","interpolateNoise":true,"vibratoDepth":5.56572088666248,"vibratoFrequency":5.56572088666248,"squareDuty":50,"squareDutySweep":0,"flangerOffset":3,"flangerOffsetSweep":7,"bitCrush":16,"bitCrushSweep":0,"lowPassCutoff":1232.4625618258506,"lowPassCutoffSweep":-67.99595897809623,"highPassCutoff":0,"highPassCutoffSweep":0,"compression":1,"normalization":true,"amplification":100}
