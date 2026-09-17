@@ -225,16 +225,26 @@ func (p *project) lookupEnv(env []string, name string) string {
 // on the library search path outside Windows, where the executable's own
 // folder is searched first anyway, and with extra.
 func (c *cli) gameEnv(game string, extra ...string) []string {
+	env := c.cleanEnv()
+	if c.goos != "windows" {
+		env = append(env, c.libraryPath(c.path("build", game), env))
+	}
+	return append(env, extra...)
+}
+
+// cleanEnv returns this program's environment without the variables golib shot
+// speaks to a game through, so that a game never inherits them by accident. A
+// dist build runs with exactly this: a player has no GoLib around them, and
+// pointing it at the debug build's libraries would hide one missing from the
+// folder to share.
+func (c *cli) cleanEnv() []string {
 	var env []string
 	for _, entry := range os.Environ() {
 		if !strings.HasPrefix(strings.ToUpper(entry), "GOLIB_SHOT_") {
 			env = append(env, entry)
 		}
 	}
-	if c.goos != "windows" {
-		env = append(env, c.libraryPath(c.path("build", game), env))
-	}
-	return append(env, extra...)
+	return env
 }
 
 // toolModules are GoLib's own Go programs, which don't use raylib.

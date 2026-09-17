@@ -250,6 +250,74 @@ func TestRunLinux(t *testing.T) {
 	}
 }
 
+func TestRunDist(t *testing.T) {
+	t.Setenv("GOLIB_SHOT_FRAMES", "5")
+	tp := newTestProject(t, "windows", "rocks")
+	writeFile(t, tp.c.path("games", "rocks", gameInfoFile), `{"title": "Rocks", "version": "1.0.0", "author": "Ada"}`)
+	if code := tp.c.run([]string{"--dist", "rocks"}); code != 0 {
+		t.Fatalf("exit code %d, output:\n%s%s", code, tp.stdout.String(), tp.stderr.String())
+	}
+	folder := tp.c.path("build", "rocks", "dist", "rocks")
+	want := "[info] running build/rocks/dist/rocks/rocks.exe as a player would, from its own folder\n\nrun: rocks exited with code 0\n"
+	if !strings.HasSuffix(tp.stdout.String(), want) {
+		t.Errorf("output:\n%s\nwant it to end with:\n%s", tp.stdout.String(), want)
+	}
+	if len(tp.games) != 1 {
+		t.Fatalf("%d games ran, want 1", len(tp.games))
+	}
+	game := tp.games[0]
+	if game.exe != filepath.Join(folder, "rocks.exe") || game.dir != folder || game.timeout != 0 {
+		t.Errorf("game run = %+v, want rocks.exe in %s, with no time limit", game, folder)
+	}
+	if value := tp.c.lookupEnv(game.env, "GOLIB_SHOT_FRAMES"); value != "" {
+		t.Errorf("the game got GOLIB_SHOT_FRAMES=%s from the user's environment", value)
+	}
+
+	// A dist build finds its libraries next to itself, so it runs with the
+	// player's own environment: pointing it at the debug build's libraries
+	// would hide one missing from the folder to share.
+	t.Setenv("LD_LIBRARY_PATH", "/opt/lib")
+	tp = newTestProject(t, "linux", "rocks")
+	writeFile(t, tp.c.path("games", "rocks", gameInfoFile), `{"title": "Rocks", "version": "1.0.0", "author": "Ada"}`)
+	if code := tp.c.run([]string{"--dist"}); code != 0 {
+		t.Fatalf("exit code %d, output:\n%s%s", code, tp.stdout.String(), tp.stderr.String())
+	}
+	if got := tp.c.lookupEnv(tp.games[0].env, "LD_LIBRARY_PATH"); got != "/opt/lib" {
+		t.Errorf("LD_LIBRARY_PATH = %q, want the player's own /opt/lib", got)
+	}
+
+	// A dist build that fails leaves no game running.
+	tp = newTestProject(t, "windows", "rocks")
+	tp.failing = "build"
+	if code := tp.c.run([]string{"--dist"}); code != 1 || len(tp.games) > 0 {
+		t.Errorf("a game that doesn't build: exit code %d, %d runs, output:\n%s", code, len(tp.games), tp.stdout.String())
+	}
+}
+
+func TestRunOptionUsage(t *testing.T) {
+	tests := []struct {
+		options []string
+		want    string
+	}{
+		{[]string{"-v"}, "unknown option for run: -v"},
+		{[]string{"--dist=1"}, "unknown option for run: --dist=1"},
+		{[]string{"rocks", "snake"}, "run takes at most one game name (got: rocks snake)"},
+		{[]string{"--dist"}, "run needs a game name (available: rocks, snake)"},
+	}
+	for _, tt := range tests {
+		tp := newTestProject(t, "windows", "rocks", "snake")
+		if code := tp.c.run(tt.options); code != 2 {
+			t.Errorf("run %q: exit code %d, want 2", tt.options, code)
+		}
+		if want := "golib: " + tt.want + "\nRun \"golib help\" for usage.\n"; tp.stderr.String() != want {
+			t.Errorf("run %q: stderr %q, want %q", tt.options, tp.stderr.String(), want)
+		}
+		if len(tp.calls) > 0 || len(tp.games) > 0 {
+			t.Errorf("run %q: go or the game ran after a usage mistake", tt.options)
+		}
+	}
+}
+
 func TestShot(t *testing.T) {
 	t.Setenv("GOLIB_SHOT_INPUT", "Space@1")
 	tp := newTestProject(t, "windows", "rocks", "snake")

@@ -22,7 +22,8 @@ $PowerShellExe = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powe
 # typed in the other box, as --input, and {name} the answer to Prompt, asked in a small dialog.
 # Folder opens a folder in Explorer instead. Confirm asks before running.
 $Actions = @(
-    @{ Group = 'Play'; Label = 'Run'; Command = 'run {game}'; Tip = 'Build the game and play it' }
+    @{ Group = 'Play'; Label = 'Run debug'; Command = 'run {game}'; Tip = 'Build the game and play it. A debug build reads assets\ from the game''s folder, so a changed picture, sound, shader or map shows on the next run, and it opens a console window for errors' }
+    @{ Group = 'Play'; Label = 'Run dist'; Command = 'run {game} --dist'; Tip = 'Build the game to share, then play it from build\<game>\dist\<game>\ the way a player would: the assets inside the executable, no console window, nothing of GoLib''s around it. Check the build this way before sharing the zip' }
     @{ Group = 'Play'; Label = 'Screenshots'; Command = 'shot {game} {frames} {input}'; Tip = 'Run the game in a hidden window, playing the input in the box, and save screenshots of the frames in the box (60 frames are one second)' }
     @{ Group = 'Build'; Label = 'Debug build'; Command = 'build {game}'; Tip = 'Build into build\<game>\, next to the raylib libraries. Started from Explorer, it reads games\<game>\assets\, and shows errors in a message box because its console window closes when the game ends' }
     @{ Group = 'Build'; Label = 'Dist build'; Command = 'dist {game}'; Tip = 'Build the game to share into build\<game>\dist\: a folder with the executable, the libraries it loads and THIRD-PARTY-LICENSES.txt, and a zip of it. It takes its icon from icon.png and its title, version and author from game.json, in the game''s folder' }

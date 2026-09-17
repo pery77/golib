@@ -54,7 +54,8 @@ Commands:
   new <name>              Create games/<name>/, a small game ready to run, from tools/template/game/
   build [game]            Debug build of games/<game> into build/<game>/
   dist [game]             Build games/<game> to share: a folder and its zip in build/<game>/dist/
-  run [game]              Build games/<game>, then run it from its folder
+  run [game] [--dist]     Build games/<game>, then run it from its folder. --dist builds and
+                          runs the build players get, from build/<game>/dist/<game>/
   shot [game] [frame...]  Run games/<game> in a hidden window and save screenshots of the given
                           frames into build/<game>/shots/ (default: frame 60, one second in).
                           --input "Enter@1 Right@30-90 Mouse@100:640,360 MouseLeft@101" plays keyboard,

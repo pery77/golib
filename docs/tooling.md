@@ -144,7 +144,7 @@ Random numbers from `golib.RandomInt` and `golib.RandomFloat` start from the sam
 
 ## Dist builds
 
-`golib dist [game]` builds a game for players: a folder with the executable and the files it needs, and a zip of that folder to share. Every other command makes a debug build.
+`golib dist [game]` builds a game for players: a folder with the executable and the files it needs, and a zip of that folder to share. Every other command makes a debug build, except `golib run [game] --dist`, which makes this build and then runs it from its own folder, with the player's environment, so that what players get can be played before it is shared.
 
 ```text
 build/<game>/dist/                  emptied first
@@ -157,7 +157,7 @@ build/<game>/dist/                  emptied first
 
 `<version>` comes from the game's `game.json`, and is `0.0.0` without one; `<os>` is `windows`, `linux` or `macos`, and `<arch>` is `amd64` or `arm64`. For example, `rocks-1.2.0-windows-amd64.zip` holds the `rocks/` folder, so unzipping it gives players one folder with everything in it. `dist` builds for the machine it runs on; there is no cross-compiling yet.
 
-| | Debug build: `build`, `run`, `shot`, `test`, F5 | Dist build: `dist` |
+| | Debug build: `build`, `run`, `shot`, `test`, F5 | Dist build: `dist`, `run --dist` |
 | --- | --- | --- |
 | Output | `build/<game>/<game>.exe`, next to the libraries | `build/<game>/dist/<game>/<game>.exe`, next to the libraries and `THIRD-PARTY-LICENSES.txt`, and a zip of that folder |
 | Console window (Windows) | Yes: raylib's warnings and Go's errors appear there, and nothing else, so it stays empty while all is well. Started from Explorer, the window closes when the game ends, so `golib.Run` also shows its error, or a panic in the game, in a message box | No. `golib.Run` shows its error, or a panic in the game, in a message box |
@@ -308,7 +308,7 @@ Windows PowerShell 5.1 splits arguments that start with `-` and contain a dot be
 
 `tools/ui/golib-ui.ps1` is a window with a button for each command, for people who would rather click than type. `golib-ui.cmd` starts it. It is Windows only: it uses WPF and Windows PowerShell 5.1, which come with Windows 10 and 11, so it needs nothing installed. Linux and macOS use `./golib <command>` or the VS Code tasks.
 
-- **No build logic.** Each command button starts `golib.ps1` with the same arguments as typing `.\golib <command>`, shows its output as it arrives, and reports the exit code. Stop ends the command's whole process tree, including a game started by Run.
+- **No build logic.** Each command button starts `golib.ps1` with the same arguments as typing `.\golib <command>`, shows its output as it arrives, and reports the exit code. Stop ends the command's whole process tree, including a game started by Run debug or Run dist.
 - **Buttons come from the `$Actions` table** at the top of the script. `Command` is golib's arguments, where `{game}` is the game picked in the list and `{frames}` the frame numbers in the box; `Folder` opens a folder in Explorer instead; `Confirm` asks before running. A new CLI command usually needs one line there.
 - **One command at a time.** While a command runs, the other command buttons are disabled, so two commands never write to `.tools/raylib/` or `build/` together.
 - **Same rules as `golib.ps1`:** ASCII only, no PowerShell 7-only syntax, `Set-StrictMode -Version 3.0`.

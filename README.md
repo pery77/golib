@@ -60,7 +60,7 @@ GoLib reads Tiled maps, Aseprite files, PNG images, fonts, jfxr sounds and sound
 | `golib setup` | Checks your system and prepares the local tools. Safe to run again. |
 | `golib doctor` | Diagnoses problems without changing anything. |
 | `golib new <name>` | Creates a new game in `games/<name>/`, ready to run. |
-| `golib run [game]` | Builds a game and runs it. |
+| `golib run [game]` | Builds a game and runs it. `--dist` runs the build players get instead. |
 | `golib build [game]` | Builds a game into `build/`, for development. |
 | `golib dist [game]` | Builds a game to share: a folder with everything it needs, zipped, with the licenses that go with it and, on Windows, its icon and version details. |
 | `golib shot [game] [frame...]` | Saves screenshots of a game at the given frames, without opening a visible window. |
