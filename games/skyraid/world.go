@@ -1,6 +1,10 @@
 package main
 
-import "golib"
+import (
+	"math"
+
+	"golib"
+)
 
 // Tuning: the numbers that define how the game feels. Enemy kinds are in
 // enemies.go and waves in waves.go.
@@ -26,6 +30,11 @@ const (
 	repairLifetime   = 10   // seconds a repair kit stays
 	repairBlinkAfter = 7    // seconds after which a repair kit blinks, about to go
 	pickupReach      = 10   // pixels added to both radii when picking a repair kit up
+
+	glitchHit   = 0.85 // how hard the screen breaks up when the ship is hit, from 0 to 1
+	glitchLost  = 1.0  // how hard it breaks up when the ship is destroyed
+	glitchDecay = 1.8  // break-up lost per second
+	dangerBeat  = 6    // radians per second the last hull point's warning pulses
 
 	traumaDecay     = 1.8  // shake lost per second; shake goes from 0 to 1
 	traumaHurt      = 0.55 // shake added when the ship is hit
@@ -123,6 +132,7 @@ type world struct {
 	lastBonus  int     // flawless bonus of the wave just cleared, for the banner
 	kills      int
 	trauma     float32 // screen shake, from 0 to 1
+	glitch     float32 // how badly the screen breaks up after a hit, from 0 to 1
 	time       float32 // seconds since the world began
 	over       bool    // true once the ship is gone
 	overTime   float32 // seconds since the ship was destroyed
@@ -140,6 +150,7 @@ func newWorld() world {
 func (w *world) step(c controls, dt float32) {
 	w.time += dt
 	w.trauma = max(0, w.trauma-traumaDecay*dt)
+	w.glitch = max(0, w.glitch-glitchDecay*dt)
 	if w.over {
 		w.overTime += dt
 	}
@@ -338,6 +349,7 @@ func (w *world) hurtShip(push golib.Vector2) {
 	s.hitThisWave = true
 	s.hurt = hurtTime
 	w.shake(traumaHurt)
+	w.glitch = max(w.glitch, glitchHit)
 	s.velocity = s.velocity.Add(push.Normalize().Scale(220))
 	w.burst(s.position, 12, 200, shipColor)
 	w.blast(s.position, shipRadius, warnColor)
@@ -351,7 +363,19 @@ func (w *world) hurtShip(push golib.Vector2) {
 	w.burst(s.position, 30, 260, shipColor)
 	w.blast(s.position, 50, shotColor)
 	w.shake(1)
+	w.glitch = glitchLost
 	shipLostSound.Play()
+}
+
+// danger is how close the ship is to being destroyed: 0 while it has hull to
+// spare, and a pulse between 0 and 1 on its last hull point, in step with the
+// red the HUD pulses at the screen's edges. The lens (effects.go) strains with
+// it.
+func (w *world) danger() float32 {
+	if !w.ship.alive || w.ship.hull > 1 {
+		return 0
+	}
+	return 0.5 + 0.5*float32(math.Sin(float64(w.time)*dangerBeat))
 }
 
 // shake adds screen shake, up to the most there is.

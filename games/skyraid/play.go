@@ -73,6 +73,14 @@ func (s *playScene) followCamera(dt float32) {
 	s.camera.Update(dt)
 }
 
+// applyEffects tells the screen effects (effects.go) how the game is going:
+// how badly the picture is still breaking up from the last hit, and how close
+// the ship is to being destroyed. The pause and game over scenes call it too,
+// so the effects follow the same world.
+func (s *playScene) applyEffects() {
+	s.session.effects.set(s.world.glitch, s.world.danger())
+}
+
 // Update reads the input, advances the world and moves the camera. golib.Run
 // calls it 60 times per second, always with dt = 1/60.
 func (s *playScene) Update(input *golib.Input, dt float32) {
@@ -85,6 +93,7 @@ func (s *playScene) Update(input *golib.Input, dt float32) {
 
 	s.world.step(s.readControls(input), dt)
 	s.followCamera(dt)
+	s.applyEffects()
 
 	if s.world.over && s.world.overTime >= overDelay {
 		s.session.record(&s.world)
@@ -181,4 +190,5 @@ func (s *playScene) Draw(screen *golib.Screen) {
 	if s.aim == aimByMouse && !s.world.over {
 		drawCrosshair(screen, s.mouse)
 	}
+	drawNotes(screen, s.session.notes()...)
 }

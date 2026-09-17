@@ -16,7 +16,10 @@ import (
 //	  |                                                '-----Esc/B-----> title
 //	  '--Esc--> quit
 //
-// In every scene, F11 or Alt+Enter switches fullscreen.
+// In every scene, F11 or Alt+Enter switches fullscreen, F2 or the Y button
+// turns the screen effects (effects.go) on and off, F3 or the X button turns
+// the music (music.go) on and off, and F5 reads the shaders from the assets
+// folder again, to tune them without leaving the game.
 
 // Scene tuning.
 const (
@@ -28,18 +31,30 @@ const (
 )
 
 // session is what every scene shares while the game runs: the best result so
-// far and the space behind the arena. GoLib can't save files yet, so the best
-// score is gone when the game closes.
+// far, the space behind the arena, the screen effects and the music. GoLib
+// can't save files yet, so the best score is gone when the game closes.
 type session struct {
 	bestScore int
 	bestWave  int
 	newBest   bool // the last game beat the best score
 	backdrop  *backdrop
+	effects   *effects
+	music     *golib.Music
+	musicOn   bool
+	musicNote string // why there is no music, for the screen; empty when there is
 }
 
-// newSession returns a session with a new backdrop.
+// newSession returns a session with a new backdrop, the screen effects on and
+// the music playing, if the assets folder has a tune GoLib can play.
 func newSession() *session {
-	return &session{backdrop: newBackdrop()}
+	s := &session{backdrop: newBackdrop(), effects: newEffects(), musicOn: true}
+	s.music, s.musicNote = findMusic()
+	return s
+}
+
+// notes are the lines the screen shows about what the game couldn't load.
+func (s *session) notes() []string {
+	return []string{s.effects.err, s.musicNote}
 }
 
 // record keeps a finished game's result if it is the best so far.
@@ -52,11 +67,36 @@ func (s *session) record(w *world) {
 }
 
 // handleKeys reads the keys every scene shares: F11 or Alt+Enter switch
-// fullscreen.
+// fullscreen, F2 or the Y button turn the screen effects on and off, F3 or the
+// X button turn the music on and off, and F5 reads the shaders again.
 func (s *session) handleKeys(input *golib.Input) {
 	if input.KeyPressed(golib.KeyF11) || (altDown(input) && input.KeyPressed(golib.KeyEnter)) {
 		golib.SetFullscreen(!golib.IsFullscreen())
 	}
+	if input.KeyPressed(golib.KeyF2) || input.GamepadPressed(0, golib.GamepadY) {
+		s.effects.setOn(!s.effects.on)
+	}
+	if input.KeyPressed(golib.KeyF3) || input.GamepadPressed(0, golib.GamepadX) {
+		s.musicOn = !s.musicOn
+	}
+	if input.KeyPressed(golib.KeyF5) {
+		s.effects.reload()
+	}
+	s.playMusic()
+}
+
+// playMusic keeps the music going, or holds it while it is off. Both calls are
+// safe in every update: the first Play starts the music, once golib.Run has
+// opened the sound device.
+func (s *session) playMusic() {
+	if s.music == nil {
+		return
+	}
+	if s.musicOn {
+		s.music.Play()
+		return
+	}
+	s.music.Pause()
 }
 
 func altDown(input *golib.Input) bool {
@@ -96,6 +136,7 @@ func titleTarget(time float32) golib.Vector2 {
 func (s *titleScene) Update(input *golib.Input, dt float32) {
 	s.session.handleKeys(input)
 	golib.SetMouseVisible(true)
+	s.session.effects.set(0, 0) // no ship on the title: nothing glitches
 	s.time += dt
 	s.camera.Target = titleTarget(s.time)
 	s.camera.Update(dt)
@@ -131,10 +172,11 @@ func (s *titleScene) Draw(screen *golib.Screen) {
 		"Aim: mouse, arrow keys or right stick",
 		"Fire: left click, Space, arrow keys, A or right trigger",
 		"Dash through bullets: Shift, right click, B or left bumper",
-		"Pause: Esc, P or Start      Fullscreen: F11 or Alt+Enter",
+		"Pause: Esc, P or Start     Fullscreen: F11 or Alt+Enter",
+		"Screen effects: F2     Music: F3",
 	}
 	for i, line := range lines {
-		drawCentered(screen, line, 360+float32(i)*30, 20, dimTextColor)
+		drawCentered(screen, line, 350+float32(i)*30, 20, dimTextColor)
 	}
 
 	pulse := 0.6 + 0.4*float32(math.Sin(float64(s.time)*4))
@@ -143,6 +185,7 @@ func (s *titleScene) Draw(screen *golib.Screen) {
 		drawCentered(screen, fmt.Sprintf("Best score %d, wave %d", s.session.bestScore, s.session.bestWave), 600, 20, textColor)
 	}
 	drawCentered(screen, "Esc: quit", 670, 20, dimTextColor)
+	drawNotes(screen, s.session.notes()...)
 }
 
 // pauseScene freezes a play scene and shows a message over it. Resuming
@@ -155,6 +198,7 @@ type pauseScene struct {
 func (s *pauseScene) Update(input *golib.Input, dt float32) {
 	s.paused.session.handleKeys(input)
 	golib.SetMouseVisible(true)
+	s.paused.applyEffects()
 	if pausePressed(input) {
 		golib.SwitchScene(s.paused)
 		return
@@ -185,6 +229,7 @@ func (s *gameOverScene) Update(input *golib.Input, dt float32) {
 	s.time += dt
 	p.world.step(controls{}, dt)
 	p.followCamera(dt)
+	p.applyEffects()
 	if s.time < gameOverWait {
 		return
 	}

@@ -184,6 +184,32 @@ func TestEnemyShotHurtsOnceThenTheShipIsSafeForAWhile(t *testing.T) {
 	}
 }
 
+func TestAHitBreaksTheScreenUpAndItSettles(t *testing.T) {
+	w := quietWorld()
+	if w.glitch != 0 || w.danger() != 0 {
+		t.Fatal("a new world already glitches, or its ship is already in danger")
+	}
+	w.enemyShots = []shot{{position: w.ship.position, radius: 5, life: 2}}
+	w.step(controls{}, dt)
+	if !near(w.glitch, glitchHit, glitchDecay*dt) {
+		t.Errorf("a hit set the glitch to %v, want about %v", w.glitch, glitchHit)
+	}
+	run(&w, controls{}, 1)
+	if w.glitch != 0 {
+		t.Errorf("the glitch is %v once it has had time to fade, want 0", w.glitch)
+	}
+
+	// The lens strains on the last hull point, and lets go when the ship does.
+	w.ship.hull = 1
+	if w.danger() <= 0 {
+		t.Error("the ship on its last hull point isn't in danger")
+	}
+	w.ship.alive = false
+	if w.danger() != 0 {
+		t.Error("a destroyed ship is still in danger")
+	}
+}
+
 func TestTheGameEndsWithTheLastHullPoint(t *testing.T) {
 	w := quietWorld()
 	w.ship.hull = 1

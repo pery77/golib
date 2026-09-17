@@ -8,12 +8,11 @@ import (
 
 // Drawing tuning.
 const (
-	gridSpacing   = 160 // pixels between the arena's grid lines
-	starCount     = 90  // stars per layer
-	starMargin    = 100 // pixels the star field reaches past each side of the screen
-	nebulaCount   = 7
-	nebulaDepth   = 0.5 // how far nebulae move for each pixel the camera moves
-	shipNose      = 22  // pixels from the ship's center to its nose, where bullets start
+	gridSpacing   = 160  // pixels between the arena's grid lines
+	starCount     = 90   // stars per layer
+	starMargin    = 100  // pixels the star field reaches past each side of the screen
+	skyDepth      = 0.08 // how far the sky picture moves for each pixel the camera moves
+	shipNose      = 22   // pixels from the ship's center to its nose, where bullets start
 	shotStreak    = 0.022
 	blinkRate     = 16 // blinks per second of a hurt ship or an old repair kit
 	enemyBarWidth = 36 // pixels, for the hull bar over a damaged enemy
@@ -23,22 +22,20 @@ const (
 // moves: less is farther away.
 var starDepths = [...]float32{0.12, 0.3, 0.55}
 
-// backdrop is the space behind the arena: stars in layers and a few nebulae,
-// scattered at random once for the whole session.
+// sky is the picture behind everything, from the game's assets folder, so it
+// can be swapped without building the game. It is made once, and read the
+// first time it is drawn.
+var sky = golib.NewSprite("textures/background.png")
+
+// backdrop is the space behind the arena: the sky picture, with stars in
+// layers over it, scattered at random once for the whole session.
 type backdrop struct {
-	stars   [len(starDepths)][]star
-	nebulae []nebula
+	stars [len(starDepths)][]star
 }
 
 type star struct {
 	x, y float32 // in the star field, which repeats every screen plus margins
 	size float32 // radius in pixels
-}
-
-type nebula struct {
-	x, y   float32 // where it is when the camera's view starts at 0, 0
-	radius float32
-	color  golib.Color
 }
 
 func newBackdrop() *backdrop {
@@ -53,18 +50,6 @@ func newBackdrop() *backdrop {
 			})
 		}
 	}
-	// Nebulae move at half the camera's speed, so they spread over half the
-	// arena plus a screen.
-	spanW := float32((worldWidth-screenWidth)*nebulaDepth + screenWidth)
-	spanH := float32((worldHeight-screenHeight)*nebulaDepth + screenHeight)
-	for n := range nebulaCount {
-		b.nebulae = append(b.nebulae, nebula{
-			x:      golib.RandomFloat(0, spanW),
-			y:      golib.RandomFloat(0, spanH),
-			radius: golib.RandomFloat(180, 380),
-			color:  nebulaColors[n%len(nebulaColors)],
-		})
-	}
 	return b
 }
 
@@ -74,16 +59,7 @@ func newBackdrop() *backdrop {
 func (b *backdrop) draw(screen *golib.Screen, camera *golib.Camera) {
 	view := camera.View()
 	screen.Clear(spaceColor)
-	for _, n := range b.nebulae {
-		x, y := n.x-view.X*nebulaDepth, n.y-view.Y*nebulaDepth
-		if x+n.radius < 0 || x-n.radius > screenWidth || y+n.radius < 0 || y-n.radius > screenHeight {
-			continue
-		}
-		// Three see-through circles make a soft blob.
-		screen.DrawCircle(x, y, n.radius, n.color)
-		screen.DrawCircle(x+n.radius*0.25, y-n.radius*0.1, n.radius*0.65, n.color)
-		screen.DrawCircle(x-n.radius*0.2, y+n.radius*0.15, n.radius*0.4, n.color)
-	}
+	drawSky(screen, view)
 	fieldW, fieldH := float32(screenWidth+2*starMargin), float32(screenHeight+2*starMargin)
 	for layer, stars := range b.stars {
 		depth := starDepths[layer]
@@ -94,6 +70,24 @@ func (b *backdrop) draw(screen *golib.Screen, camera *golib.Camera) {
 			screen.DrawCircle(x, y, s.size, shade)
 		}
 	}
+}
+
+// drawSky draws the picture behind everything, scaled so that it covers the
+// screen wherever the camera looks, and moved a little with the camera, so the
+// arena feels deep. It is drawn much darker than the file (skyTint in
+// main.go): at its own brightness the clouds are as bright as the ships and
+// the bullets, and the game is hard to read over them.
+func drawSky(screen *golib.Screen, view golib.Rectangle) {
+	width, height := sky.Width(), sky.Height()
+	if width == 0 || height == 0 {
+		return // the picture couldn't be read; golib.Run stops and says why
+	}
+	// Wide and tall enough that the drift never reaches its edges.
+	scale := max(
+		(screenWidth+(worldWidth-screenWidth)*skyDepth)/width,
+		(screenHeight+(worldHeight-screenHeight)*skyDepth)/height)
+	screen.DrawSprite(sky, 0, -view.X*skyDepth, -view.Y*skyDepth,
+		golib.DrawOptions{Scale: scale, Tint: skyTint})
 }
 
 // drawWorld draws the arena and everything in it, from back to front, through

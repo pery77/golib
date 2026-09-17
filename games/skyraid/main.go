@@ -19,9 +19,13 @@
 //   - draw.go draws the arena and everything in it, through the camera;
 //     hud.go the score, the radar and the arrows to enemies off the screen,
 //     in screen pixels.
-//   - sounds.go holds the sound effects; assets/sounds/explosion.jfxr is one,
-//     made with jfxr. assets.go puts the assets folder inside golib dist
-//     builds.
+//   - effects.go runs the screen effects over the finished picture: the bloom,
+//     the lens and the glitch of a hit. Their shaders are files in
+//     assets/shaders/, read as the game starts and again on F5, so they can be
+//     tuned without building the game.
+//   - sounds.go holds the sound effects, most of them files in
+//     assets/sounds/, made with jfxr. music.go finds the tune in
+//     assets/music/. assets.go puts the assets folder inside golib dist builds.
 package main
 
 import (
@@ -43,7 +47,7 @@ var (
 	gridColor      = golib.Color{R: 30, G: 40, B: 80, A: 110}
 	borderColor    = golib.Color{R: 255, G: 70, B: 110, A: 255}
 	borderGlow     = golib.Color{R: 255, G: 70, B: 110, A: 40}
-	nebulaColors   = []golib.Color{{R: 90, G: 40, B: 140, A: 26}, {R: 30, G: 90, B: 150, A: 26}, {R: 150, G: 40, B: 90, A: 20}}
+	skyTint        = golib.Color{R: 40, G: 40, B: 52, A: 255} // how much of assets/textures/background.png shows
 	starColor      = golib.Color{R: 200, G: 215, B: 255, A: 255}
 	shipColor      = golib.Color{R: 90, G: 230, B: 255, A: 255}
 	shipDarkColor  = golib.Color{R: 20, G: 80, B: 110, A: 255}

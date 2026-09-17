@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"math"
+	"strings"
 
 	"golib"
 )
@@ -19,6 +19,11 @@ const (
 	hullPipWidth  = 30
 	hullPipHeight = 12
 	dashBarWidth  = 120
+
+	// Where what the game couldn't load goes, at the bottom left.
+	noteLine    = 88 // letters of a note on a line, at 20 pixels on a 1280 pixel screen
+	noteSpacing = 26 // pixels from one line of notes to the next
+	noteBottom  = 76 // pixels from the bottom of the screen to the last line
 )
 
 // centered puts the middle of each line at the x that DrawText is given.
@@ -173,13 +178,46 @@ func drawDanger(screen *golib.Screen, w *world) {
 	if !w.ship.alive || w.ship.hull > 1 {
 		return
 	}
-	pulse := 0.5 + 0.5*float32(math.Sin(float64(w.time)*6))
-	color := withAlpha(warnColor, 0.15+0.2*pulse)
+	color := withAlpha(warnColor, 0.15+0.2*w.danger())
 	const edge = 14
 	screen.DrawRectangle(golib.Rectangle{Width: screenWidth, Height: edge}, color)
 	screen.DrawRectangle(golib.Rectangle{Y: screenHeight - edge, Width: screenWidth, Height: edge}, color)
 	screen.DrawRectangle(golib.Rectangle{Y: edge, Width: edge, Height: screenHeight - 2*edge}, color)
 	screen.DrawRectangle(golib.Rectangle{X: screenWidth - edge, Y: edge, Width: edge, Height: screenHeight - 2*edge}, color)
+}
+
+// drawNotes says on screen what the game couldn't load: a shader that isn't
+// where it should be, or music GoLib can't play. It shows nothing when
+// everything loaded, so a finished game never shows it.
+func drawNotes(screen *golib.Screen, notes ...string) {
+	var lines []string
+	for _, note := range notes {
+		if note != "" {
+			lines = append(lines, wrapText(note, noteLine)...)
+		}
+	}
+	top := screenHeight - noteBottom - float32(len(lines))*noteSpacing
+	for i, line := range lines {
+		screen.DrawText(line, hudMargin, top+float32(i)*noteSpacing, 20, warnColor)
+	}
+}
+
+// wrapText breaks text into lines of at most width letters, on the spaces.
+func wrapText(text string, width int) []string {
+	var lines []string
+	line := ""
+	for _, word := range strings.Fields(text) {
+		switch {
+		case line == "":
+			line = word
+		case len(line)+1+len(word) <= width:
+			line += " " + word
+		default:
+			lines = append(lines, line)
+			line = word
+		}
+	}
+	return append(lines, line)
 }
 
 // drawCentered draws text centered across the screen, with its top at y.
