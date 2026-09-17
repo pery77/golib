@@ -229,10 +229,10 @@ func TestCameraInAWindow(t *testing.T) {
 			t.Errorf("at zoom 2, pixel %v = %v, want nothing", p, zoomed.NRGBAAt(p[0], p[1]))
 		}
 	}
-	screen.endCamera()
+	screen.endDraw()
 
 	// A camera made for another screen size is a mistake.
 	capture(func() { screen.SetCamera(NewCamera(320, 180)) })
-	screen.endCamera()
+	screen.endDraw()
 	wantError(t, "golib: Screen.SetCamera got a camera for a 320 by 180 screen, but the screen is 16 by 8")
 }

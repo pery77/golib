@@ -18,7 +18,24 @@ type Screen struct {
 	// part of the world it showed then.
 	camera *Camera
 	view   Rectangle
+	blend  BlendMode // how SetBlendMode mixes colors in this Draw
 }
+
+// BlendMode says how the colors a game draws mix with what is on the screen
+// under them.
+type BlendMode int
+
+// Blend modes.
+const (
+	// BlendNormal covers what is underneath, the more so the less
+	// see-through the color is. The default.
+	BlendNormal BlendMode = iota
+
+	// BlendAdd adds the color to what is underneath, so that overlapping
+	// shapes grow brighter and nothing gets darker: explosions, flames,
+	// sparks, lasers and other glows. Black adds nothing.
+	BlendAdd
+)
 
 // Width returns the screen width in pixels.
 func (s *Screen) Width() float32 {
@@ -162,7 +179,10 @@ func (s *Screen) TextWidth(text string, size float32, options ...TextOptions) fl
 // changing the camera.
 func (s *Screen) SetCamera(camera *Camera) {
 	if camera == nil {
-		s.endCamera()
+		if s.camera != nil {
+			rl.EndMode2D()
+			s.camera = nil
+		}
 		return
 	}
 	if camera.width != s.width || camera.height != s.height {
@@ -177,12 +197,41 @@ func (s *Screen) SetCamera(camera *Camera) {
 	})
 }
 
-// endCamera goes back to drawing in screen pixels. Run calls it after each
-// Draw, in case the game left a camera set.
-func (s *Screen) endCamera() {
+// SetBlendMode changes how the drawing that follows mixes with what is
+// already on the screen: BlendAdd makes glows brighter where they overlap,
+// and BlendNormal, the default, covers. Every Draw starts with BlendNormal:
+//
+//	screen.SetBlendMode(golib.BlendAdd)
+//	for _, spark := range s.sparks {
+//		screen.DrawCircle(spark.X, spark.Y, 3, sparkColor)
+//	}
+//	screen.SetBlendMode(golib.BlendNormal)
+func (s *Screen) SetBlendMode(mode BlendMode) {
+	if mode != BlendNormal && mode != BlendAdd {
+		reportError(fmt.Errorf("golib: Screen.SetBlendMode got %d: use BlendNormal or BlendAdd", mode))
+		return
+	}
+	if mode == s.blend {
+		return
+	}
+	if mode == BlendAdd {
+		rl.BeginBlendMode(rl.BlendAdditive)
+	} else {
+		rl.EndBlendMode()
+	}
+	s.blend = mode
+}
+
+// endDraw goes back to drawing in screen pixels, in the normal blend mode.
+// Run calls it after each Draw, in case the game left either set.
+func (s *Screen) endDraw() {
 	if s.camera != nil {
 		rl.EndMode2D()
 		s.camera = nil
+	}
+	if s.blend != BlendNormal {
+		rl.EndBlendMode()
+		s.blend = BlendNormal
 	}
 }
 

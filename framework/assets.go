@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -127,4 +128,54 @@ func readAsset(files fs.FS, where, name string) ([]byte, error) {
 		return nil, fmt.Errorf("golib.ReadAsset: cannot read %s %s: %w", path, where, err)
 	}
 	return data, nil
+}
+
+// ListAssets returns the names of the files in a folder of the game's assets
+// folder, sorted, such as every level in maps/. The names are as ReadAsset
+// takes them, folder and all ("maps/level1.tmx"); folders inside are left out.
+// Pass "" for the assets folder itself.
+//
+//	levels, err := golib.ListAssets("maps") // games/<game>/assets/maps/
+//
+// It reads the same files as ReadAsset: those on disk in a debug build, and
+// those embedded in the executable in a golib dist build, which are the files
+// that were in the assets folder when the game was built.
+func ListAssets(folder string) ([]string, error) {
+	files, where, err := assetSource(embeddedAssets, distBuild)
+	if err != nil {
+		return nil, err
+	}
+	return listAssets(files, where, folder)
+}
+
+// listAssets lists the files in assets/<folder> of files. where says where
+// files are, for error messages.
+func listAssets(files fs.FS, where, folder string) ([]string, error) {
+	path := assetsDir
+	if folder != "" {
+		if !fs.ValidPath(folder) || folder == "." || strings.Contains(folder, `\`) {
+			return nil, fmt.Errorf("golib.ListAssets: invalid folder %q: use a path relative to the assets folder, with forward slashes, such as \"maps\"", folder)
+		}
+		path += "/" + folder
+	}
+	entries, err := fs.ReadDir(files, path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, fmt.Errorf("golib.ListAssets: %s not found %s: folders are relative to the game's assets folder", path, where)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("golib.ListAssets: cannot read %s %s: %w", path, where, err)
+	}
+	var names []string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if folder != "" {
+			name = folder + "/" + name
+		}
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	return names, nil
 }

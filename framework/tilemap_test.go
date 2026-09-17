@@ -10,6 +10,7 @@ import (
 	"image"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -768,6 +769,35 @@ func TestWholePixel(t *testing.T) {
 	for _, test := range []struct{ in, want float32 }{{670.5, 671}, {683.333, 683}, {-0.5, 0}, {-3.66667, -4}, {2, 2}, {-1.5, -1}} {
 		if got := wholePixel(test.in); got != test.want {
 			t.Errorf("wholePixel(%v) = %v, want %v", test.in, got, test.want)
+		}
+	}
+}
+
+func TestMapErr(t *testing.T) {
+	useAssets(t, map[string][]byte{
+		"maps/level.tmx":  []byte(mapFile(2, 2, `<data encoding="csv">1,2,3,4</data>`)),
+		"maps/t.png":      pngFile(t, 4, 4),
+		"maps/broken.tmx": []byte("<map>"),
+		"maps/level.json": []byte("{}"),
+	})
+	if err := readMap(t, "maps/level.tmx").Err(); err != nil {
+		t.Errorf("a map that loads: Err() = %v", err)
+	}
+	for name, want := range map[string]string{
+		"maps/missing.tmx": "assets/maps/missing.tmx not found",
+		"maps/broken.tmx":  "golib.NewMap(\"maps/broken.tmx\")",
+		"maps/level.json":  "save the map as TMX in Tiled",
+	} {
+		err := NewMap(name).Err()
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("Err() of %s = %v, want one containing %q", name, err, want)
+		}
+		// Err leaves the game running: only using the map stops Run.
+		if pending := takeError(); pending != nil {
+			t.Errorf("Err() of %s reported %v to Run", name, pending)
+		}
+		if level := NewMap(name); level.Width() != 0 || takeError() == nil {
+			t.Errorf("using %s: width %v, and Run was not told", name, level.Width())
 		}
 	}
 }

@@ -169,6 +169,24 @@ func (m *Map) value(get func() float32) float32 {
 	return get()
 }
 
+// Err reads the map, if it has not been read yet, and returns what stopped it
+// from loading: a missing file, a format GoLib doesn't read, or a mistake in
+// the file. It returns nil when the map is ready. Drawing or asking a map that
+// didn't load stops Run with the same mistake, so a game needs Err only to
+// handle it itself, such as to skip a level or to name the wrong file in a
+// test:
+//
+//	for _, name := range levelFiles {
+//		if err := golib.NewMap(name).Err(); err != nil {
+//			t.Error(err)
+//		}
+//	}
+func (m *Map) Err() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.load()
+}
+
 // Properties returns the map's custom properties.
 func (m *Map) Properties() Properties {
 	m.mu.Lock()
@@ -347,14 +365,20 @@ func (m *Map) layer(name string, kind layerKind) *mapLayer {
 // prepare reads the file the first time the map is used, and reports a
 // failure to Run every time it is used. Call it with m.mu held.
 func (m *Map) prepare() error {
+	if err := m.load(); err != nil {
+		reportError(err)
+	}
+	return m.err
+}
+
+// load reads the map and the files it uses, the first time it is needed, and
+// returns what stopped it, without reporting it to Run.
+func (m *Map) load() error {
 	if !m.read {
 		m.read = true
 		if err := m.readFile(tiledFiles{read: ReadAsset, owner: fmt.Sprintf("golib.NewMap(%q)", m.name)}); err != nil {
 			m.err = fmt.Errorf("golib.NewMap(%q): %w", m.name, err)
 		}
-	}
-	if m.err != nil {
-		reportError(m.err)
 	}
 	return m.err
 }

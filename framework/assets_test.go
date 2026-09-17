@@ -3,6 +3,7 @@ package golib
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -113,5 +114,37 @@ func TestAssetSource(t *testing.T) {
 	}
 	if _, where, err := assetSource(nil, false); err != nil || !strings.HasPrefix(where, "in ") {
 		t.Errorf("debug build: where = %q, error = %v; want the working directory and no error", where, err)
+	}
+}
+
+func TestListAssets(t *testing.T) {
+	useAssets(t, map[string][]byte{
+		"maps/level2.tmx":      []byte("two"),
+		"maps/level1.tmx":      []byte("one"),
+		"maps/tiles/tiles.png": []byte("picture"),
+		"sounds/coin.wav":      []byte("coin"),
+		"readme.txt":           []byte("hello"),
+	})
+	tests := []struct {
+		folder string
+		want   []string
+	}{
+		{"maps", []string{"maps/level1.tmx", "maps/level2.tmx"}},
+		{"", []string{"readme.txt"}},
+		{"maps/tiles", []string{"maps/tiles/tiles.png"}},
+	}
+	for _, test := range tests {
+		got, err := ListAssets(test.folder)
+		if err != nil || !slices.Equal(got, test.want) {
+			t.Errorf("ListAssets(%q) = %v, %v; want %v", test.folder, got, err, test.want)
+		}
+	}
+	for _, folder := range []string{"levels", "..", `maps\tiles`, "."} {
+		if _, err := ListAssets(folder); err == nil {
+			t.Errorf("ListAssets(%q): no error", folder)
+		}
+	}
+	if err := takeError(); err != nil {
+		t.Fatal(err)
 	}
 }

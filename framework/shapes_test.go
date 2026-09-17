@@ -140,3 +140,44 @@ func TestMouseVisibleInAWindow(t *testing.T) {
 		t.Error("the pointer is still hidden after SetMouseVisible(true)")
 	}
 }
+
+func TestBlendModeInAWindow(t *testing.T) {
+	screen, capture := openTestWindow(t, 16, 8)
+	takeError()
+	glow := Color{R: 60, A: 255}
+	left := Rectangle{X: 0, Y: 0, Width: 10, Height: 8}
+	right := Rectangle{X: 6, Y: 0, Width: 10, Height: 8}
+
+	added := capture(func() {
+		screen.SetBlendMode(BlendAdd)
+		screen.DrawRectangle(left, glow)
+		screen.DrawRectangle(right, glow)
+		screen.SetBlendMode(BlendNormal)
+		screen.DrawRectangle(Rectangle{X: 0, Y: 6, Width: 16, Height: 2}, Color{G: 60, A: 255})
+	})
+	if got := added.NRGBAAt(8, 2).R; got != 120 {
+		t.Errorf("where the two glows overlap, red is %d, want 120: they didn't add up", got)
+	}
+	if got := added.NRGBAAt(2, 2).R; got != 60 {
+		t.Errorf("where one glow is, red is %d, want 60", got)
+	}
+	if got := added.NRGBAAt(8, 7); got.R != 0 || got.G != 60 {
+		t.Errorf("after BlendNormal, the pixel is %v, want green over the glows", got)
+	}
+
+	// Every Draw starts over: Run resets the mode when a Draw leaves it set.
+	screen.SetBlendMode(BlendAdd)
+	screen.endDraw()
+	covered := capture(func() {
+		screen.DrawRectangle(left, glow)
+		screen.DrawRectangle(right, glow)
+	})
+	if got := covered.NRGBAAt(8, 2).R; got != 60 {
+		t.Errorf("after the draw ended, red where they overlap is %d, want 60: the blend mode stayed", got)
+	}
+	if err := takeError(); err != nil {
+		t.Fatal(err)
+	}
+	screen.SetBlendMode(9)
+	wantError(t, "golib: Screen.SetBlendMode got 9")
+}

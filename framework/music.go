@@ -35,10 +35,12 @@ var musicFormats = []string{".ogg", ".mp3", ".wav", ".qoa", ".xm", ".mod"}
 // screenshots from golib shot stay silent.
 type Music struct {
 	name    string
-	data    []byte // raylib streams from this, so it has to stay reachable
+	tune    *TuneSpec // notes to make the music from, instead of reading a file
+	data    []byte    // raylib streams from this, so it has to stay reachable
 	stream  rl.Music
 	loaded  bool
 	tracked bool
+	checked bool // a tune has been made once, to find mistakes without a sound device
 	playing bool
 	paused  bool
 	volume  float32
@@ -57,6 +59,9 @@ func NewMusic(name string) *Music {
 // update: music that is already playing keeps playing.
 func (m *Music) Play() {
 	if !audio.isReady() {
+		// Under golib shot and in tests there is no sound device, but a
+		// mistake in a tune still stops Run.
+		m.checkTune()
 		return
 	}
 	audio.trackMusic(m)
@@ -113,19 +118,31 @@ func (m *Music) load() bool {
 	if m.loaded || m.err != nil {
 		return m.loaded
 	}
-	format := strings.ToLower(path.Ext(m.name))
-	if !slices.Contains(musicFormats, format) {
-		m.err = fmt.Errorf("golib.NewMusic(%q): GoLib cannot play %q files: use one of %s", m.name, format, strings.Join(musicFormats, ", "))
-		return false
-	}
-	data, err := ReadAsset(m.name)
-	if err != nil {
-		m.err = fmt.Errorf("golib.NewMusic(%q): %w", m.name, err)
-		return false
+	var data []byte
+	format := ".wav"
+	if m.tune != nil {
+		samples, err := m.tune.samples()
+		if err != nil {
+			m.err = err
+			return false
+		}
+		data = wav(samples)
+	} else {
+		format = strings.ToLower(path.Ext(m.name))
+		if !slices.Contains(musicFormats, format) {
+			m.err = fmt.Errorf("golib.NewMusic(%q): GoLib cannot play %q files: use one of %s", m.name, format, strings.Join(musicFormats, ", "))
+			return false
+		}
+		read, err := ReadAsset(m.name)
+		if err != nil {
+			m.err = fmt.Errorf("golib.NewMusic(%q): %w", m.name, err)
+			return false
+		}
+		data = read
 	}
 	stream := rl.LoadMusicStreamFromMemory(format, data, int32(len(data)))
 	if !rl.IsMusicValid(stream) {
-		m.err = fmt.Errorf("golib.NewMusic(%q): raylib could not read the music: see the raylib warnings above", m.name)
+		m.err = fmt.Errorf("golib: raylib could not play %s: see the raylib warnings above", m.describe())
 		return false
 	}
 	stream.Looping = true
@@ -134,11 +151,36 @@ func (m *Music) load() bool {
 	return true
 }
 
+// checkTune makes the tune once, without a sound device, so that a mistake in
+// its notes is reported even where nothing can be heard.
+func (m *Music) checkTune() {
+	if m.tune == nil {
+		return
+	}
+	if !m.checked {
+		m.checked = true
+		if _, err := m.tune.samples(); err != nil {
+			m.err = err
+		}
+	}
+	if m.err != nil {
+		reportError(m.err)
+	}
+}
+
+// describe names the music in messages: its file, or a tune made in code.
+func (m *Music) describe() string {
+	if m.tune != nil {
+		return "the tune made by golib.NewTune"
+	}
+	return fmt.Sprintf("golib.NewMusic(%q)", m.name)
+}
+
 // unload frees the music, so that it is read again if a game runs again.
 func (m *Music) unload() {
 	if m.loaded {
 		rl.StopMusicStream(m.stream)
 		rl.UnloadMusicStream(m.stream)
 	}
-	m.data, m.loaded, m.tracked, m.playing, m.paused, m.err = nil, false, false, false, false, nil
+	m.data, m.loaded, m.tracked, m.checked, m.playing, m.paused, m.err = nil, false, false, false, false, false, nil
 }

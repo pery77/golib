@@ -224,6 +224,8 @@ Gamepads are numbered 0 to 3, in the order they were connected; a one-player gam
 | `Screen.DrawPolygonOutline` | `DrawPolygonOutline(points []Vector2, thickness float32, color Color)`: the shape's sides, back to the first corner, with round corners. |
 | `Screen.DrawText` | `DrawText(text string, x, y, size float32, color Color, options ...TextOptions)`: text with its top at y, size pixels high, in the built-in font or the font the options give (see [Fonts](#fonts)). x is where each line starts, or its middle or end with `TextOptions.Align`. A `\n` starts a new line. |
 | `Screen.TextWidth` | `TextWidth(text string, size float32, options ...TextOptions) float32`: how wide `DrawText` draws text with the same options, to fit it in a box or put something after it. |
+| `Screen.SetBlendMode` | `SetBlendMode(mode BlendMode)`: how the drawing that follows mixes with what is under it. Every `Draw` starts with `BlendNormal`. |
+| `BlendMode` | `BlendNormal` covers what is underneath, by the color's opacity; `BlendAdd` adds to it, so overlapping glows grow brighter and nothing darkens: explosions, flames, sparks, lasers. |
 | `Screen.Width`, `Screen.Height` | `Width() float32`, `Height() float32`: the screen's size, from `Config`. |
 
 - Positions and sizes are `float32`. Untyped constants convert by themselves; other numbers need `float32(n)`.
@@ -399,6 +401,7 @@ A map is a level made in [Tiled](https://www.mapeditor.org): a `.tmx` file in th
 | `Map.TilesIn` | `TilesIn(layer string, area Rectangle) []MapTile`: the tiles of a tile layer whose cells overlap `area`, row by row, leaving out empty cells. Use it for collisions. |
 | `Map.Objects` | `Objects(layer string) []MapObject`: the objects of an object layer, in Tiled's order, or of every object layer for `""`. |
 | `Map.Object` | `Object(name string) (MapObject, bool)`: the first object with that name, such as the player's start, and whether there is one. |
+| `Map.Err` | `Err() error`: what stopped the map from loading, or nil. Drawing or asking a map that didn't load stops `Run` with the same mistake, so use `Err` only to handle it: to skip a level, or to name the wrong file in a test. |
 | `Map.Properties` | `Properties() Properties`: the map's custom properties. |
 | `Map.LayerProperties` | `LayerProperties(layer string) Properties`: a layer's custom properties, with those of the groups around it. |
 
@@ -819,6 +822,36 @@ func (s *playScene) Update(input *golib.Input, dt float32) {
 - Only use music the user provides, and write where it came from, and its license, in `assets/ATTRIBUTION.md`, as `games/asteroids` does. `golib dist` copies that file into the `THIRD-PARTY-LICENSES.txt` it puts next to the game.
 - There are no crossfades or playlists: `Stop` one `Music` and `Play` another.
 
+Music can also be made from notes, with no file at all, for a game whose user has no music to give:
+
+| Name | What it does |
+| --- | --- |
+| `NewTune` | `NewTune(spec TuneSpec) *Music`: music made from notes. It plays like any other `Music`, and loops. The tune is made the first time it plays. |
+| `TuneSpec` | The recipe: the speed, and the voices that play together. |
+| `TuneSpec.Tempo` | Beats per minute, from 20 to 400. Default: 120. |
+| `TuneSpec.Voices` | The lines that play together, at most 8. |
+| `Voice` | One line of the tune. |
+| `Voice.Wave` | Its sound, as in `SoundSpec`. Default: `WaveSquare`. |
+| `Voice.Volume` | How loud it is, from 0 to 1, before the music's own volume. Default: 0.5. |
+| `Voice.Duty` | Shapes a square wave, from 0.05 to 0.95, as in `SoundSpec`. Default: 0.5. |
+| `Voice.Notes` | The notes, separated by spaces. |
+
+A note is a letter from `a` to `g`, an optional `#` or `b`, and its octave: `c4` is middle C, `f#3` and `eb5`. A dot is a silence. `/` and a number make a note last that many beats: `c4/2` lasts two beats, `c4/0.5` half a beat. A tune lasts at most two minutes, and loops.
+
+```go
+var theme = golib.NewTune(golib.TuneSpec{
+	Tempo: 132,
+	Voices: []golib.Voice{
+		{Notes: "c5 . g4 . a4 g4 e4 c4 d4/2 g4/2"},                                  // the melody
+		{Wave: golib.WaveTriangle, Volume: 0.35, Duty: 0.5, Notes: "c3/2 c3/2 f3/2 g3/2"}, // the bass
+	},
+})
+```
+
+- A mistake in the notes, or a tune longer than two minutes, stops `Run` with a message, in `golib shot` and in tests too, where nothing can be heard.
+- Voices play together from the first beat; the longest one sets the tune's length, and the others end in silence.
+- Made music is a last resort: a tracker module or an OGG file from the user sounds better. Say so, and how to swap it in: only the `golib.NewTune` line changes.
+
 ## Window, fullscreen and screen effects
 
 | Name | What it does |
@@ -932,6 +965,7 @@ if err := golib.SaveData("progress", s.progress); err != nil {
 | Name | What it does |
 | --- | --- |
 | `ReadAsset` | `ReadAsset(name string) ([]byte, error)`: the contents of a file in `games/<game>/assets/`. `name` is relative to that folder, with forward slashes: `"levels/1.txt"`. |
+| `ListAssets` | `ListAssets(folder string) ([]string, error)`: the names of the files in a folder of the assets folder, sorted, such as every level in `maps`, as `ReadAsset` takes them. Folders inside are left out; `""` lists the assets folder itself. |
 | `EmbedAssets` | `EmbedAssets(files embed.FS)`: puts the assets folder inside a `golib dist` build. Only `assets.go` calls it. |
 
 Debug builds (`golib run`, `shot`, `test`, F5) read files from disk, so an edited file shows up on the next run; `golib dist` builds read the copy inside the executable. A game with an `assets/` folder therefore needs this `assets.go` next to `main.go`, exactly as it is, or `golib dist` stops:
@@ -1018,9 +1052,6 @@ import rl "github.com/gen2brain/raylib-go/raylib"
 | --- | --- | --- |
 | Parts of an image that aren't on a grid, Aseprite slices and tilemap layers | Not on the roadmap yet | Save each part as its own PNG file, or put the parts on a grid |
 | Isometric and hexagonal maps; drawing a map's shapes and text | Not on the roadmap yet | Orthogonal maps; draw what objects stand for with sprites and shapes |
-| Music without a music file | To consider in M6 | Ask the user for an OGG, MP3 or XM file; until then, leave music out and say so |
-| Additive blending, for glows | To consider in M6 | Bright, solid colors drawn last |
-| Listing the files in the assets folder | To consider in M6 | Name the files in code |
 | Another volume or pitch for each play of a sound | Not on the roadmap yet | A few sounds made with different settings |
 | Pausing when the window loses focus | Not on the roadmap yet | Pause with Esc or Start |
 | Physics | Not planned: GoLib is for games, not engines | Simple movement and `Rectangle` overlap checks in the game |
