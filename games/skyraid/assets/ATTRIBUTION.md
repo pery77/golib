@@ -10,15 +10,7 @@ every file that came from somewhere else belongs here, with its license.
 2015 and 2019, from The Mod Archive, module 185456 (the module itself carries
 the author's contact):
 <https://modarchive.org/index.php?request=view_by_moduleid&query=185456>
-
-Its license is the one that module's page gives: write it here, in the page's
-own words, before sharing the game.
-
-## textures/background.png
-
-Made with ChatGPT (OpenAI) for this game. What may be done with a picture
-generated there is what OpenAI's terms say at the time it was made: check them
-before sharing the game, and write here what they allow.
+Licensed under the Public Domain license
 
 ## sounds/*.jfxr
 
