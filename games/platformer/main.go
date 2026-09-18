@@ -47,7 +47,11 @@ var (
 )
 
 func main() {
-	config := golib.Config{Title: "Platformer", Width: screenWidth, Height: screenHeight, PixelArt: true}
+	config := golib.Config{
+		Title: "Platformer", Width: screenWidth, Height: screenHeight, PixelArt: true,
+		// The level waits while the player works in another program.
+		PauseUnfocused: true,
+	}
 	if err := golib.Run(newTitleScene(), config); err != nil {
 		log.Fatal(err)
 	}

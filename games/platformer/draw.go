@@ -48,8 +48,8 @@ func drawWorld(screen *golib.Screen, w *world, clouds []cloud, camera *golib.Cam
 func drawHero(screen *golib.Screen, p player) {
 	frame := heroStand
 	switch {
-	case p.slashLeft > 0:
-		frame = heroSlash.Frame(slashTime - p.slashLeft)
+	case p.slash.Running():
+		frame = heroSlash.Frame(slashTime - p.slash.Left())
 	case !p.onGround && p.velocityY < 0:
 		frame = heroRise
 	case !p.onGround:
@@ -60,7 +60,7 @@ func drawHero(screen *golib.Screen, p player) {
 	flip := golib.DrawOptions{FlipX: p.facingLeft}
 	screen.DrawSprite(characters, frame, p.x-heroOffsetX, p.y+playerHeight-frameSize, flip)
 
-	if p.slashLeft > 0 {
+	if p.slash.Running() {
 		// The swoosh's crescent is in the right half of its frame: put that
 		// half in front of the hero.
 		middle := p.x + playerWidth/2
@@ -69,7 +69,7 @@ func drawHero(screen *golib.Screen, p player) {
 			left = middle - frameSize + 8
 		}
 		top := p.y + playerHeight/2 - frameSize/2
-		screen.DrawSprite(swoosh, slashEffect.Frame(slashTime-p.slashLeft), left, top, flip)
+		screen.DrawSprite(swoosh, slashEffect.Frame(slashTime-p.slash.Left()), left, top, flip)
 	}
 }
 

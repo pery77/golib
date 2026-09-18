@@ -158,6 +158,12 @@ func (s *playScene) Draw(screen *golib.Screen) {
 	drawShadowed(screen, chests, 4, 4, 10)
 	const hint = "Esc: pause"
 	drawShadowed(screen, hint, screenWidth-4, 4, 10, golib.TextOptions{Align: golib.AlignRight})
+	if !golib.WindowFocused() {
+		// Config.PauseUnfocused stops the updates meanwhile, so say so:
+		// Draw still runs, and the level is standing still.
+		drawShadowed(screen, "Paused: click the window to carry on", screenWidth/2, screenHeight-14, 10,
+			golib.TextOptions{Align: golib.AlignCenter})
+	}
 }
 
 // pauseScene freezes a play scene and shows a message over it. Resuming

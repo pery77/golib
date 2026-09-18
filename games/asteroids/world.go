@@ -54,7 +54,7 @@ type ship struct {
 	angle        float32 // radians, clockwise from pointing up
 	alive        bool
 	thrusting    bool    // for drawing the flame
-	cooldown     float32 // seconds until the ship can fire again
+	cooldown     golib.Timer // runs until the ship can fire again
 	invulnerable float32 // seconds until the ship can crash
 }
 
@@ -214,7 +214,7 @@ func (w *world) moveShip(c controls, dt float32) {
 	}
 	s.x = wrap(s.x+s.vx*dt, worldWidth)
 	s.y = wrap(s.y+s.vy*dt, worldHeight)
-	s.cooldown = max(0, s.cooldown-dt)
+	s.cooldown.Tick(dt)
 	s.invulnerable = max(0, s.invulnerable-dt)
 }
 
@@ -222,7 +222,7 @@ func (w *world) moveShip(c controls, dt float32) {
 // cooling down or has too many bullets in flight.
 func (w *world) fire() {
 	s := &w.ship
-	if !s.alive || s.cooldown > 0 || len(w.bullets) >= maxBullets {
+	if !s.alive || s.cooldown.Running() || len(w.bullets) >= maxBullets {
 		return
 	}
 	fx, fy := s.facing()
@@ -233,8 +233,9 @@ func (w *world) fire() {
 		vy:   s.vy + fy*bulletSpeed,
 		life: bulletLifetime,
 	})
-	s.cooldown = fireCooldown
-	shotSound.Play()
+	s.cooldown.Start(fireCooldown)
+	// A different pitch for each shot, so a held trigger doesn't drone.
+	shotSound.PlayWith(1, golib.RandomFloat(0.94, 1.08))
 }
 
 func (w *world) moveBullets(dt float32) {

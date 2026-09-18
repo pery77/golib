@@ -36,7 +36,12 @@ var (
 )
 
 func main() {
-	config := golib.Config{Title: "{{name}}", Width: screenWidth, Height: screenHeight}
+	config := golib.Config{
+		Title: "{{name}}", Width: screenWidth, Height: screenHeight,
+		// The game waits while the player is in another program. Take it out
+		// for a game that should keep playing in the background.
+		PauseUnfocused: true,
+	}
 	if err := golib.Run(newPlayScene(), config); err != nil {
 		log.Fatal(err)
 	}

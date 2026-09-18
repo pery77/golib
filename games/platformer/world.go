@@ -41,7 +41,7 @@ type player struct {
 	onGround   bool
 	facingLeft bool
 	walkTime   float32 // seconds walked on the ground without stopping, for the walk animation
-	slashLeft  float32 // seconds left of the current slash; 0 when not slashing
+	slash      golib.Timer // runs while the hero slashes; stopped otherwise
 }
 
 func (p player) bounds() golib.Rectangle {
@@ -153,10 +153,12 @@ func (w *world) step(move float32, jump, slash bool, dt float32) {
 		p.velocityY = -jumpSpeed
 		jumpSound.Play()
 	}
-	p.slashLeft = max(0, p.slashLeft-dt)
-	if slash && p.slashLeft == 0 {
-		p.slashLeft = slashTime
-		slashSound.Play()
+	p.slash.Tick(dt)
+	if slash && !p.slash.Running() {
+		p.slash.Start(slashTime)
+		// A pitch of its own each time, so slashing again and again keeps
+		// sounding alive.
+		slashSound.PlayWith(1, golib.RandomFloat(0.92, 1.12))
 	}
 	p.velocityY = min(p.velocityY+gravity*dt, maxFallSpeed)
 
@@ -188,12 +190,12 @@ func (w *world) step(move float32, jump, slash bool, dt float32) {
 		p.walkTime = 0
 	}
 
-	if p.slashLeft > 0 {
+	if p.slash.Running() {
 		area := p.slashArea()
 		for i := range w.snakes {
 			if s := &w.snakes[i]; !s.defeated && area.Overlaps(s.bounds()) {
 				s.defeated = true
-				hitSound.Play()
+				hitSound.PlayWith(1, golib.RandomFloat(0.9, 1.1))
 			}
 		}
 	}

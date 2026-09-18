@@ -12,7 +12,7 @@ The promise: someone downloads the template, runs a couple of commands, and buil
 
 Keep this section true: update it in the same change that lands or removes a feature. Never describe planned work as if it existed.
 
-Last updated: 2026-09-17 (milestone M5, Shipping, done on Windows; M6, 2D essentials, done but for two ideas; other platforms on hold).
+Last updated: 2026-09-18 (milestones M5, Shipping, and M6, 2D essentials, done; Linux and macOS ran GoLib for the first time; M7, 3D, is next).
 
 | Area | State |
 | --- | --- |

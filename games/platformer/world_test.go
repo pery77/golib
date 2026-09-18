@@ -173,7 +173,7 @@ func TestSlashDefeatsSnakes(t *testing.T) {
 		if defeated := w.snakes[0].defeated; defeated == facingLeft {
 			t.Errorf("facing left: %v, the snake is defeated: %v", facingLeft, defeated)
 		}
-		if w.player.slashLeft == 0 {
+		if !w.player.slash.Running() {
 			t.Error("the slash didn't start")
 		}
 	}
@@ -183,13 +183,13 @@ func TestSlashLastsBeforeTheNext(t *testing.T) {
 	w := newWorld()
 	w.step(0, false, true, dt)
 	w.step(0, false, false, dt)
-	left := w.player.slashLeft
+	left := w.player.slash.Left()
 	w.step(0, false, true, dt)
-	if w.player.slashLeft >= left {
-		t.Errorf("a second slash started while the first lasted: %v seconds left, were %v", w.player.slashLeft, left)
+	if w.player.slash.Left() >= left {
+		t.Errorf("a second slash started while the first lasted: %v seconds left, were %v", w.player.slash.Left(), left)
 	}
 	play(&w, slashTime, 0, false, false)
-	if w.player.slashLeft != 0 {
-		t.Errorf("the slash still has %v seconds left after %v seconds", w.player.slashLeft, slashTime)
+	if w.player.slash.Running() {
+		t.Errorf("the slash still has %v seconds left after %v seconds", w.player.slash.Left(), slashTime)
 	}
 }
