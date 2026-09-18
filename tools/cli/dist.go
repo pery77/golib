@@ -21,11 +21,27 @@ import (
 // share. On Windows the executable carries the game's icon and version
 // information.
 func (c *cli) dist(options []string) int {
-	game, exitCode := c.resolveGame("dist", options)
+	var names []string
+	web := false
+	for _, option := range options {
+		switch {
+		case option == "--web":
+			web = true
+		case strings.HasPrefix(option, "-"):
+			return c.usage("unknown option for dist: " + option)
+		default:
+			names = append(names, option)
+		}
+	}
+	game, exitCode := c.resolveGame("dist", names)
 	if game == "" {
 		return exitCode
 	}
-	c.distGame(game)
+	if web {
+		c.distWeb(game)
+	} else {
+		c.distGame(game)
+	}
 	return c.summary("dist")
 }
 
@@ -359,7 +375,18 @@ type goPackage struct {
 // listPackages returns the package in dir and every package it is built
 // from, with the build tags tags.
 func (c *cli) listPackages(dir, tags string) ([]goPackage, error) {
-	output, err := c.goOutput(dir, "list", "-deps", "-tags="+tags, "-json=ImportPath,DepOnly,Module,EmbedPatterns", ".")
+	return c.listPackagesWith(dir, tags, nil)
+}
+
+// listPackagesWith lists the packages a build is made of, with env on top of
+// GoLib's environment, such as GOOS=js for a web build.
+func (c *cli) listPackagesWith(dir, tags string, env []string) ([]goPackage, error) {
+	output, err := c.runGo(goCall{
+		dir:    dir,
+		args:   []string{"list", "-deps", "-tags=" + tags, "-json=ImportPath,DepOnly,Module,EmbedPatterns", "."},
+		env:    env,
+		output: true,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -407,14 +434,26 @@ func thirdPartyModules(packages []goPackage) []goModule {
 }
 
 // zipFolder writes the folder dir and everything in it into a new zip file
-// at path, and returns the zip file's size.
+// at path, and returns the zip file's size. Unzipping it gives one folder
+// with everything inside.
 func zipFolder(dir, path string) (int64, error) {
+	return zipTree(dir, path, filepath.Dir(dir))
+}
+
+// zipInside writes what is in dir, without the folder itself, so that
+// unzipping gives the files themselves. It is what itch.io wants: it opens
+// the index.html it finds at the top of a zip.
+func zipInside(dir, path string) (int64, error) {
+	return zipTree(dir, path, dir)
+}
+
+// zipTree writes dir into a zip file at path, naming what it holds from top.
+func zipTree(dir, path, top string) (int64, error) {
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	if err != nil {
 		return 0, err
 	}
 	archive := zip.NewWriter(file)
-	top := filepath.Dir(dir)
 	err = filepath.WalkDir(dir, func(name string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -430,6 +469,9 @@ func zipFolder(dir, path string) (int64, error) {
 		relative, err := filepath.Rel(top, name)
 		if err != nil {
 			return err
+		}
+		if relative == "." {
+			return nil // the folder itself, when its name is left out
 		}
 		header.Name = filepath.ToSlash(relative)
 		if entry.IsDir() {

@@ -65,73 +65,150 @@ func (c *cli) web(options []string) int {
 	return c.serveWeb(game, folder, port, open)
 }
 
-// buildWeb builds game for the browser into build/<game>/web/ and puts the
-// page and the two JavaScript files next to it. It returns that folder, or ""
-// after reporting a failure. The build carries its assets inside, as a dist
-// build does: a page has no folder to read them from.
+// webTags is what a web build is built with: its assets go inside it, as a
+// dist build's do, because a page has no folder to read them from.
+const webTags = "golib_dist"
+
+// buildWeb builds game for the browser into build/<game>/web/ and returns
+// that folder, or "" after reporting a failure.
 func (c *cli) buildWeb(game string) string {
+	folder := c.path("build", game, "web")
+	if _, ok := c.buildWebInto(game, folder); !ok {
+		return ""
+	}
+	return folder
+}
+
+// buildWebInto builds game for the browser into folder, with the page and the
+// two JavaScript files next to the .wasm. It returns what game.json says and
+// false after reporting a failure.
+func (c *cli) buildWebInto(game, folder string) (gameInfo, bool) {
 	dir := c.path("games", game)
 	shown := "games/" + game
-	const tags = "golib_dist"
+	const tags = webTags
 
-	packages, err := c.listPackages(dir, tags)
+	info, _, err := readGameInfo(dir)
+	if err != nil {
+		c.check("fail", err.Error())
+		return info, false
+	}
+	packages, err := c.listWebPackages(dir)
 	if err != nil {
 		c.check("fail", "could not inspect "+shown+" (see the Go errors above)")
-		return ""
+		return info, false
 	}
 	if isDir(filepath.Join(dir, "assets")) && !embedsAssets(packages) {
 		c.check("fail", shown+"/assets/ would be missing from the web build: add "+shown+"/assets.go, as the golib.EmbedAssets documentation shows")
-		return ""
+		return info, false
 	}
 
-	folder := c.path("build", game, "web")
-	shownFolder := "build/" + game + "/web/"
+	shownFolder := c.shown(folder) + "/"
 	if err := os.MkdirAll(folder, 0o755); err != nil {
 		c.check("fail", fmt.Sprintf("cannot create %s: %v", shownFolder, err))
-		return ""
+		return info, false
 	}
 	wasm := filepath.Join(folder, game+".wasm")
 	_, err = c.runGo(goCall{
 		dir:  dir,
 		args: []string{"build", "-trimpath", "-tags=" + tags, "-o", wasm, "."},
-		env:  []string{"GOOS=js", "GOARCH=wasm"},
+		env:  webEnv,
 	})
 	if err != nil {
 		c.check("fail", fmt.Sprintf("web build failed for %s (see the Go errors above)", shown))
-		return ""
+		return info, false
 	}
 	size, err := os.Stat(wasm)
 	if err != nil {
 		c.check("fail", fmt.Sprintf("cannot read %s: %v", c.shown(wasm), err))
-		return ""
+		return info, false
 	}
 	c.check("ok", fmt.Sprintf("built %s into %s (%s)", shown, c.shown(wasm), fileSize(size.Size())))
 
 	goWasmExec := c.path(".tools", "go", "lib", "wasm", wasmExecFile)
 	if err := syncFile(goWasmExec, filepath.Join(folder, wasmExecFile)); err != nil {
 		c.check("fail", fmt.Sprintf("cannot copy %s from the Go toolchain: %v", wasmExecFile, err))
-		return ""
+		return info, false
 	}
 	glue := c.path("framework", "internal", "device", "web.js")
 	if err := syncFile(glue, filepath.Join(folder, webGlueFile)); err != nil {
 		c.check("fail", fmt.Sprintf("cannot copy the web backend's %s: %v", webGlueFile, err))
-		return ""
+		return info, false
 	}
-	if err := c.writePage(game, folder); err != nil {
+	if err := c.writePage(game, info, folder); err != nil {
 		c.check("fail", fmt.Sprintf("cannot write %s%s: %v", shownFolder, webPageFile, err))
-		return ""
+		return info, false
 	}
 	c.check("ok", fmt.Sprintf("wrote %s, %s and %s next to it", webPageFile, wasmExecFile, webGlueFile))
-	return folder
+	return info, true
+}
+
+// webEnv builds for the browser instead of this machine.
+var webEnv = []string{"GOOS=js", "GOARCH=wasm"}
+
+// listWebPackages lists what a web build is made of, which is not what a
+// desktop build is made of: raylib and the libraries it calls stay out.
+func (c *cli) listWebPackages(dir string) ([]goPackage, error) {
+	return c.listPackagesWith(dir, webTags, webEnv)
+}
+
+// distWeb builds game for the browser to share: the page and its files in
+// build/<game>/dist/web/, with the licenses that go with them, and a zip of
+// what is in that folder, which is what itch.io takes.
+func (c *cli) distWeb(game string) bool {
+	distDir := c.path("build", game, "dist")
+	folder := filepath.Join(distDir, "web")
+	if err := os.RemoveAll(folder); err != nil {
+		c.check("fail", fmt.Sprintf("cannot empty %s (is a browser holding it open?): %v", c.shown(folder), err))
+		return false
+	}
+	info, ok := c.buildWebInto(game, folder)
+	if !ok {
+		return false
+	}
+
+	// A web build carries Go's runtime and GoLib's framework, and nothing of
+	// raylib: the browser draws and sounds instead.
+	packages, err := c.listWebPackages(c.path("games", game))
+	if err != nil {
+		c.check("fail", "could not inspect games/"+game+" (see the Go errors above)")
+		return false
+	}
+	modules := thirdPartyModules(packages)
+	notices := c.gameNotices(game, game+".wasm", modules, nil, false)
+	text, err := thirdPartyNotices(info.Title, notices)
+	if err != nil {
+		c.check("fail", fmt.Sprintf("cannot write %s: %v", noticesFile, err))
+		return false
+	}
+	if err := os.WriteFile(filepath.Join(folder, noticesFile), text, 0o644); err != nil {
+		c.check("fail", fmt.Sprintf("cannot write %s: %v", noticesFile, err))
+		return false
+	}
+	titles := make([]string, 0, len(notices))
+	for _, n := range notices {
+		titles = append(titles, n.title)
+	}
+	c.check("ok", fmt.Sprintf("wrote %s next to it, with the licenses of %s", noticesFile, joinWords(titles)))
+
+	zipName := fmt.Sprintf("%s-%s-web.zip", game, info.Version)
+	zipPath := filepath.Join(distDir, zipName)
+	if err := os.Remove(zipPath); err != nil && !os.IsNotExist(err) {
+		c.check("fail", fmt.Sprintf("cannot replace %s: %v", c.shown(zipPath), err))
+		return false
+	}
+	size, err := zipInside(folder, zipPath)
+	if err != nil {
+		c.check("fail", fmt.Sprintf("cannot zip %s: %v", c.shown(folder), err))
+		return false
+	}
+	c.check("ok", fmt.Sprintf("zipped what is in %s/ into build/%s/dist/%s (%s): share this file", c.shown(folder), game, zipName, fileSize(size)))
+	c.check("info", fmt.Sprintf("upload it to itch.io as a web game, or serve the files anywhere: %s is at the top of the zip, where a page host looks for it", webPageFile))
+	return true
 }
 
 // writePage writes the page that loads the game: a canvas that fills the
 // window, the backend, Go's loader, and the game itself.
-func (c *cli) writePage(game, folder string) error {
-	info, _, err := readGameInfo(c.path("games", game))
-	if err != nil {
-		info.Title = game
-	}
+func (c *cli) writePage(game string, info gameInfo, folder string) error {
 	page := strings.NewReplacer(
 		"{{title}}", html.EscapeString(info.Title),
 		"{{wasm}}", html.EscapeString(game+".wasm"),

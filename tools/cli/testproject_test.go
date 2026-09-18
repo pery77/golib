@@ -116,12 +116,16 @@ func (tp *testProject) fakeGo(t *testing.T, call goCall) ([]byte, error) {
 			}
 		} else {
 			// go list -deps: standard packages, then the modules'
-			// packages, then the game's.
+			// packages, then the game's. A build for the browser has
+			// none of raylib's: the framework leaves them out there.
+			forWeb := slices.Contains(call.env, "GOOS=js")
 			values = append(values, goPackage{ImportPath: "fmt"})
-			for _, m := range tp.modules {
-				values = append(values, goPackage{ImportPath: m.Path, DepOnly: true, Module: &m, EmbedPatterns: tp.depEmbeds})
+			if !forWeb {
+				for _, m := range tp.modules {
+					values = append(values, goPackage{ImportPath: m.Path, DepOnly: true, Module: &m, EmbedPatterns: tp.depEmbeds})
+				}
+				values = append(values, goPackage{ImportPath: "github.com/ebitengine/purego/internal/fakecgo", DepOnly: true, Module: &tp.modules[0]})
 			}
-			values = append(values, goPackage{ImportPath: "github.com/ebitengine/purego/internal/fakecgo", DepOnly: true, Module: &tp.modules[0]})
 			values = append(values, goPackage{ImportPath: "rocks", Module: &goModule{Path: "rocks", Main: true, Dir: call.dir}, EmbedPatterns: tp.embeds})
 		}
 		var output bytes.Buffer

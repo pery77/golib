@@ -1119,16 +1119,19 @@ import rl "github.com/gen2brain/raylib-go/raylib"
 
 A web build does less than a desktop build for now, and a game that wants to run in both should keep to the left column:
 
-| Works in a browser | Doesn't yet |
+| Works in a browser | Doesn't, or not quite |
 | --- | --- |
-| Shapes, sprites, tilemaps, the camera, blend modes, fullscreen | Post-processing shaders (`NewShader`, `SetPostProcess`): the game stops with a message on the page |
-| Text in the built-in font, in the same places as on the desktop | Fonts from `.ttf` and `.otf` files (`NewFont`) |
+| Shapes, sprites, tilemaps, the camera, blend modes, fullscreen | Sound files in `.qoa`, and music in `.xm` and `.mod`: browsers cannot decode them, and a game that asks for one stops with a message on the page saying so |
 | Sound effects and music, from code, `.jfxr`, `.wav`, `.ogg` and `.mp3` | |
-| Keyboard, mouse and gamepads | Sound files in `.qoa`, and music in `.xm` and `.mod`: browsers cannot decode them |
-| `SaveData` and `LoadData` while the page is open | Keeping saved data after the page is closed |
+| Post-processing shaders, compiled for OpenGL ES | A shader that mixes whole numbers into float arithmetic, such as `uv * 2`: ES refuses it, where the desktop allows it. Write `uv * 2.0` |
+| Text in the built-in font, in the same places as on the desktop | Text from a `.ttf` or `.otf` file lands within a few pixels of where the desktop puts it, not on it: a browser's font metrics are not raylib's |
+| Keyboard, mouse and gamepads | |
+| `SaveData` and `LoadData`, kept by the browser for the address the game is served from | Data kept for a player who clears their browsing data, plays in a private window, or opens the game at another address |
 | `golib run`, `build`, `dist`, `shot` on the desktop, unchanged | `golib shot` of a web build |
 
-A game that calls raylib directly (see above) doesn't build for the browser at all. What is missing is being built in stages; see [docs/roadmap.md](../docs/roadmap.md#web-build-started-2026-09-18).
+A game that calls raylib directly (see above) doesn't build for the browser at all.
+
+`golib dist <game> --web` makes the zip to upload to itch.io, with `index.html` at the top of it. See [docs/roadmap.md](../docs/roadmap.md#web-build-started-2026-09-18) for what is left.
 
 ## What GoLib doesn't have yet
 
@@ -1140,6 +1143,6 @@ A game that calls raylib directly (see above) doesn't build for the browser at a
 | Physics | Not planned: GoLib is for games, not engines | Simple movement and `Rectangle` overlap checks in the game |
 | Trigger pressure, vibration | Not on the roadmap yet | Triggers read as buttons |
 | 3D | M7, after the web build | None |
-| Shaders, font files, `.qoa`, `.xm`, `.mod` and saved data that lasts, in a browser | Stage 3 of the web build | The desktop build has them all; see "Playing in a browser" above |
+| `.qoa`, `.xm` and `.mod` in a browser | Not planned: browsers cannot decode them | Save the sound as `.wav`, `.ogg` or `.mp3`, or keep the game on the desktop |
 
 When a game needs one of these, say so to the user and point to [docs/roadmap.md](../docs/roadmap.md), as [AGENTS.md](../AGENTS.md) asks, instead of building an engine to fill the gap.

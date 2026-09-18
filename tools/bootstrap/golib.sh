@@ -53,7 +53,8 @@ Commands:
   doctor                  Diagnose the environment without changing anything
   new <name>              Create games/<name>/, a small game ready to run, from tools/template/game/
   build [game]            Debug build of games/<game> into build/<game>/
-  dist [game]             Build games/<game> to share: a folder and its zip in build/<game>/dist/
+  dist [game] [--web]     Build games/<game> to share: a folder and its zip in build/<game>/dist/.
+                          --web builds it for the browser instead, zipped for itch.io
   run [game] [--dist]     Build games/<game>, then run it from its folder. --dist builds and
                           runs the build players get, from build/<game>/dist/<game>/
   shot [game] [frame...]  Run games/<game> in a hidden window and save screenshots of the given

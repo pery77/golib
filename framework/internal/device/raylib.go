@@ -53,9 +53,17 @@ const ShowsErrors = false
 // ShowError has nothing to show: see ShowsErrors.
 func ShowError(title, message string) {}
 
-// SavesToDisk says that a game here has a folder of its own to save high
-// scores, settings and progress in.
-const SavesToDisk = true
+// HasSaveStore says that this backend keeps no saved data of its own: a game
+// here has a folder to write its high scores, settings and progress in.
+const HasSaveStore = false
+
+// SaveToStore, LoadFromStore and DeleteFromStore are never called on this
+// backend: see HasSaveStore.
+func SaveToStore(name string, data []byte) error { return nil }
+
+func LoadFromStore(name string) ([]byte, bool, error) { return nil, false, nil }
+
+func DeleteFromStore(name string) error { return nil }
 
 // OpenWindow opens the game window, hidden when hidden is true and resizable
 // otherwise, and reports whether it opened. No key closes it: Run decides when

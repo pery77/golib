@@ -4,7 +4,7 @@ package device
 
 import (
 	"encoding/binary"
-	"errors"
+	"fmt"
 	"image"
 	"image/color"
 	"math"
@@ -286,27 +286,50 @@ func EndBlend() {
 	push(opBlend, blendNormal)
 }
 
-// NewShader reports that post-processing shaders are not in the web build
-// yet: they are stage 3 (see docs/roadmap.md). Package golib passes the reason
-// on, so a game that uses SetPostProcess says so instead of quietly drawing
-// the wrong picture.
+// NewShader compiles a post-processing shader from the source of a fragment
+// shader, or says why it couldn't. The source is a game's, written for
+// desktop OpenGL, so ESShader turns its first lines into the ones a browser
+// compiles; what follows is the game's, and a shader ES refuses says so in
+// the graphics card's own words.
 func NewShader(fragment string) (Shader, error) {
-	return Shader{}, errors.New("a web build has no post-processing shaders yet: turn them off with golib.SetPostProcess(), or play the game on the desktop")
+	flush()
+	made := js_().Call("newShader", ESShader(fragment))
+	id := made.Index(0).Int()
+	if id < 0 {
+		return Shader{}, fmt.Errorf("a browser could not compile it: %s", made.Index(1).String())
+	}
+	return Shader{ID: uint32(id)}, nil
 }
 
-// UnloadShader has nothing to free yet.
-func UnloadShader(shader Shader) {}
+// UnloadShader frees a compiled shader.
+func UnloadShader(shader Shader) {
+	flush()
+	js_().Call("unloadShader", int(shader.ID))
+}
 
-// BeginShader has no shader to run yet.
-func BeginShader(shader Shader) {}
+// BeginShader runs shader over the drawing that follows, until EndShader.
+func BeginShader(shader Shader) {
+	push(opBeginShader, float32(shader.ID))
+}
 
-// EndShader has no shader to end yet.
-func EndShader() {}
+// EndShader ends the shader BeginShader started.
+func EndShader() {
+	push(opEndShader)
+}
 
-// ShaderLocation reports that no shader declares the uniform yet.
+// ShaderLocation returns where the uniform called name sits in shader, or a
+// negative number when the shader doesn't have it.
 func ShaderLocation(shader Shader, name string) int32 {
-	return -1
+	flush()
+	return int32(js_().Call("shaderLocation", int(shader.ID), name).Int())
 }
 
-// SetShaderValues has no shader to set a uniform on yet.
-func SetShaderValues(shader Shader, location int32, values []float32) {}
+// SetShaderValues sets a uniform of shader to one to four floats: a float, a
+// vec2, a vec3 or a vec4. It travels with the drawing, so that it reaches the
+// shader before the picture it belongs to does.
+func SetShaderValues(shader Shader, location int32, values []float32) {
+	var four [4]float32
+	copy(four[:], values)
+	push(opShaderValues, float32(shader.ID), float32(location), float32(len(values)),
+		four[0], four[1], four[2], four[3])
+}

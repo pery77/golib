@@ -79,8 +79,13 @@ window.golib = (function () {
 		frameTime = performance.now() / 1000;
 	}
 
-	function buildProgram() {
-		const vertex = `#version 300 es
+	// Where the corners' parts sit, the same in every program, so one mesh
+	// feeds the drawing and a game's own shader alike.
+	const POSITION = 0, TEXCOORD = 1, COLOR = 2;
+
+	// The vertex shader for the drawing, which hands the fragment shader its
+	// place in the picture and its color.
+	const SHAPE_VERTEX = `#version 300 es
 in vec2 position;
 in vec2 texcoord;
 in vec4 color;
@@ -93,7 +98,8 @@ void main() {
 	vTexcoord = texcoord;
 	vColor = color;
 }`;
-		const fragment = `#version 300 es
+
+	const SHAPE_FRAGMENT = `#version 300 es
 precision highp float;
 in vec2 vTexcoord;
 in vec4 vColor;
@@ -102,14 +108,52 @@ out vec4 result;
 void main() {
 	result = texture(image, vTexcoord) * vColor;
 }`;
-		const built = gl.createProgram();
-		gl.attachShader(built, compile(gl.VERTEX_SHADER, vertex));
-		gl.attachShader(built, compile(gl.FRAGMENT_SHADER, fragment));
-		gl.linkProgram(built);
-		if (!gl.getProgramParameter(built, gl.LINK_STATUS)) {
-			throw new Error('golib: ' + gl.getProgramInfoLog(built));
+
+	// The vertex shader a game's post-processing shader runs with. Its
+	// outputs are named as raylib names them, because that is what the
+	// shaders games write read.
+	const POST_VERTEX = `#version 300 es
+in vec2 position;
+in vec2 texcoord;
+in vec4 color;
+uniform vec2 screen;
+out vec2 fragTexCoord;
+out vec4 fragColor;
+void main() {
+	vec2 clip = position / screen * 2.0 - 1.0;
+	gl_Position = vec4(clip.x, -clip.y, 0.0, 1.0);
+	fragTexCoord = texcoord;
+	fragColor = color;
+}`;
+
+	function buildProgram() {
+		const built = linkProgram(SHAPE_VERTEX, SHAPE_FRAGMENT);
+		if (built.error) throw new Error('golib: ' + built.error);
+		return built.program;
+	}
+
+	// linkProgram builds a program, or says what the graphics card said about
+	// it, which is what a game with a shader that doesn't compile is told.
+	function linkProgram(vertexSource, fragmentSource) {
+		const vertex = compile(gl.VERTEX_SHADER, vertexSource);
+		if (vertex.error) return { error: vertex.error };
+		const fragment = compile(gl.FRAGMENT_SHADER, fragmentSource);
+		if (fragment.error) return { error: fragment.error };
+		const program = gl.createProgram();
+		gl.attachShader(program, vertex.shader);
+		gl.attachShader(program, fragment.shader);
+		gl.bindAttribLocation(program, POSITION, 'position');
+		gl.bindAttribLocation(program, TEXCOORD, 'texcoord');
+		gl.bindAttribLocation(program, COLOR, 'color');
+		gl.linkProgram(program);
+		gl.deleteShader(vertex.shader);
+		gl.deleteShader(fragment.shader);
+		if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+			const log = gl.getProgramInfoLog(program);
+			gl.deleteProgram(program);
+			return { error: log };
 		}
-		return built;
+		return { program: program };
 	}
 
 	function compile(kind, source) {
@@ -117,9 +161,11 @@ void main() {
 		gl.shaderSource(shader, source);
 		gl.compileShader(shader);
 		if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-			throw new Error('golib: ' + gl.getShaderInfoLog(shader));
+			const log = gl.getShaderInfoLog(shader);
+			gl.deleteShader(shader);
+			return { error: log };
 		}
-		return shader;
+		return { shader: shader };
 	}
 
 	function setUpBatch() {
@@ -130,13 +176,12 @@ void main() {
 		gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
 		gl.bufferData(gl.ARRAY_BUFFER, vertices.byteLength, gl.DYNAMIC_DRAW);
 		const stride = FLOATS_PER_VERTEX * 4;
-		bindAttribute('position', 2, 0, stride);
-		bindAttribute('texcoord', 2, 8, stride);
-		bindAttribute('color', 4, 16, stride);
+		bindAttribute(POSITION, 2, 0, stride);
+		bindAttribute(TEXCOORD, 2, 8, stride);
+		bindAttribute(COLOR, 4, 16, stride);
 	}
 
-	function bindAttribute(name, size, offset, stride) {
-		const at = gl.getAttribLocation(program, name);
+	function bindAttribute(at, size, offset, stride) {
 		gl.enableVertexAttribArray(at);
 		gl.vertexAttribPointer(at, size, gl.FLOAT, false, stride, offset);
 	}
@@ -238,11 +283,14 @@ void main() {
 					i += 1;
 					break;
 				case BEGIN_SHADER:
+					beginShader(c[i]);
+					i += 1;
+					break;
 				case END_SHADER:
-					// Post-processing shaders are stage 3; package golib
-					// refuses them before they reach this file.
+					endShader();
 					break;
 				case SHADER_VALUES:
+					setShaderValues(c[i], c[i + 1], c[i + 2], c[i + 3], c[i + 4], c[i + 5], c[i + 6]);
 					i += 7;
 					break;
 				default:
@@ -431,7 +479,92 @@ void main() {
 		viewWidth = width;
 		viewHeight = height;
 		gl.viewport(0, 0, width, height);
-		gl.uniform2f(screenLocation, width, height);
+		useCurrentProgram();
+	}
+
+	// A game's post-processing shader is a program of its own, with GoLib's
+	// vertex shader and the game's fragment shader. Between BEGIN_SHADER and
+	// END_SHADER the picture is drawn through it instead of the plain one.
+	const shaders = new Map(); // id -> { program, screen, uniforms, byName }
+	let boundShader = 0;
+
+	function newShader(source) {
+		const built = linkProgram(POST_VERTEX, source);
+		if (built.error) return [-1, (built.error || 'the graphics card gave no reason').trim()];
+		const id = nextID++;
+		gl.useProgram(built.program);
+		const image = gl.getUniformLocation(built.program, 'texture0');
+		if (image) gl.uniform1i(image, 0);
+		shaders.set(id, {
+			program: built.program,
+			screen: gl.getUniformLocation(built.program, 'screen'),
+			uniforms: [],
+			byName: new Map(),
+		});
+		useCurrentProgram();
+		return [id, ''];
+	}
+
+	function unloadShader(id) {
+		const shader = shaders.get(id);
+		if (!shader) return;
+		if (boundShader === id) { boundShader = 0; useCurrentProgram(); }
+		gl.deleteProgram(shader.program);
+		shaders.delete(id);
+	}
+
+	function beginShader(id) {
+		if (boundShader === id) return;
+		flush();
+		boundShader = shaders.has(id) ? id : 0;
+		useCurrentProgram();
+	}
+
+	function endShader() {
+		if (boundShader === 0) return;
+		flush();
+		boundShader = 0;
+		useCurrentProgram();
+	}
+
+	// useCurrentProgram picks the program the next corners go through, and
+	// tells it how large what it draws on is.
+	function useCurrentProgram() {
+		const shader = shaders.get(boundShader);
+		if (shader) {
+			gl.useProgram(shader.program);
+			if (shader.screen) gl.uniform2f(shader.screen, viewWidth, viewHeight);
+			return;
+		}
+		gl.useProgram(program);
+		gl.uniform2f(screenLocation, viewWidth, viewHeight);
+	}
+
+	// shaderLocation returns where a uniform sits in a shader, as a number
+	// package golib can keep, or -1 when the shader doesn't declare it: GLSL
+	// compilers drop the ones a shader doesn't use.
+	function shaderLocation(id, name) {
+		const shader = shaders.get(id);
+		if (!shader) return -1;
+		if (shader.byName.has(name)) return shader.byName.get(name);
+		const found = gl.getUniformLocation(shader.program, name);
+		let at = -1;
+		if (found) {
+			at = shader.uniforms.length;
+			shader.uniforms.push(found);
+		}
+		shader.byName.set(name, at);
+		return at;
+	}
+
+	function setShaderValues(id, at, count, a, b, c, d) {
+		const shader = shaders.get(id);
+		if (!shader || at < 0 || at >= shader.uniforms.length) return;
+		const where = shader.uniforms[at];
+		if (count === 1) gl.uniform1f(where, a);
+		else if (count === 2) gl.uniform2f(where, a, b);
+		else if (count === 3) gl.uniform3f(where, a, b, c);
+		else if (count === 4) gl.uniform4f(where, a, b, c, d);
 	}
 
 	// flush sends the corners built so far to the graphics card.
@@ -643,6 +776,129 @@ void main() {
 	function gamepadName(pad) {
 		const pads = navigator.getGamepads ? navigator.getGamepads() : [];
 		return pads[pad] ? pads[pad].id : '';
+	}
+
+	// ------------------------------------------------------------------ text
+
+	// A font from a .ttf or .otf file is read by the browser, which then draws
+	// its letters onto a canvas that becomes one picture, the way raylib
+	// draws them onto an atlas. The browser shapes letters a little
+	// differently from raylib, so the text says the same thing in the same
+	// place, give or take a pixel.
+	const FONT_PAD = 2;      // space around each letter, so they don't bleed
+	const FONT_ATLAS = 1024; // how wide the picture may be
+	let nextFamily = 1;
+
+	// readFont reads a font file and calls done with the letters drawn, or
+	// with a reason it couldn't. The game waits for it, so done is always
+	// called.
+	function readFont(file, size, letters, done) {
+		let face;
+		try {
+			const data = file.buffer.slice(file.byteOffset, file.byteOffset + file.byteLength);
+			face = new FontFace('golibfont' + (nextFamily++), data);
+		} catch (e) {
+			done({ error: String(e && e.message ? e.message : e) });
+			return;
+		}
+		face.load().then(function (loaded) {
+			document.fonts.add(loaded);
+			try {
+				done(drawLetters(loaded.family, size, letters));
+			} catch (e) {
+				done({ error: String(e && e.message ? e.message : e) });
+			}
+		}).catch(function (e) {
+			done({ error: String(e && e.message ? e.message : e) });
+		});
+	}
+
+	// drawLetters draws every letter once onto a picture, and says where each
+	// one sits and how far it moves the pen, as raylib's font does.
+	function drawLetters(family, size, letters) {
+		const measuring = document.createElement('canvas').getContext('2d');
+
+		const seen = new Set();
+		const wanted = [];
+		for (const letter of letters) {
+			if (!seen.has(letter)) { seen.add(letter); wanted.push(letter); }
+		}
+
+		// A browser reads a size as the height of the font's em square, while
+		// raylib reads it as the height from the top of the letters to the
+		// bottom of the tails. Asking the browser for the size that makes
+		// those two agree puts the letters where raylib puts them.
+		let asked = size;
+		measuring.font = asked + 'px "' + family + '"';
+		let line = measuring.measureText('Hy');
+		const tall = (line.fontBoundingBoxAscent || 0) + (line.fontBoundingBoxDescent || 0);
+		if (tall > 0) {
+			asked = size * size / tall;
+			measuring.font = asked + 'px "' + family + '"';
+			line = measuring.measureText('Hy');
+		}
+		const font = measuring.font;
+
+		// Where the letters sit on their line, which is where a letter's
+		// offset is measured from.
+		let ascent = Math.round(line.fontBoundingBoxAscent || 0);
+		const measured = [];
+		for (const letter of wanted) {
+			const m = measuring.measureText(letter);
+			const left = Math.ceil(m.actualBoundingBoxLeft || 0);
+			const right = Math.ceil(m.actualBoundingBoxRight || 0);
+			const up = Math.ceil(m.actualBoundingBoxAscent || 0);
+			const down = Math.ceil(m.actualBoundingBoxDescent || 0);
+			if (!ascent) ascent = Math.max(ascent, up);
+			measured.push({
+				letter: letter,
+				width: Math.max(0, left + right),
+				height: Math.max(0, up + down),
+				left: left, up: up,
+				advance: Math.round(m.width),
+			});
+		}
+		if (!ascent) ascent = Math.round(size * 0.75);
+
+		// Lay them out in rows, and make the picture as tall as they need.
+		let x = FONT_PAD, y = FONT_PAD, row = 0, width = FONT_PAD;
+		for (const glyph of measured) {
+			if (x + glyph.width + FONT_PAD > FONT_ATLAS) {
+				x = FONT_PAD;
+				y += row + FONT_PAD;
+				row = 0;
+			}
+			glyph.x = x;
+			glyph.y = y;
+			x += glyph.width + FONT_PAD;
+			width = Math.max(width, x);
+			row = Math.max(row, glyph.height);
+		}
+		const height = y + row + FONT_PAD;
+
+		const canvas = document.createElement('canvas');
+		canvas.width = Math.max(1, width);
+		canvas.height = Math.max(1, height);
+		const ctx = canvas.getContext('2d', { willReadFrequently: true });
+		ctx.font = font;
+		ctx.textBaseline = 'alphabetic';
+		ctx.fillStyle = '#ffffff';
+		const glyphs = [];
+		for (const glyph of measured) {
+			if (glyph.width > 0 && glyph.height > 0) {
+				ctx.fillText(glyph.letter, glyph.x + glyph.left, glyph.y + glyph.up);
+			}
+			glyphs.push(
+				glyph.letter.codePointAt(0), glyph.x, glyph.y, glyph.width, glyph.height,
+				-glyph.left, ascent - glyph.up, glyph.advance);
+		}
+		const picture = ctx.getImageData(0, 0, canvas.width, canvas.height);
+		return {
+			width: canvas.width,
+			height: canvas.height,
+			pixels: new Uint8Array(picture.data.buffer),
+			glyphs: glyphs,
+		};
 	}
 
 	// ----------------------------------------------------------------- sound
@@ -935,6 +1191,8 @@ void main() {
 		onFrame: onFrame, askForFrame: askForFrame,
 		setFullscreen: setFullscreen, setCursorVisible: setCursorVisible, cursorVisible: cursorVisible,
 		showError: showError,
+		newShader: newShader, unloadShader: unloadShader, shaderLocation: shaderLocation,
+		readFont: readFont,
 		openAudio: openAudio, closeAudio: closeAudio, setMasterVolume: setMasterVolume,
 		decodeSound: decodeSound, unloadWave: unloadWave,
 		newSound: newSound, newSoundAlias: newSoundAlias, unloadSound: unloadSound,

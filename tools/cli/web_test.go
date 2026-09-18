@@ -1,6 +1,7 @@
 package main
 
 import (
+	"archive/zip"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -162,5 +163,53 @@ func TestFileSize(t *testing.T) {
 		if got := fileSize(test.bytes); got != test.want {
 			t.Errorf("fileSize(%d) = %q, want %q", test.bytes, got, test.want)
 		}
+	}
+}
+
+// dist --web builds the game to share into build/<game>/dist/web/ and zips
+// what is in that folder, so that index.html is at the top of the zip.
+func TestDistWeb(t *testing.T) {
+	tp := webProject(t, "rocks")
+	writeFile(t, tp.c.path("games", "rocks", gameInfoFile), `{"title": "Rocks", "version": "1.2.0"}`)
+	if code := tp.c.dist([]string{"--web"}); code != 0 {
+		t.Fatalf("exit code %d, output:\n%s%s", code, tp.stdout.String(), tp.stderr.String())
+	}
+	folder := tp.c.path("build", "rocks", "dist", "web")
+	for _, name := range []string{webPageFile, wasmExecFile, webGlueFile, "rocks.wasm", noticesFile} {
+		if _, err := os.Stat(filepath.Join(folder, name)); err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	// A web build carries no raylib, so its notices are Go's and jfxr's.
+	notices, err := os.ReadFile(filepath.Join(folder, noticesFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(notices), "raylib") {
+		t.Errorf("%s names raylib, which a web build doesn't carry:\n%s", noticesFile, notices)
+	}
+	for _, want := range []string{"Go 1.27.1", "jfxr"} {
+		if !strings.Contains(string(notices), want) {
+			t.Errorf("%s doesn't name %s:\n%s", noticesFile, want, notices)
+		}
+	}
+
+	archive, err := zip.OpenReader(tp.c.path("build", "rocks", "dist", "rocks-1.2.0-web.zip"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer archive.Close()
+	var names []string
+	for _, file := range archive.File {
+		names = append(names, file.Name)
+	}
+	slices.Sort(names)
+	want := []string{noticesFile, "golib.js", "index.html", "rocks.wasm", "wasm_exec.js"}
+	slices.Sort(want)
+	if !slices.Equal(names, want) {
+		t.Errorf("the zip holds %q, want %q at its top", names, want)
+	}
+	if !strings.Contains(tp.stdout.String(), "index.html is at the top of the zip") {
+		t.Errorf("output:\n%s\nwant it to say where index.html is", tp.stdout.String())
 	}
 }

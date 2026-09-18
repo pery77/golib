@@ -117,11 +117,17 @@ func SaveData(name string, value any) error {
 	}
 	data = append(data, '\n')
 
-	folder, inMemory, err := saveFolder()
+	folder, place, err := saveFolder()
 	if err != nil {
 		return fmt.Errorf("golib.SaveData: %w", err)
 	}
-	if inMemory {
+	if place == saveInStore {
+		if err := device.SaveToStore(name, data); err != nil {
+			return fmt.Errorf("golib.SaveData: %w", err)
+		}
+		return nil
+	}
+	if place == saveInMemory {
 		memorySaves.Lock()
 		defer memorySaves.Unlock()
 		if memorySaves.data == nil {
@@ -172,13 +178,23 @@ func LoadData(name string, value any) (found bool, err error) {
 		reportError(err)
 		return false, err
 	}
-	folder, inMemory, err := saveFolder()
+	folder, place, err := saveFolder()
 	if err != nil {
 		return false, fmt.Errorf("golib.LoadData: %w", err)
 	}
 	var data []byte
 	path := name + ".json"
-	if inMemory {
+	switch {
+	case place == saveInStore:
+		kept, found, err := device.LoadFromStore(name)
+		if err != nil {
+			return false, fmt.Errorf("golib.LoadData: %w", err)
+		}
+		if !found {
+			return false, nil
+		}
+		data = kept
+	case place == saveInMemory:
 		memorySaves.Lock()
 		stored, ok := memorySaves.data[name]
 		memorySaves.Unlock()
@@ -186,7 +202,7 @@ func LoadData(name string, value any) (found bool, err error) {
 			return false, nil
 		}
 		data = stored
-	} else {
+	default:
 		path = filepath.Join(folder, path)
 		data, err = os.ReadFile(path)
 		if errors.Is(err, fs.ErrNotExist) {
@@ -209,11 +225,17 @@ func DeleteData(name string) error {
 	if err := checkSaveName("DeleteData", name); err != nil {
 		return err
 	}
-	folder, inMemory, err := saveFolder()
+	folder, place, err := saveFolder()
 	if err != nil {
 		return fmt.Errorf("golib.DeleteData: %w", err)
 	}
-	if inMemory {
+	if place == saveInStore {
+		if err := device.DeleteFromStore(name); err != nil {
+			return fmt.Errorf("golib.DeleteData: %w", err)
+		}
+		return nil
+	}
+	if place == saveInMemory {
 		memorySaves.Lock()
 		defer memorySaves.Unlock()
 		delete(memorySaves.data, name)
@@ -229,29 +251,42 @@ func DeleteData(name string) error {
 // testSaveFolder, when set, is where this package's tests save to disk.
 var testSaveFolder string
 
-// saveFolder returns the folder saved data goes in, or inMemory when this
-// program keeps its data in memory.
-func saveFolder() (folder string, inMemory bool, err error) {
+// savePlace says where saved data goes.
+type savePlace int
+
+const (
+	saveInFolder savePlace = iota // files in a folder of the game's own
+	saveInMemory                  // until the program ends: tests and golib shot
+	saveInStore                   // what the backend keeps, such as a browser's
+)
+
+// saveFolder returns where saved data goes, and the folder when it goes in
+// one.
+func saveFolder() (folder string, place savePlace, err error) {
 	if testSaveFolder != "" {
-		return testSaveFolder, false, nil
+		return testSaveFolder, saveInFolder, nil
 	}
-	// Tests, golib shot and backends with no files of their own, such as a
-	// page in a browser, keep saved data in memory for the run.
-	if testing.Testing() || os.Getenv(shotDirEnv) != "" || !device.SavesToDisk {
-		return "", true, nil
+	// Tests and golib shot keep saved data in memory, so that they start
+	// with nothing saved, whatever the player of this game has.
+	if testing.Testing() || os.Getenv(shotDirEnv) != "" {
+		return "", saveInMemory, nil
+	}
+	// A backend with a store of its own, such as a browser, has no folder.
+	if device.HasSaveStore {
+		return "", saveInStore, nil
 	}
 	exe, err := os.Executable()
 	if err != nil {
-		return "", false, err
+		return "", saveInFolder, err
 	}
 	if !distBuild {
-		return filepath.Join(filepath.Dir(exe), "save"), false, nil
+		return filepath.Join(filepath.Dir(exe), "save"), saveInFolder, nil
 	}
 	settings, err := os.UserConfigDir()
 	if err != nil {
-		return "", false, err
+		return "", saveInFolder, err
 	}
-	return distSaveFolder(settings, exe, saveName), false, nil
+	return distSaveFolder(settings, exe, saveName), saveInFolder, nil
 }
 
 // distSaveFolder returns the folder a dist build saves in, given the player's

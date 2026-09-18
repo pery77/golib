@@ -12,6 +12,8 @@
 package device
 
 import (
+	"errors"
+	"fmt"
 	"syscall/js"
 )
 
@@ -89,12 +91,61 @@ func ShowError(title, message string) {
 	js_().Call("showError", title, message)
 }
 
-// SavesToDisk says that a page has no folder to save in. Package golib then
-// keeps saved data in memory, as it does under golib shot and in tests, so a
-// game that saves its progress plays on and starts fresh when the page is
-// opened again. Saving in the browser's own storage is stage 3 of the web
-// build (see docs/roadmap.md).
-const SavesToDisk = false
+// HasSaveStore says that this backend keeps saved data itself: a page has no
+// folder to write in, but the browser keeps a store of its own for the
+// address the game is served from, which survives the page being closed.
+//
+// The store holds text, and it is small, a few megabytes for the whole
+// address, which is what golib.SaveData is for anyway. A player in a private
+// window, or one who clears their browsing data, starts fresh; so does the
+// same game served from another address.
+const HasSaveStore = true
+
+// storeKey names a game's saved data in the browser's store, apart from
+// anything else the page keeps there.
+const storeKey = "golib.save."
+
+// SaveToStore keeps data under name until the player clears it.
+func SaveToStore(name string, data []byte) error {
+	store := js.Global().Get("localStorage")
+	if !store.Truthy() {
+		return errors.New("this browser keeps no store for the game to save in")
+	}
+	// A store full, or turned off, throws instead of returning.
+	var thrown error
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				thrown = fmt.Errorf("the browser would not keep it: %v", r)
+			}
+		}()
+		store.Call("setItem", storeKey+name, string(data))
+	}()
+	return thrown
+}
+
+// LoadFromStore returns what SaveToStore kept under name, and whether
+// anything was kept.
+func LoadFromStore(name string) ([]byte, bool, error) {
+	store := js.Global().Get("localStorage")
+	if !store.Truthy() {
+		return nil, false, nil
+	}
+	kept := store.Call("getItem", storeKey+name)
+	if !kept.Truthy() {
+		return nil, false, nil
+	}
+	return []byte(kept.String()), true, nil
+}
+
+// DeleteFromStore removes what was kept under name.
+func DeleteFromStore(name string) error {
+	store := js.Global().Get("localStorage")
+	if store.Truthy() {
+		store.Call("removeItem", storeKey+name)
+	}
+	return nil
+}
 
 // OpenWindow prepares the canvas for a game of width by height pixels and
 // reports whether it is ready. hidden has no meaning in a browser: a page is

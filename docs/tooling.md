@@ -309,7 +309,7 @@ Windows PowerShell 5.1 splits arguments that start with `-` and contain a dot be
 
 ## Web builds
 
-`golib web [game]` builds a game for the browser and serves it on this machine, so it can be played at a `http://localhost` address. The picture, the input and the sound work; post-processing shaders, fonts from files, `.xm`, `.mod` and `.qoa`, and saving between visits do not yet (see [roadmap.md](roadmap.md#web-build-started-2026-09-18)).
+`golib web [game]` builds a game for the browser and serves it on this machine, so it can be played at a `http://localhost` address. A web build draws, sounds, reads input, runs post-processing shaders, reads fonts from files and saves in the browser's store. It cannot play `.xm`, `.mod` or `.qoa`, which browsers do not decode, and text from a font file lands within a few pixels of where the desktop puts it, not on it (see [roadmap.md](roadmap.md#web-build-started-2026-09-18)).
 
 ```text
 build/<game>/web/
@@ -327,7 +327,18 @@ The browser decides when to draw: the game waits for `requestAnimationFrame` in 
 
 Sound goes through Web Audio. The synthesizers above the backend already turn a `SoundSpec`, a `.jfxr` file or a tune into the bytes of a WAV file, so the backend only hands those bytes to the browser and plays what comes back. The browser decodes them asynchronously while the contract is synchronous, so the first play of a sound waits for it: when every goroutine waits, Go hands the thread back to the page, which finishes the decoding and wakes the game. Browsers refuse to make a sound before the player has pressed a key or clicked, so the first of either starts the sound device.
 
-Nothing is published by this command: it serves on `127.0.0.1` for the person running it. A zip to put on itch.io is stage 3.
+Post-processing shaders are compiled for OpenGL ES, which is what browsers have: `device.ESShader` replaces the first lines of a game's `#version 330` shader and leaves the rest alone, so a shader that mixes whole numbers into float arithmetic, which ES refuses, still fails and says so on the page. `golib.SaveData` writes into the browser's own store for the address the game is served from, which survives the page being closed, and which a player clears with their browsing data.
+
+Nothing is published by `golib web`: it serves on `127.0.0.1` for the person running it. To share a game, `golib dist [game] --web` builds it into `build/<game>/dist/web/` and zips what is in that folder:
+
+```text
+build/<game>/dist/
+  web/                          the folder to serve
+    index.html                  at the top of the zip, where a page host looks for it
+    <game>.wasm, wasm_exec.js, golib.js
+    THIRD-PARTY-LICENSES.txt    Go's license and jfxr's; a web build has no raylib in it
+  <game>-<version>-web.zip      the file to upload to itch.io
+```
 
 ## Adding a command
 

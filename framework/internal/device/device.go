@@ -33,6 +33,8 @@
 // never down.
 package device
 
+import "strings"
+
 // The key codes GoLib passes on to games.
 const (
 	KeySpace     = 32
@@ -171,3 +173,23 @@ var (
 	Magenta    = Color{R: 255, G: 0, B: 255, A: 255}
 	RayWhite   = Color{R: 245, G: 245, B: 245, A: 255}
 )
+
+// ESShader returns a fragment shader written for desktop OpenGL as one a
+// backend on OpenGL ES can compile, which is what browsers have. The two
+// differ in their first lines: the version, and the precision every ES
+// shader has to declare. What comes after is left alone, so a shader that
+// mixes whole numbers into float arithmetic, which ES refuses, still fails
+// to compile and says so.
+func ESShader(source string) string {
+	const version = "#version 300 es"
+	const precision = "precision highp float;"
+	rest := strings.TrimLeft(source, " \t\r\n")
+	if strings.HasPrefix(rest, "#version") {
+		if line := strings.IndexByte(rest, '\n'); line >= 0 {
+			rest = rest[line+1:]
+		} else {
+			rest = ""
+		}
+	}
+	return version + "\n" + precision + "\n" + rest
+}
