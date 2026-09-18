@@ -4,7 +4,7 @@ import (
 	"math"
 	"sync/atomic"
 
-	rl "github.com/gen2brain/raylib-go/raylib"
+	"golib/internal/device"
 )
 
 // fullscreenWanted is the state SetFullscreen asks for. Run applies it at the
@@ -89,11 +89,7 @@ type window struct {
 // mouse pointer to match mouseHiddenWanted.
 func (w *window) apply() {
 	if hide := mouseHiddenWanted.Load(); hide != w.mouseHidden {
-		if hide {
-			rl.HideCursor()
-		} else {
-			rl.ShowCursor()
-		}
+		device.SetCursorVisible(!hide)
 		w.mouseHidden = hide
 	}
 	want := fullscreenWanted.Load()
@@ -101,18 +97,16 @@ func (w *window) apply() {
 		return
 	}
 	if want {
-		position := rl.GetWindowPosition()
-		w.x, w.y = int(position.X), int(position.Y)
-		w.width, w.height = rl.GetScreenWidth(), rl.GetScreenHeight()
-		monitor := rl.GetCurrentMonitor()
-		monitorPosition := rl.GetMonitorPosition(monitor)
-		rl.SetWindowState(rl.FlagWindowUndecorated)
-		rl.SetWindowPosition(int(monitorPosition.X), int(monitorPosition.Y))
-		rl.SetWindowSize(rl.GetMonitorWidth(monitor), rl.GetMonitorHeight(monitor))
+		w.x, w.y = device.WindowPosition()
+		w.width, w.height = device.WindowSize()
+		monitorX, monitorY, monitorWidth, monitorHeight := device.MonitorBounds()
+		device.SetWindowBorder(false)
+		device.SetWindowPosition(monitorX, monitorY)
+		device.SetWindowSize(monitorWidth, monitorHeight)
 	} else {
-		rl.ClearWindowState(rl.FlagWindowUndecorated)
-		rl.SetWindowSize(w.width, w.height)
-		rl.SetWindowPosition(w.x, w.y)
+		device.SetWindowBorder(true)
+		device.SetWindowSize(w.width, w.height)
+		device.SetWindowPosition(w.x, w.y)
 	}
 	w.fullscreen = want
 }
@@ -121,13 +115,13 @@ func (w *window) apply() {
 // in a window of windowWidth by windowHeight pixels: as large as it fits,
 // centered, keeping its shape. With pixelArt, the scale is a whole number, at
 // least 1, so every pixel stays square and sharp.
-func fitScreen(screenWidth, screenHeight, windowWidth, windowHeight float32, pixelArt bool) rl.Rectangle {
+func fitScreen(screenWidth, screenHeight, windowWidth, windowHeight float32, pixelArt bool) device.Rectangle {
 	scale := min(windowWidth/screenWidth, windowHeight/screenHeight)
 	if pixelArt {
 		scale = max(1, float32(math.Floor(float64(scale))))
 	}
 	width, height := screenWidth*scale, screenHeight*scale
-	return rl.Rectangle{
+	return device.Rectangle{
 		X:      float32(math.Floor(float64(windowWidth-width) / 2)),
 		Y:      float32(math.Floor(float64(windowHeight-height) / 2)),
 		Width:  width,
@@ -139,7 +133,7 @@ func fitScreen(screenWidth, screenHeight, windowWidth, windowHeight float32, pix
 // coordinates games draw with, given the rectangle fitScreen chose. A window
 // with no room for the screen, such as a minimized one, leaves the point as it
 // is.
-func toScreen(x, y float32, fit rl.Rectangle, screenWidth, screenHeight float32) (float32, float32) {
+func toScreen(x, y float32, fit device.Rectangle, screenWidth, screenHeight float32) (float32, float32) {
 	if fit.Width <= 0 || fit.Height <= 0 {
 		return x, y
 	}
@@ -151,16 +145,14 @@ func toScreen(x, y float32, fit rl.Rectangle, screenWidth, screenHeight float32)
 // centers it there. A small screen, such as 320 by 180, would otherwise open
 // a tiny window.
 func enlargeWindow(screenWidth, screenHeight int) {
-	monitor := rl.GetCurrentMonitor()
-	monitorWidth, monitorHeight := rl.GetMonitorWidth(monitor), rl.GetMonitorHeight(monitor)
+	cornerX, cornerY, monitorWidth, monitorHeight := device.MonitorBounds()
 	scale := windowScale(screenWidth, screenHeight, monitorWidth, monitorHeight)
 	if scale <= 1 {
 		return
 	}
 	width, height := screenWidth*scale, screenHeight*scale
-	corner := rl.GetMonitorPosition(monitor)
-	rl.SetWindowSize(width, height)
-	rl.SetWindowPosition(int(corner.X)+(monitorWidth-width)/2, int(corner.Y)+(monitorHeight-height)/2)
+	device.SetWindowSize(width, height)
+	device.SetWindowPosition(cornerX+(monitorWidth-width)/2, cornerY+(monitorHeight-height)/2)
 }
 
 // windowScale returns how many times a screen fits in four fifths of a

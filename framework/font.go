@@ -11,7 +11,7 @@ import (
 	"sync"
 	"unicode/utf8"
 
-	rl "github.com/gen2brain/raylib-go/raylib"
+	"golib/internal/device"
 )
 
 // fontFormats are the font files GoLib reads, by extension.
@@ -47,7 +47,7 @@ type Font struct {
 
 // fontSize is a font drawn at one size.
 type fontSize struct {
-	font  rl.Font
+	font  device.Font
 	runes []rune // the letters it was asked for, in order
 	asked map[rune]bool
 	used  int // the font's clock when it was last used
@@ -88,20 +88,20 @@ const (
 // textLineGap is the space between lines of text, in pixels: raylib's.
 const textLineGap = 2
 
-// textFont returns the raylib font to draw text at size with, and the space
+// textFont returns the font to draw text at size with, and the space
 // between its letters. call names the method, for messages.
-func textFont(call, text string, size float32, options []TextOptions) (rl.Font, float32) {
+func textFont(call, text string, size float32, options []TextOptions) (device.Font, float32) {
 	if len(options) > 1 {
 		reportError(fmt.Errorf("golib: Screen.%s got %d TextOptions: pass at most one", call, len(options)))
 	}
 	if len(options) == 0 || options[0].Font == nil {
-		return rl.GetFontDefault(), textSpacing(size)
+		return device.DefaultFont(), textSpacing(size)
 	}
 	font, err := options[0].Font.atlas(size, text)
 	if err != nil {
 		// Draw with the built-in font this time: Run stops after the frame.
 		reportError(err)
-		return rl.GetFontDefault(), textSpacing(size)
+		return device.DefaultFont(), textSpacing(size)
 	}
 	return font, 0
 }
@@ -114,9 +114,9 @@ func textSpacing(size float32) float32 {
 
 // atlas returns the font drawn at size, the nearest whole number of pixels,
 // with every letter of text in it. The window must be open.
-func (f *Font) atlas(size float32, text string) (rl.Font, error) {
+func (f *Font) atlas(size float32, text string) (device.Font, error) {
 	if err := f.prepare(); err != nil {
-		return rl.Font{}, err
+		return device.Font{}, err
 	}
 	pixels := max(1, int(math.Round(float64(size))))
 	f.clock++
@@ -139,9 +139,9 @@ func (f *Font) atlas(size float32, text string) (rl.Font, error) {
 			missing = true
 		}
 	}
-	if sized.font.Texture.ID == 0 || missing {
+	if device.FontID(sized.font) == 0 || missing {
 		if err := f.build(sized, pixels); err != nil {
-			return rl.Font{}, err
+			return device.Font{}, err
 		}
 	}
 	return sized.font, nil
@@ -154,14 +154,9 @@ func (s *fontSize) ask(letter rune) {
 
 // build draws the letters sized asks for, replacing the ones drawn before.
 func (f *Font) build(sized *fontSize, pixels int) error {
-	// raylib warns about every letter taller than the size, which many fonts
-	// have, such as capitals with accents.
-	rl.SetTraceLogLevel(rl.LogError)
-	font := rl.LoadFontFromMemory(strings.ToLower(path.Ext(f.name)), f.data, int32(pixels), sized.runes)
-	rl.SetTraceLogLevel(rl.LogWarning)
-	// raylib gives its own font back when it can't read the file.
-	if font.Texture.ID == 0 || font.Texture.ID == rl.GetFontDefault().Texture.ID {
-		f.err = fmt.Errorf("golib.NewFont(%q): raylib could not read the font: check that the file is a TrueType or OpenType font", f.name)
+	font, err := device.NewFont(strings.ToLower(path.Ext(f.name)), f.data, pixels, sized.runes)
+	if err != nil {
+		f.err = fmt.Errorf("golib.NewFont(%q): %w", f.name, err)
 		return f.err
 	}
 	unloadFont(sized.font)
@@ -185,12 +180,12 @@ func (f *Font) dropOldest() {
 	delete(f.sizes, oldest)
 }
 
-// unloadFont frees a font drawn at one size. raylib may still hold text
+// unloadFont frees a font drawn at one size. The backend may still hold text
 // drawn with it, waiting to go to the graphics card, so that goes first.
-func unloadFont(font rl.Font) {
-	if font.Texture.ID != 0 {
-		rl.DrawRenderBatchActive()
-		rl.UnloadFont(font)
+func unloadFont(font device.Font) {
+	if device.FontID(font) != 0 {
+		device.FlushDrawing()
+		device.UnloadFont(font)
 	}
 }
 
@@ -256,8 +251,8 @@ func checkFontTables(data []byte) error {
 // game runs again. The window must still be open.
 func (f *Font) unload() {
 	for _, sized := range f.sizes {
-		if sized.font.Texture.ID != 0 {
-			rl.UnloadFont(sized.font)
+		if device.FontID(sized.font) != 0 {
+			device.UnloadFont(sized.font)
 		}
 	}
 	f.read, f.err, f.data, f.sizes, f.clock, f.tracked = false, nil, nil, nil, 0, false

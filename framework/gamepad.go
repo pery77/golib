@@ -3,7 +3,7 @@ package golib
 import (
 	"math"
 
-	rl "github.com/gen2brain/raylib-go/raylib"
+	"golib/internal/device"
 )
 
 // GamepadButton is a button on a gamepad. The face buttons are named after an
@@ -13,30 +13,29 @@ type GamepadButton int32
 
 // Gamepad buttons.
 const (
-	GamepadUp    GamepadButton = rl.GamepadButtonLeftFaceUp // the d-pad
-	GamepadRight GamepadButton = rl.GamepadButtonLeftFaceRight
-	GamepadDown  GamepadButton = rl.GamepadButtonLeftFaceDown
-	GamepadLeft  GamepadButton = rl.GamepadButtonLeftFaceLeft
+	GamepadUp    GamepadButton = device.GamepadUp // the d-pad
+	GamepadRight GamepadButton = device.GamepadRight
+	GamepadDown  GamepadButton = device.GamepadDown
+	GamepadLeft  GamepadButton = device.GamepadLeft
 
-	GamepadY GamepadButton = rl.GamepadButtonRightFaceUp
-	GamepadB GamepadButton = rl.GamepadButtonRightFaceRight
-	GamepadA GamepadButton = rl.GamepadButtonRightFaceDown
-	GamepadX GamepadButton = rl.GamepadButtonRightFaceLeft
+	GamepadY GamepadButton = device.GamepadY
+	GamepadB GamepadButton = device.GamepadB
+	GamepadA GamepadButton = device.GamepadA
+	GamepadX GamepadButton = device.GamepadX
 
-	GamepadLeftBumper   GamepadButton = rl.GamepadButtonLeftTrigger1
-	GamepadLeftTrigger  GamepadButton = rl.GamepadButtonLeftTrigger2 // read as a button: pressed or not
-	GamepadRightBumper  GamepadButton = rl.GamepadButtonRightTrigger1
-	GamepadRightTrigger GamepadButton = rl.GamepadButtonRightTrigger2
+	GamepadLeftBumper   GamepadButton = device.GamepadLeftBumper
+	GamepadLeftTrigger  GamepadButton = device.GamepadLeftTrigger // read as a button: pressed or not
+	GamepadRightBumper  GamepadButton = device.GamepadRightBumper
+	GamepadRightTrigger GamepadButton = device.GamepadRightTrigger
 
-	GamepadBack  GamepadButton = rl.GamepadButtonMiddleLeft  // View, Select or Share
-	GamepadStart GamepadButton = rl.GamepadButtonMiddleRight // Menu, Start or Options
+	GamepadBack  GamepadButton = device.GamepadBack  // View, Select or Share
+	GamepadStart GamepadButton = device.GamepadStart // Menu, Start or Options
 
-	GamepadLeftStickButton  GamepadButton = rl.GamepadButtonLeftThumb // pressing the left stick in
-	GamepadRightStickButton GamepadButton = rl.GamepadButtonRightThumb
+	GamepadLeftStickButton  GamepadButton = device.GamepadLeftStickButton // pressing the left stick in
+	GamepadRightStickButton GamepadButton = device.GamepadRightStickButton
 )
 
-// maxGamepads is how many gamepads Input follows, numbered from 0, as raylib
-// does.
+// maxGamepads is how many gamepads Input follows, numbered from 0.
 const maxGamepads = 4
 
 // gamepadButtonCount is one more than the highest GamepadButton, so buttons
@@ -73,7 +72,7 @@ type gamepadState struct {
 	rightX, rightY float32
 }
 
-// gamepadFrame is what raylib reports about one gamepad in one frame.
+// gamepadFrame is what the machine reports about one gamepad in one frame.
 type gamepadFrame struct {
 	connected      bool
 	name           string
@@ -83,23 +82,19 @@ type gamepadFrame struct {
 	rightX, rightY float32
 }
 
-// raylibGamepadFrame reads gamepad number pad from raylib.
-func raylibGamepadFrame(pad int) gamepadFrame {
+// deviceGamepadFrame reads gamepad number pad from the machine.
+func deviceGamepadFrame(pad int) gamepadFrame {
 	var frame gamepadFrame
-	id := int32(pad)
-	if !rl.IsGamepadAvailable(id) {
+	if !device.GamepadConnected(pad) {
 		return frame
 	}
 	frame.connected = true
-	frame.name = rl.GetGamepadName(id)
+	frame.name = device.GamepadName(pad)
 	for button := range gamepadButtonNames {
-		frame.down[button] = rl.IsGamepadButtonDown(id, int32(button))
-		frame.pressed[button] = rl.IsGamepadButtonPressed(id, int32(button))
+		frame.down[button] = device.IsGamepadDown(pad, int32(button))
+		frame.pressed[button] = device.IsGamepadPressed(pad, int32(button))
 	}
-	frame.leftX = rl.GetGamepadAxisMovement(id, rl.GamepadAxisLeftX)
-	frame.leftY = rl.GetGamepadAxisMovement(id, rl.GamepadAxisLeftY)
-	frame.rightX = rl.GetGamepadAxisMovement(id, rl.GamepadAxisRightX)
-	frame.rightY = rl.GetGamepadAxisMovement(id, rl.GamepadAxisRightY)
+	frame.leftX, frame.leftY, frame.rightX, frame.rightY = device.GamepadSticks(pad)
 	return frame
 }
 

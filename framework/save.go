@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"golib/internal/device"
 )
 
 // saveFolderName is the folder, in the player's settings folder, that holds
@@ -233,7 +235,9 @@ func saveFolder() (folder string, inMemory bool, err error) {
 	if testSaveFolder != "" {
 		return testSaveFolder, false, nil
 	}
-	if testing.Testing() || os.Getenv(shotDirEnv) != "" {
+	// Tests, golib shot and backends with no files of their own, such as a
+	// page in a browser, keep saved data in memory for the run.
+	if testing.Testing() || os.Getenv(shotDirEnv) != "" || !device.SavesToDisk {
 		return "", true, nil
 	}
 	exe, err := os.Executable()

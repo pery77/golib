@@ -9,7 +9,7 @@ import (
 	"strings"
 	"sync"
 
-	rl "github.com/gen2brain/raylib-go/raylib"
+	"golib/internal/device"
 )
 
 // Waveform is the shape of a sound.
@@ -191,12 +191,12 @@ type Sound struct {
 	volume float32
 	read   bool // the file has been read, successfully or not
 	err    error
-	voices []rl.Sound // the same sound several times over, so it can overlap itself
+	voices []device.Sound // the same sound several times over, so it can overlap itself
 	next   int
 
-	looping    bool     // Loop was called, and Stop wasn't since
-	loop       rl.Music // the sound as a stream, which raylib repeats without a gap
-	loopData   []byte   // raylib streams from this, so it has to stay reachable
+	looping    bool         // Loop was called, and Stop wasn't since
+	loop       device.Music // the sound as a stream, which the backend repeats without a gap
+	loopData   []byte       // raylib streams from this, so it has to stay reachable
 	loopLoaded bool
 }
 
@@ -255,9 +255,9 @@ func (s *Sound) play(volume, pitch float32) {
 		return
 	}
 	voice := s.voices[s.next]
-	rl.SetSoundVolume(voice, s.volume*volume)
-	rl.SetSoundPitch(voice, pitch)
-	rl.PlaySound(voice)
+	device.SetSoundVolume(voice, s.volume*volume)
+	device.SetSoundPitch(voice, pitch)
+	device.PlaySound(voice)
 	s.next = (s.next + 1) % len(s.voices)
 }
 
@@ -290,8 +290,8 @@ func (s *Sound) Loop() {
 	if !s.load() || !s.loadLoop() {
 		return
 	}
-	if !rl.IsMusicStreamPlaying(s.loop) {
-		rl.PlayMusicStream(s.loop)
+	if !device.MusicPlaying(s.loop) {
+		device.PlayMusic(s.loop)
 	}
 }
 
@@ -299,10 +299,10 @@ func (s *Sound) Loop() {
 func (s *Sound) Stop() {
 	s.looping = false
 	for _, voice := range s.voices {
-		rl.StopSound(voice)
+		device.StopSound(voice)
 	}
 	if s.loopLoaded {
-		rl.StopMusicStream(s.loop)
+		device.StopMusic(s.loop)
 	}
 }
 
@@ -318,10 +318,10 @@ func (s *Sound) Looping() bool {
 func (s *Sound) SetVolume(volume float32) {
 	s.volume = max(0, min(volume, 1))
 	for _, voice := range s.voices {
-		rl.SetSoundVolume(voice, s.volume)
+		device.SetSoundVolume(voice, s.volume)
 	}
 	if s.loopLoaded {
-		rl.SetMusicVolume(s.loop, s.volume)
+		device.SetMusicVolume(s.loop, s.volume)
 	}
 }
 
@@ -348,20 +348,20 @@ func (s *Sound) load() bool {
 		reportError(err)
 		return false
 	}
-	defer rl.UnloadWave(wave)
+	defer device.UnloadWave(wave)
 	if !ready {
 		return false
 	}
-	first := rl.LoadSoundFromWave(wave)
-	if first.FrameCount == 0 {
+	first, ok := device.NewSound(wave)
+	if !ok {
 		return false
 	}
 	s.voices = append(s.voices, first)
 	for range soundVoices - 1 {
-		s.voices = append(s.voices, rl.LoadSoundAlias(first))
+		s.voices = append(s.voices, device.NewSoundAlias(first))
 	}
 	for _, voice := range s.voices {
-		rl.SetSoundVolume(voice, s.volume)
+		device.SetSoundVolume(voice, s.volume)
 	}
 	audio.track(s)
 	return true
@@ -392,16 +392,14 @@ func (s *Sound) encoded() (format string, data []byte, err error) {
 }
 
 // wave returns the sound's samples, made from its spec or read from its file.
-func (s *Sound) wave() (rl.Wave, error) {
+func (s *Sound) wave() (device.Wave, error) {
 	format, data, err := s.encoded()
 	if err != nil {
-		return rl.Wave{}, err
+		return device.Wave{}, err
 	}
-	// Without the window, raylib would otherwise print a line for each file.
-	rl.SetTraceLogLevel(rl.LogWarning)
-	wave := rl.LoadWaveFromMemory(format, data, int32(len(data)))
-	if !rl.IsWaveValid(wave) {
-		return rl.Wave{}, fmt.Errorf("golib.NewSoundFile(%q): raylib could not read the sound: see the raylib warnings above", s.name)
+	wave, ok := device.NewWave(format, data)
+	if !ok {
+		return device.Wave{}, fmt.Errorf("golib.NewSoundFile(%q): raylib could not read the sound: see the raylib warnings above", s.name)
 	}
 	return wave, nil
 }
@@ -418,15 +416,14 @@ func (s *Sound) loadLoop() bool {
 		reportError(err)
 		return false
 	}
-	stream := rl.LoadMusicStreamFromMemory(format, data, int32(len(data)))
-	if !rl.IsMusicValid(stream) {
+	stream, ok := device.NewMusic(format, data, true)
+	if !ok {
 		s.err = fmt.Errorf("golib: raylib could not loop the sound %s: see the raylib warnings above", s.describe())
 		reportError(s.err)
 		return false
 	}
-	stream.Looping = true
 	s.loop, s.loopData, s.loopLoaded = stream, data, true
-	rl.SetMusicVolume(stream, s.volume)
+	device.SetMusicVolume(stream, s.volume)
 	return true
 }
 
@@ -443,17 +440,17 @@ func (s *Sound) describe() string {
 func (s *Sound) unload() {
 	for i, voice := range s.voices {
 		if i == 0 {
-			rl.UnloadSound(voice)
+			device.UnloadSound(voice)
 		} else {
-			rl.UnloadSoundAlias(voice)
+			device.UnloadSoundAlias(voice)
 		}
 	}
 	if s.loopLoaded {
-		rl.StopMusicStream(s.loop)
-		rl.UnloadMusicStream(s.loop)
+		device.StopMusic(s.loop)
+		device.UnloadMusic(s.loop)
 	}
 	s.voices, s.next, s.read, s.err = nil, 0, false, nil
-	s.looping, s.loop, s.loopData, s.loopLoaded = false, rl.Music{}, nil, false
+	s.looping, s.loop, s.loopData, s.loopLoaded = false, device.Music{}, nil, false
 }
 
 // audioDevice is the sound device Run opens while a game plays. golib shot
@@ -476,18 +473,18 @@ func SetVolume(volume float32) {
 	defer audio.Unlock()
 	audio.volume = volume
 	if audio.ready {
-		rl.SetMasterVolume(volume)
+		device.SetMasterVolume(volume)
 	}
 }
 
 // open starts the sound device. A game that plays nothing doesn't notice it.
 func (a *audioDevice) open() {
-	rl.InitAudioDevice()
+	ready := device.OpenAudio()
 	a.Lock()
 	defer a.Unlock()
-	a.ready = rl.IsAudioDeviceReady()
+	a.ready = ready
 	if a.ready {
-		rl.SetMasterVolume(a.volume)
+		device.SetMasterVolume(a.volume)
 	}
 }
 
@@ -504,7 +501,7 @@ func (a *audioDevice) close() {
 		track.unload()
 	}
 	if ready {
-		rl.CloseAudioDevice()
+		device.CloseAudio()
 	}
 }
 
@@ -545,7 +542,7 @@ func (a *audioDevice) updateMusic() error {
 			return track.err
 		}
 		if track.Playing() {
-			rl.UpdateMusicStream(track.stream)
+			device.UpdateMusic(track.stream)
 		}
 	}
 	a.Lock()
@@ -553,7 +550,7 @@ func (a *audioDevice) updateMusic() error {
 	a.Unlock()
 	for _, sound := range sounds {
 		if sound.looping && sound.loopLoaded {
-			rl.UpdateMusicStream(sound.loop)
+			device.UpdateMusic(sound.loop)
 		}
 	}
 	return nil

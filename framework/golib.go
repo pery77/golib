@@ -122,8 +122,7 @@ import (
 	"fmt"
 	"os"
 
-	rl "github.com/gen2brain/raylib-go/raylib"
-
+	"golib/internal/device"
 	"golib/internal/startup"
 )
 
@@ -191,7 +190,7 @@ type Game interface {
 // build started from Explorer has a console window of its own, which closes
 // as soon as the game ends.
 func Run(game Game, config Config) (err error) {
-	if startup.ErrorsUnseen() {
+	if startup.ErrorsUnseen() || device.ShowsErrors {
 		title := config.Title
 		if title == "" {
 			title = defaultTitle
@@ -230,8 +229,8 @@ func runWindow(game Game, config Config) error {
 	if err := openWindow(config, false); err != nil {
 		return err
 	}
-	defer rl.CloseWindow()
-	rl.SetTargetFPS(targetFPS)
+	defer device.CloseWindow()
+	device.SetTargetFPS(targetFPS)
 	audio.open()
 	defer audio.close()
 	render := newRenderer(config)
@@ -247,19 +246,20 @@ func runWindow(game Game, config Config) error {
 		updates   int // run so far, for the time uniform of shaders
 	)
 	scene := game
-	last := rl.GetTime()
-	for !rl.WindowShouldClose() {
+	last := device.Time()
+	for !device.WindowShouldClose() {
 		display.apply()
-		focused := rl.IsWindowFocused()
+		focused := device.WindowFocused()
 		windowUnfocused.Store(!focused)
-		fit := fitScreen(screenWidth, screenHeight, float32(rl.GetScreenWidth()), float32(rl.GetScreenHeight()), config.PixelArt)
+		windowWidth, windowHeight := device.WindowSize()
+		fit := fitScreen(screenWidth, screenHeight, float32(windowWidth), float32(windowHeight), config.PixelArt)
 
-		now := rl.GetTime()
-		queue.readKeyboard(raylibKeyDown, raylibKeyPressed)
-		mouse := rl.GetMousePosition()
-		mouseX, mouseY := toScreen(mouse.X, mouse.Y, fit, screenWidth, screenHeight)
-		queue.readMouse(mouseX, mouseY, rl.GetMouseWheelMove(), raylibMouseDown, raylibMousePressed)
-		queue.readGamepads(raylibGamepadFrame)
+		now := device.Time()
+		queue.readKeyboard(deviceKeyDown, deviceKeyPressed)
+		pointerX, pointerY := device.MousePosition()
+		mouseX, mouseY := toScreen(pointerX, pointerY, fit, screenWidth, screenHeight)
+		queue.readMouse(mouseX, mouseY, device.MouseWheel(), deviceMouseDown, deviceMousePressed)
+		queue.readGamepads(deviceGamepadFrame)
 		frameUpdates := gameClock.advanceUnlessPaused(now-last, !focused && config.PauseUnfocused)
 		var (
 			quit bool
@@ -312,22 +312,12 @@ func runUpdates(scene Game, input *Input, fill func(*Input), updates int) (Game,
 
 // openWindow opens the game window, hidden if asked to.
 func openWindow(config Config, hidden bool) error {
-	rl.SetTraceLogLevel(rl.LogWarning)
-	if hidden {
-		rl.SetConfigFlags(rl.FlagWindowHidden)
-	} else {
-		// Run scales the screen to fit, so the player may resize the window.
-		rl.SetConfigFlags(rl.FlagWindowResizable)
-	}
-	rl.InitWindow(int32(config.Width), int32(config.Height), config.Title)
-	if !rl.IsWindowReady() {
+	// Run scales the screen to fit, so the player may resize the window.
+	if !device.OpenWindow(config.Width, config.Height, config.Title, hidden) {
 		return fmt.Errorf("golib.Run: could not open a %dx%d window: see the raylib warnings above", config.Width, config.Height)
 	}
-	// raylib closes the window when Esc is pressed. GoLib leaves every key to
-	// the game, which calls Quit to end.
-	rl.SetExitKey(rl.KeyNull)
 	if !hidden {
-		rl.SetWindowMinSize(max(config.Width/4, 1), max(config.Height/4, 1))
+		device.SetWindowMinSize(max(config.Width/4, 1), max(config.Height/4, 1))
 		if config.PixelArt {
 			enlargeWindow(config.Width, config.Height)
 		}

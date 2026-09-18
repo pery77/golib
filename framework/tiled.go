@@ -16,7 +16,7 @@ import (
 	"strconv"
 	"strings"
 
-	rl "github.com/gen2brain/raylib-go/raylib"
+	"golib/internal/device"
 )
 
 // Tiled's files are read as its documentation describes:
@@ -345,7 +345,7 @@ func (t *tileset) frame(id int, time float32) (int, bool) {
 // animation, and the tile's place in it. ok is false when there is nothing to
 // draw: the tileset has no such tile, or its image can't be read, which is
 // reported.
-func (t *tileset) texture(id int, time float32) (texture rl.Texture2D, place image.Rectangle, ok bool) {
+func (t *tileset) texture(id int, time float32) (texture device.Texture, place image.Rectangle, ok bool) {
 	frame, found := t.frame(id, time)
 	if !found {
 		return texture, place, false

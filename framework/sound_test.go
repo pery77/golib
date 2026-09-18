@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"golib/internal/device"
+
 	rl "github.com/gen2brain/raylib-go/raylib"
 )
 
@@ -306,7 +308,7 @@ func TestSoundFilesWithADevice(t *testing.T) {
 		if err := takeError(); err != nil {
 			t.Fatalf("looping %s: %v", sound.describe(), err)
 		}
-		if !sound.Looping() || !sound.loopLoaded || !rl.IsMusicStreamPlaying(sound.loop) {
+		if !sound.Looping() || !sound.loopLoaded || !device.MusicPlaying(sound.loop) {
 			t.Fatalf("%s: looping %v, stream loaded %v; want a playing stream", sound.describe(), sound.Looping(), sound.loopLoaded)
 		}
 		if err := audio.updateMusic(); err != nil {
@@ -315,11 +317,11 @@ func TestSoundFilesWithADevice(t *testing.T) {
 		sound.SetVolume(0.25)
 		sound.Play()
 		sound.Stop()
-		if sound.Looping() || rl.IsMusicStreamPlaying(sound.loop) || rl.IsSoundPlaying(sound.voices[0]) {
+		if sound.Looping() || device.MusicPlaying(sound.loop) || device.SoundPlaying(sound.voices[0]) {
 			t.Errorf("%s: still playing after Stop", sound.describe())
 		}
 		sound.Loop()
-		if !rl.IsMusicStreamPlaying(sound.loop) {
+		if !device.MusicPlaying(sound.loop) {
 			t.Errorf("%s: Loop after Stop doesn't play", sound.describe())
 		}
 	}

@@ -1,6 +1,6 @@
 package golib
 
-import rl "github.com/gen2brain/raylib-go/raylib"
+import "golib/internal/device"
 
 // renderer draws a game into a texture the size of its screen, runs the
 // post-processing shaders over it, and puts the result on the window, or into
@@ -8,9 +8,9 @@ import rl "github.com/gen2brain/raylib-go/raylib"
 type renderer struct {
 	width, height float32
 	pixelArt      bool
-	scene         rl.RenderTexture2D   // what the game's Draw draws
-	passes        []rl.RenderTexture2D // results between shaders, loaded when a chain needs them
-	shaders       map[*Shader]bool     // shaders compiled while this renderer ran
+	scene         device.Target    // what the game's Draw draws
+	passes        []device.Target  // results between shaders, loaded when a chain needs them
+	shaders       map[*Shader]bool // shaders compiled while this renderer ran
 }
 
 func newRenderer(config Config) *renderer {
@@ -26,30 +26,24 @@ func newRenderer(config Config) *renderer {
 
 // loadTarget loads a texture the size of the screen to draw into, smoothed
 // when scaled unless the game is pixel art.
-func (r *renderer) loadTarget() rl.RenderTexture2D {
-	target := rl.LoadRenderTexture(int32(r.width), int32(r.height))
-	filter := rl.FilterBilinear
-	if r.pixelArt {
-		filter = rl.FilterPoint
-	}
-	rl.SetTextureFilter(target.Texture, filter)
-	return target
+func (r *renderer) loadTarget() device.Target {
+	return device.NewTarget(int(r.width), int(r.height), !r.pixelArt)
 }
 
 // drawScene draws scene into the scene texture, and returns the first mistake
 // found while it drew, or while it updated before.
 func (r *renderer) drawScene(scene Game, screen *Screen) error {
-	rl.BeginTextureMode(r.scene)
+	device.BeginTarget(r.scene)
 	scene.Draw(screen)
 	screen.endDraw()
-	rl.EndTextureMode()
+	device.EndTarget()
 	return takeError()
 }
 
 // present draws the scene texture, through the post-processing shaders, into
 // fit: a rectangle of the window, or of picture when picture isn't nil. time
 // is the game time in seconds, for the shaders.
-func (r *renderer) present(picture *rl.RenderTexture2D, fit rl.Rectangle, time float32) error {
+func (r *renderer) present(picture *device.Target, fit device.Rectangle, time float32) error {
 	shaders, err := currentPostProcess()
 	if err != nil {
 		return err
@@ -63,15 +57,15 @@ func (r *renderer) present(picture *rl.RenderTexture2D, fit rl.Rectangle, time f
 
 	// Every shader but the last draws into a texture the size of the screen,
 	// and the next shader reads that texture.
-	source := r.scene.Texture
-	whole := rl.Rectangle{Width: r.width, Height: r.height}
+	source := device.TargetTexture(r.scene)
+	whole := device.Rectangle{Width: r.width, Height: r.height}
 	for i := 0; i < len(shaders)-1; i++ {
 		target := r.pass(i % 2)
-		rl.BeginTextureMode(target)
-		rl.ClearBackground(rl.Blank)
+		device.BeginTarget(target)
+		device.Clear(device.Blank)
 		r.drawThrough(shaders[i], source, whole, time)
-		rl.EndTextureMode()
-		source = target.Texture
+		device.EndTarget()
+		source = device.TargetTexture(target)
 	}
 
 	var last *Shader
@@ -79,50 +73,42 @@ func (r *renderer) present(picture *rl.RenderTexture2D, fit rl.Rectangle, time f
 		last = shaders[len(shaders)-1]
 	}
 	if picture != nil {
-		rl.BeginTextureMode(*picture)
+		device.BeginTarget(*picture)
 	} else {
-		rl.BeginDrawing()
+		device.BeginFrame()
 	}
-	rl.ClearBackground(rl.Black) // the bars around a screen that doesn't fill the window
+	device.Clear(device.Black) // the bars around a screen that doesn't fill the window
 	r.drawThrough(last, source, fit, time)
 	if picture != nil {
-		rl.EndTextureMode()
+		device.EndTarget()
 	} else {
-		rl.EndDrawing()
+		device.EndFrame()
 	}
 	return nil
 }
 
-// OpenGL blend values, for rl.SetBlendFactors.
-const (
-	glZero    = 0
-	glOne     = 1
-	glFuncAdd = 0x8006
-)
-
 // drawThrough draws texture into dest, through shader unless it is nil.
-func (r *renderer) drawThrough(shader *Shader, texture rl.Texture2D, dest rl.Rectangle, time float32) {
+func (r *renderer) drawThrough(shader *Shader, texture device.Texture, dest device.Rectangle, time float32) {
 	// Copy the pixels as they are instead of blending them. A game that draws
 	// see-through shapes leaves alpha below 1 in its texture, and blending that
 	// over the black bars would darken those shapes.
-	rl.SetBlendFactors(glOne, glZero, glFuncAdd)
-	rl.BeginBlendMode(rl.BlendCustom)
+	device.BeginBlendCopy()
 	if shader != nil {
-		rl.BeginShaderMode(shader.shader)
+		device.BeginShader(shader.shader)
 		shader.apply(time, r.width, r.height, dest.Width, dest.Height)
 	}
 	// Render textures are stored upside down; a negative source height flips
 	// them back.
-	source := rl.Rectangle{Width: float32(texture.Width), Height: -float32(texture.Height)}
-	rl.DrawTexturePro(texture, source, dest, rl.Vector2{}, 0, rl.White)
+	source := device.Rectangle{Width: float32(texture.Width), Height: -float32(texture.Height)}
+	device.DrawTexture(texture, source, dest, device.Vector2{}, 0, device.White)
 	if shader != nil {
-		rl.EndShaderMode()
+		device.EndShader()
 	}
-	rl.EndBlendMode()
+	device.EndBlend()
 }
 
 // pass returns intermediate texture number i, loading it the first time.
-func (r *renderer) pass(i int) rl.RenderTexture2D {
+func (r *renderer) pass(i int) device.Target {
 	for len(r.passes) <= i {
 		r.passes = append(r.passes, r.loadTarget())
 	}
@@ -134,9 +120,9 @@ func (r *renderer) pass(i int) rl.RenderTexture2D {
 func (r *renderer) close() {
 	loadedSprites.unloadAll()
 	loadedFonts.unloadAll()
-	rl.UnloadRenderTexture(r.scene)
+	device.UnloadTarget(r.scene)
 	for _, pass := range r.passes {
-		rl.UnloadRenderTexture(pass)
+		device.UnloadTarget(pass)
 	}
 	for shader := range r.shaders {
 		shader.unload()

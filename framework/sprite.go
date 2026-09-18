@@ -12,7 +12,7 @@ import (
 	"strings"
 	"sync"
 
-	rl "github.com/gen2brain/raylib-go/raylib"
+	"golib/internal/device"
 )
 
 // Sprite is a picture from the game's assets folder, made of one or more
@@ -46,7 +46,7 @@ type Sprite struct {
 	frames     []image.Rectangle // where each frame is in pixels
 	animations map[string]Animation
 	pixels     *image.NRGBA // the picture, until it becomes a texture
-	texture    rl.Texture2D
+	texture    device.Texture
 	loaded     bool
 }
 
@@ -269,22 +269,21 @@ func toNRGBA(img image.Image) *image.NRGBA {
 
 // frameTexture returns the texture and the place of frame, loading the
 // texture the first time. The window must be open.
-func (s *Sprite) frameTexture(frame int) (rl.Texture2D, image.Rectangle, error) {
+func (s *Sprite) frameTexture(frame int) (device.Texture, image.Rectangle, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.prepare(); err != nil {
-		return rl.Texture2D{}, image.Rectangle{}, err
+		return device.Texture{}, image.Rectangle{}, err
 	}
 	if frame < 0 || frame >= len(s.frames) {
-		return rl.Texture2D{}, image.Rectangle{}, fmt.Errorf("golib: Screen.DrawSprite got frame %d of %s, which has %d frame(s), numbered from 0 to %d", frame, s.call(), len(s.frames), len(s.frames)-1)
+		return device.Texture{}, image.Rectangle{}, fmt.Errorf("golib: Screen.DrawSprite got frame %d of %s, which has %d frame(s), numbered from 0 to %d", frame, s.call(), len(s.frames), len(s.frames)-1)
 	}
 	if !s.loaded {
 		pixels := s.pixels
-		picture := rl.NewImage(pixels.Pix, int32(pixels.Rect.Dx()), int32(pixels.Rect.Dy()), 1, rl.UncompressedR8g8b8a8)
-		texture := rl.LoadTextureFromImage(picture)
+		texture := device.NewTexture(pixels.Pix, pixels.Rect.Dx(), pixels.Rect.Dy())
 		if texture.ID == 0 {
 			s.err = fmt.Errorf("%s: raylib could not load the %d by %d pixel image as a texture: see the raylib warnings above; it may be larger than the graphics card allows", s.call(), pixels.Rect.Dx(), pixels.Rect.Dy())
-			return rl.Texture2D{}, image.Rectangle{}, s.err
+			return device.Texture{}, image.Rectangle{}, s.err
 		}
 		s.texture, s.loaded, s.pixels = texture, true, nil
 		loadedSprites.add(s)
@@ -308,11 +307,11 @@ func (s *Sprite) unload() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.loaded {
-		rl.UnloadTexture(s.texture)
+		device.UnloadTexture(s.texture)
 	}
 	s.read, s.err, s.loaded = false, nil, false
 	s.width, s.height, s.frames, s.animations = 0, 0, nil, nil
-	s.pixels, s.texture = nil, rl.Texture2D{}
+	s.pixels, s.texture = nil, device.Texture{}
 }
 
 // loadedSprites are the sprites whose textures are loaded, for Run to free
@@ -397,7 +396,7 @@ func (s *Screen) DrawSprite(sprite *Sprite, frame int, x, y float32, options ...
 }
 
 // draw draws the part of texture at place with its origin at x, y.
-func (o DrawOptions) draw(texture rl.Texture2D, place image.Rectangle, x, y float32) {
+func (o DrawOptions) draw(texture device.Texture, place image.Rectangle, x, y float32) {
 	scale := o.Scale
 	if scale == 0 {
 		scale = 1
@@ -408,16 +407,16 @@ func (o DrawOptions) draw(texture rl.Texture2D, place image.Rectangle, x, y floa
 	}
 	width, height := float32(place.Dx()), float32(place.Dy())
 	// raylib flips a part whose width or height is negative.
-	source := rl.Rectangle{X: float32(place.Min.X), Y: float32(place.Min.Y), Width: width, Height: height}
+	source := device.Rectangle{X: float32(place.Min.X), Y: float32(place.Min.Y), Width: width, Height: height}
 	if o.FlipX {
 		source.Width = -width
 	}
 	if o.FlipY {
 		source.Height = -height
 	}
-	dest := rl.Rectangle{X: wholePixel(x), Y: wholePixel(y), Width: width * scale, Height: height * scale}
-	origin := rl.Vector2{X: o.OriginX * scale, Y: o.OriginY * scale}
-	rl.DrawTexturePro(texture, source, dest, origin, o.Rotation, tint)
+	dest := device.Rectangle{X: wholePixel(x), Y: wholePixel(y), Width: width * scale, Height: height * scale}
+	origin := device.Vector2{X: o.OriginX * scale, Y: o.OriginY * scale}
+	device.DrawTexture(texture, source, dest, origin, o.Rotation, tint)
 }
 
 // Animation is a sequence of a sprite's frames, each shown for a while. Keep

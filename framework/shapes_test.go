@@ -4,7 +4,7 @@ import (
 	"image"
 	"testing"
 
-	rl "github.com/gen2brain/raylib-go/raylib"
+	"golib/internal/device"
 )
 
 func TestShapesInAWindow(t *testing.T) {
@@ -131,12 +131,12 @@ func TestMouseVisibleInAWindow(t *testing.T) {
 		t.Error("IsMouseVisible is true after SetMouseVisible(false)")
 	}
 	w.apply()
-	if !rl.IsCursorHidden() {
+	if device.CursorVisible() {
 		t.Error("the pointer isn't hidden after the frame applies it")
 	}
 	SetMouseVisible(true)
 	w.apply()
-	if rl.IsCursorHidden() {
+	if !device.CursorVisible() {
 		t.Error("the pointer is still hidden after SetMouseVisible(true)")
 	}
 }

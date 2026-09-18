@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	rl "github.com/gen2brain/raylib-go/raylib"
+	"golib/internal/device"
 )
 
 // Screen is the surface a game draws on. Run passes it to Game.Draw; use it
@@ -49,45 +49,40 @@ func (s *Screen) Height() float32 {
 
 // Clear fills the whole screen with color. Call it at the start of Draw.
 func (s *Screen) Clear(color Color) {
-	rl.ClearBackground(color)
+	device.Clear(color)
 }
 
 // DrawRectangle fills rect with color.
 func (s *Screen) DrawRectangle(rect Rectangle, color Color) {
-	rl.DrawRectangleRec(rl.Rectangle{X: rect.X, Y: rect.Y, Width: rect.Width, Height: rect.Height}, color)
+	device.DrawRectangle(device.Rectangle(rect), color)
 }
 
 // DrawCircle fills the circle centered at x, y with color.
 func (s *Screen) DrawCircle(x, y, radius float32, color Color) {
-	rl.DrawCircleV(rl.Vector2{X: x, Y: y}, radius, color)
+	device.DrawCircle(x, y, radius, color)
 }
 
 // DrawLine draws a straight line from x1, y1 to x2, y2, thickness pixels wide.
 func (s *Screen) DrawLine(x1, y1, x2, y2, thickness float32, color Color) {
-	rl.DrawLineEx(rl.Vector2{X: x1, Y: y1}, rl.Vector2{X: x2, Y: y2}, thickness, color)
+	device.DrawLine(x1, y1, x2, y2, thickness, color)
 }
 
 // DrawTriangle fills the triangle with corners x1, y1, x2, y2 and x3, y3. The
 // corners can come in any order.
 func (s *Screen) DrawTriangle(x1, y1, x2, y2, x3, y3 float32, color Color) {
-	// raylib only fills triangles whose corners go counterclockwise on screen.
-	if (x2-x1)*(y3-y1)-(y2-y1)*(x3-x1) > 0 {
-		x2, y2, x3, y3 = x3, y3, x2, y2
-	}
-	rl.DrawTriangle(rl.Vector2{X: x1, Y: y1}, rl.Vector2{X: x2, Y: y2}, rl.Vector2{X: x3, Y: y3}, color)
+	device.DrawTriangle(x1, y1, x2, y2, x3, y3, color)
 }
 
 // DrawRectangleOutline draws the edges of rect, thickness pixels wide, inside
 // it.
 func (s *Screen) DrawRectangleOutline(rect Rectangle, thickness float32, color Color) {
-	rl.DrawRectangleLinesEx(rl.Rectangle{X: rect.X, Y: rect.Y, Width: rect.Width, Height: rect.Height}, thickness, color)
+	device.DrawRectangleOutline(device.Rectangle(rect), thickness, color)
 }
 
 // DrawCircleOutline draws the edge of the circle centered at x, y, thickness
 // pixels wide, inside it: a ring.
 func (s *Screen) DrawCircleOutline(x, y, radius, thickness float32, color Color) {
-	// 0 segments lets raylib pick enough for the circle to look round.
-	rl.DrawRing(rl.Vector2{X: x, Y: y}, max(0, radius-thickness), radius, 0, 360, 0, color)
+	device.DrawRing(x, y, max(0, radius-thickness), radius, color)
 }
 
 // DrawPolygon fills the shape whose corners are points, in order, clockwise or
@@ -123,7 +118,7 @@ func (s *Screen) DrawPolygonOutline(points []Vector2, thickness float32, color C
 		next := points[(i+1)%len(points)]
 		s.DrawLine(p.X, p.Y, next.X, next.Y, thickness, color)
 		if thickness >= 2 {
-			rl.DrawCircleV(rl.Vector2{X: p.X, Y: p.Y}, thickness/2, color)
+			device.DrawCircle(p.X, p.Y, thickness/2, color)
 		}
 	}
 }
@@ -144,7 +139,7 @@ func (s *Screen) DrawText(text string, x, y, size float32, color Color, options 
 		align = options[0].Align
 	}
 	if align == AlignLeft {
-		rl.DrawTextEx(font, text, rl.Vector2{X: wholePixel(x), Y: wholePixel(y)}, size, spacing, color)
+		device.DrawText(font, text, wholePixel(x), wholePixel(y), size, spacing, color)
 		return
 	}
 	if align != AlignCenter && align != AlignRight {
@@ -152,12 +147,12 @@ func (s *Screen) DrawText(text string, x, y, size float32, color Color, options 
 		return
 	}
 	for i, line := range strings.Split(text, "\n") {
-		left := x - rl.MeasureTextEx(font, line, size, spacing).X
+		left := x - device.TextWidth(font, line, size, spacing)
 		if align == AlignCenter {
 			left = (x + left) / 2
 		}
 		top := y + float32(i)*(size+textLineGap)
-		rl.DrawTextEx(font, line, rl.Vector2{X: wholePixel(left), Y: wholePixel(top)}, size, spacing, color)
+		device.DrawText(font, line, wholePixel(left), wholePixel(top), size, spacing, color)
 	}
 }
 
@@ -168,7 +163,7 @@ func (s *Screen) DrawText(text string, x, y, size float32, color Color, options 
 //	x := 20 + screen.TextWidth(label, 20) + 8 // after the label and a gap
 func (s *Screen) TextWidth(text string, size float32, options ...TextOptions) float32 {
 	font, spacing := textFont("TextWidth", text, size, options)
-	return rl.MeasureTextEx(font, text, size, spacing).X
+	return device.TextWidth(font, text, size, spacing)
 }
 
 // SetCamera makes the drawing that follows show the world through camera:
@@ -180,7 +175,7 @@ func (s *Screen) TextWidth(text string, size float32, options ...TextOptions) fl
 func (s *Screen) SetCamera(camera *Camera) {
 	if camera == nil {
 		if s.camera != nil {
-			rl.EndMode2D()
+			device.EndCamera()
 			s.camera = nil
 		}
 		return
@@ -190,11 +185,7 @@ func (s *Screen) SetCamera(camera *Camera) {
 	}
 	center := camera.Center()
 	s.camera, s.view = camera, camera.View()
-	rl.BeginMode2D(rl.Camera2D{
-		Offset: rl.Vector2{X: s.width / 2, Y: s.height / 2},
-		Target: rl.Vector2{X: center.X, Y: center.Y},
-		Zoom:   camera.zoom(),
-	})
+	device.BeginCamera(s.width/2, s.height/2, center.X, center.Y, camera.zoom())
 }
 
 // SetBlendMode changes how the drawing that follows mixes with what is
@@ -215,9 +206,9 @@ func (s *Screen) SetBlendMode(mode BlendMode) {
 		return
 	}
 	if mode == BlendAdd {
-		rl.BeginBlendMode(rl.BlendAdditive)
+		device.BeginBlendAdd()
 	} else {
-		rl.EndBlendMode()
+		device.EndBlend()
 	}
 	s.blend = mode
 }
@@ -226,11 +217,11 @@ func (s *Screen) SetBlendMode(mode BlendMode) {
 // Run calls it after each Draw, in case the game left either set.
 func (s *Screen) endDraw() {
 	if s.camera != nil {
-		rl.EndMode2D()
+		device.EndCamera()
 		s.camera = nil
 	}
 	if s.blend != BlendNormal {
-		rl.EndBlendMode()
+		device.EndBlend()
 		s.blend = BlendNormal
 	}
 }

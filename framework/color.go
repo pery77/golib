@@ -3,44 +3,44 @@ package golib
 import (
 	"math"
 
-	rl "github.com/gen2brain/raylib-go/raylib"
+	"golib/internal/device"
 )
 
 // Color is an RGBA color with 8 bits per channel. A is the opacity: 255 is
 // fully opaque. It is the same type raylib uses, so a Color can be passed to
-// raylib functions directly.
+// be passed to raylib functions directly.
 //
 //	background := golib.Color{R: 20, G: 24, B: 32, A: 255}
-type Color = rl.Color
+type Color = device.Color
 
 // The raylib color palette.
 var (
-	LightGray  = rl.LightGray
-	Gray       = rl.Gray
-	DarkGray   = rl.DarkGray
-	Yellow     = rl.Yellow
-	Gold       = rl.Gold
-	Orange     = rl.Orange
-	Pink       = rl.Pink
-	Red        = rl.Red
-	Maroon     = rl.Maroon
-	Green      = rl.Green
-	Lime       = rl.Lime
-	DarkGreen  = rl.DarkGreen
-	SkyBlue    = rl.SkyBlue
-	Blue       = rl.Blue
-	DarkBlue   = rl.DarkBlue
-	Purple     = rl.Purple
-	Violet     = rl.Violet
-	DarkPurple = rl.DarkPurple
-	Beige      = rl.Beige
-	Brown      = rl.Brown
-	DarkBrown  = rl.DarkBrown
-	White      = rl.White
-	Black      = rl.Black
-	Blank      = rl.Blank // Fully transparent.
-	Magenta    = rl.Magenta
-	RayWhite   = rl.RayWhite // The off-white raylib uses for backgrounds.
+	LightGray  = device.LightGray
+	Gray       = device.Gray
+	DarkGray   = device.DarkGray
+	Yellow     = device.Yellow
+	Gold       = device.Gold
+	Orange     = device.Orange
+	Pink       = device.Pink
+	Red        = device.Red
+	Maroon     = device.Maroon
+	Green      = device.Green
+	Lime       = device.Lime
+	DarkGreen  = device.DarkGreen
+	SkyBlue    = device.SkyBlue
+	Blue       = device.Blue
+	DarkBlue   = device.DarkBlue
+	Purple     = device.Purple
+	Violet     = device.Violet
+	DarkPurple = device.DarkPurple
+	Beige      = device.Beige
+	Brown      = device.Brown
+	DarkBrown  = device.DarkBrown
+	White      = device.White
+	Black      = device.Black
+	Blank      = device.Blank // Fully transparent.
+	Magenta    = device.Magenta
+	RayWhite   = device.RayWhite // The off-white raylib uses for backgrounds.
 )
 
 // WithOpacity returns color with its opacity set to opacity, from 0,

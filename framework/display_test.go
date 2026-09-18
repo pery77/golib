@@ -3,7 +3,7 @@ package golib
 import (
 	"testing"
 
-	rl "github.com/gen2brain/raylib-go/raylib"
+	"golib/internal/device"
 )
 
 func TestFitScreen(t *testing.T) {
@@ -12,20 +12,20 @@ func TestFitScreen(t *testing.T) {
 		screenWidth, screenHeight float32
 		windowWidth, windowHeight float32
 		pixelArt                  bool
-		want                      rl.Rectangle
+		want                      device.Rectangle
 	}{
 		{name: "same size", screenWidth: 1280, screenHeight: 720, windowWidth: 1280, windowHeight: 720,
-			want: rl.Rectangle{X: 0, Y: 0, Width: 1280, Height: 720}},
+			want: device.Rectangle{X: 0, Y: 0, Width: 1280, Height: 720}},
 		{name: "wider window: bars left and right", screenWidth: 1280, screenHeight: 720, windowWidth: 1920, windowHeight: 720,
-			want: rl.Rectangle{X: 320, Y: 0, Width: 1280, Height: 720}},
+			want: device.Rectangle{X: 320, Y: 0, Width: 1280, Height: 720}},
 		{name: "taller window: bars above and below", screenWidth: 1280, screenHeight: 720, windowWidth: 1280, windowHeight: 1000,
-			want: rl.Rectangle{X: 0, Y: 140, Width: 1280, Height: 720}},
+			want: device.Rectangle{X: 0, Y: 140, Width: 1280, Height: 720}},
 		{name: "scaled up smoothly", screenWidth: 1280, screenHeight: 720, windowWidth: 1920, windowHeight: 1080,
-			want: rl.Rectangle{X: 0, Y: 0, Width: 1920, Height: 1080}},
+			want: device.Rectangle{X: 0, Y: 0, Width: 1920, Height: 1080}},
 		{name: "pixel art keeps a whole scale", screenWidth: 1280, screenHeight: 720, windowWidth: 1920, windowHeight: 1080, pixelArt: true,
-			want: rl.Rectangle{X: 320, Y: 180, Width: 1280, Height: 720}},
+			want: device.Rectangle{X: 320, Y: 180, Width: 1280, Height: 720}},
 		{name: "small pixel art screen", screenWidth: 320, screenHeight: 180, windowWidth: 1366, windowHeight: 768, pixelArt: true,
-			want: rl.Rectangle{X: 43, Y: 24, Width: 1280, Height: 720}},
+			want: device.Rectangle{X: 43, Y: 24, Width: 1280, Height: 720}},
 	}
 	for _, tt := range tests {
 		got := fitScreen(tt.screenWidth, tt.screenHeight, tt.windowWidth, tt.windowHeight, tt.pixelArt)
@@ -36,19 +36,19 @@ func TestFitScreen(t *testing.T) {
 }
 
 func TestToScreen(t *testing.T) {
-	letterboxed := rl.Rectangle{X: 320, Y: 0, Width: 1280, Height: 720}
-	scaled := rl.Rectangle{X: 0, Y: 0, Width: 1920, Height: 1080}
+	letterboxed := device.Rectangle{X: 320, Y: 0, Width: 1280, Height: 720}
+	scaled := device.Rectangle{X: 0, Y: 0, Width: 1920, Height: 1080}
 	tests := []struct {
 		name         string
 		x, y         float32
-		fit          rl.Rectangle
+		fit          device.Rectangle
 		wantX, wantY float32
 	}{
 		{name: "top-left corner of a letterboxed screen", x: 320, y: 0, fit: letterboxed, wantX: 0, wantY: 0},
 		{name: "center of a letterboxed screen", x: 960, y: 360, fit: letterboxed, wantX: 640, wantY: 360},
 		{name: "on the bar left of the screen", x: 0, y: 0, fit: letterboxed, wantX: -320, wantY: 0},
 		{name: "center of a scaled screen", x: 960, y: 540, fit: scaled, wantX: 640, wantY: 360},
-		{name: "minimized window", x: 5, y: 6, fit: rl.Rectangle{}, wantX: 5, wantY: 6},
+		{name: "minimized window", x: 5, y: 6, fit: device.Rectangle{}, wantX: 5, wantY: 6},
 	}
 	for _, tt := range tests {
 		x, y := toScreen(tt.x, tt.y, tt.fit, 1280, 720)

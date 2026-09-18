@@ -29,6 +29,7 @@ framework/          The framework: Go module "golib"
   go.mod
   *.go              package golib
   README.md         The API guide: every exported name by task; apiguide_test.go keeps it in step
+  internal/device/  The line to the machine: the contract, and one backend per platform
   internal/startup/ Checks, before raylib starts, that its libraries load (Windows); games can't import it
 games/
   <name>/           One game; the folder name is the game's short name
@@ -44,6 +45,26 @@ games/
 ```
 
 The framework folder can't be called `golib/`: that name is taken by the CLI entry point in the project root.
+
+### Framework and machine
+
+Package `golib` is plain Go: the game loop, the Aseprite and Tiled readers, the sound synthesizers, the camera, the vectors and the timers. Everything that touches the machine — drawing, sound, input, the window — goes through `framework/internal/device`, which has a contract and one backend per platform, chosen by a build tag:
+
+```text
+internal/device/
+  device.go       The contract, and what a backend has to provide
+  raylib*.go      //go:build !js   raylib on Windows, Linux and macOS
+  web*.go         //go:build js    WebGL 2 in a browser, with web.js beside it
+  web.js          The other half of the web backend, which golib web copies into the page
+```
+
+The rule: **nothing in `framework/*.go` imports raylib**, and `device_test.go` fails when something does. When the framework needs something the machine can do and the contract lacks, add it to the contract and to every backend, rather than reaching for raylib above the line.
+
+The contract passes values, not raylib types: `device.Color`, `device.Rectangle` and the handles for a texture, a target, a shader, a font, a sound and a music. On the raylib backend those are raylib's own types, so nothing is converted and the desktop build is exactly what it was; another backend defines structs with the same fields. Only their `ID`, `Width` and `Height` fields are portable, and nothing above `device` reads anything else.
+
+A game never sees this: it uses package `golib`, which is the same on every platform. Game code that imports raylib directly, which the framework allows for anything GoLib doesn't cover, only builds where raylib does.
+
+A backend that can't do something does the harmless thing rather than stopping the game, and says so where the player can see it: a web build has no sound device yet, so it plays in silence the way `golib shot` does, and it has no post-processing shaders, so a game that asks for one stops with a message on the page instead of drawing the wrong picture.
 
 ### Go modules
 

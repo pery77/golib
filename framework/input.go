@@ -1,6 +1,6 @@
 package golib
 
-import rl "github.com/gen2brain/raylib-go/raylib"
+import "golib/internal/device"
 
 // Input is the keyboard, the mouse and the gamepads as one update sees them.
 // Run passes it to Game.Update; use it only there.
@@ -158,7 +158,7 @@ func validKey(key Key) bool {
 	return key > 0 && key < keyCount
 }
 
-// inputQueue turns raylib's keyboard, mouse and gamepad state, which changes
+// inputQueue turns the machine's keyboard, mouse and gamepad state, which changes
 // once per frame, into one Input per update. A frame can run zero, one or
 // several updates (see clock), so a press, click or wheel turn waits for the
 // next update and is delivered to exactly one.
@@ -178,7 +178,7 @@ type inputQueue struct {
 }
 
 // readKeyboard records the keyboard for the current frame. isDown and
-// wasPressed are raylib's IsKeyDown and IsKeyPressed; tests pass their own.
+// wasPressed read the machine's keys; tests pass their own.
 func (q *inputQueue) readKeyboard(isDown, wasPressed func(Key) bool) {
 	for _, key := range polledKeys {
 		q.down[key] = isDown(key)
@@ -189,8 +189,8 @@ func (q *inputQueue) readKeyboard(isDown, wasPressed func(Key) bool) {
 }
 
 // readMouse records the mouse for the current frame: the pointer at x, y, the
-// wheel turned by wheel notches, and its buttons. isDown and wasPressed are
-// raylib's IsMouseButtonDown and IsMouseButtonPressed; tests pass their own.
+// wheel turned by wheel notches, and its buttons. isDown and wasPressed read
+// the machine's buttons; tests pass their own.
 func (q *inputQueue) readMouse(x, y, wheel float32, isDown, wasPressed func(MouseButton) bool) {
 	q.mouseX, q.mouseY = x, y
 	q.mouseWheel += wheel
@@ -203,7 +203,7 @@ func (q *inputQueue) readMouse(x, y, wheel float32, isDown, wasPressed func(Mous
 }
 
 // readGamepads records every gamepad for the current frame. frame is
-// raylibGamepadFrame; tests pass their own.
+// deviceGamepadFrame; tests pass their own.
 func (q *inputQueue) readGamepads(frame func(pad int) gamepadFrame) {
 	for pad := range q.gamepads {
 		read := frame(pad)
@@ -241,18 +241,18 @@ func (q *inputQueue) next(input *Input) {
 	}
 }
 
-func raylibKeyDown(key Key) bool {
-	return rl.IsKeyDown(int32(key))
+func deviceKeyDown(key Key) bool {
+	return device.IsKeyDown(int32(key))
 }
 
-func raylibKeyPressed(key Key) bool {
-	return rl.IsKeyPressed(int32(key))
+func deviceKeyPressed(key Key) bool {
+	return device.IsKeyPressed(int32(key))
 }
 
-func raylibMouseDown(button MouseButton) bool {
-	return rl.IsMouseButtonDown(rl.MouseButton(button))
+func deviceMouseDown(button MouseButton) bool {
+	return device.IsMouseDown(int32(button))
 }
 
-func raylibMousePressed(button MouseButton) bool {
-	return rl.IsMouseButtonPressed(rl.MouseButton(button))
+func deviceMousePressed(button MouseButton) bool {
+	return device.IsMousePressed(int32(button))
 }

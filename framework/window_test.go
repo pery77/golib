@@ -7,7 +7,7 @@ import (
 	"runtime"
 	"testing"
 
-	rl "github.com/gen2brain/raylib-go/raylib"
+	"golib/internal/device"
 )
 
 // openTestWindow opens a hidden window of width by height pixels for the rest
@@ -29,26 +29,16 @@ func openTestWindow(t *testing.T, width, height int) (*Screen, func(draw func())
 	render := newRenderer(config)
 	t.Cleanup(func() {
 		render.close()
-		rl.CloseWindow()
+		device.CloseWindow()
 		runtime.UnlockOSThread()
 	})
 	screen := &Screen{width: float32(width), height: float32(height)}
 	capture := func(draw func()) *image.NRGBA {
-		rl.BeginTextureMode(render.scene)
+		device.BeginTarget(render.scene)
 		screen.Clear(Blank)
 		draw()
-		rl.EndTextureMode()
-		picture := rl.LoadImageFromTexture(render.scene.Texture)
-		defer rl.UnloadImage(picture)
-		rl.ImageFlipVertical(picture) // render textures are stored bottom row first
-		result := image.NewNRGBA(image.Rect(0, 0, width, height))
-		for y := range height {
-			for x := range width {
-				c := rl.GetImageColor(*picture, int32(x), int32(y))
-				result.SetNRGBA(x, y, color.NRGBA{R: c.R, G: c.G, B: c.B, A: c.A})
-			}
-		}
-		return result
+		device.EndTarget()
+		return device.ReadTarget(render.scene)
 	}
 	return screen, capture
 }

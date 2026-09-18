@@ -10,7 +10,7 @@ import (
 	"strings"
 	"sync"
 
-	rl "github.com/gen2brain/raylib-go/raylib"
+	"golib/internal/device"
 )
 
 // Map is a level made in Tiled: a .tmx file in the game's assets folder, with
@@ -838,7 +838,7 @@ func (s *Screen) drawMap(level *Map, only *string, x, y float32) {
 		}
 	} else if level.prepare() == nil {
 		if level.background.A > 0 {
-			rl.DrawRectangleRec(rl.Rectangle{X: x, Y: y, Width: float32(level.width), Height: float32(level.height)}, level.background)
+			device.DrawRectangle(device.Rectangle{X: x, Y: y, Width: float32(level.width), Height: float32(level.height)}, level.background)
 		}
 		for _, l := range level.layers {
 			if l.visible {
@@ -903,13 +903,13 @@ func (s *Screen) drawTiles(level *Map, l *mapLayer, x, y float32) {
 			// A tile sits on the bottom-left corner of its cell.
 			left := x + float32(column)*tw + float32(ts.offsetX)
 			top := y + float32(row+1)*th - float32(h) + float32(ts.offsetY)
-			s.drawTile(ts, id, gid, rl.Rectangle{X: left, Y: top, Width: float32(w), Height: float32(h)}, l.tint)
+			s.drawTile(ts, id, gid, device.Rectangle{X: left, Y: top, Width: float32(w), Height: float32(h)}, l.tint)
 		}
 	}
 }
 
 // drawTile draws tile id of ts into dest, flipped as gid says.
-func (s *Screen) drawTile(ts *tileset, id int, gid uint32, dest rl.Rectangle, tint Color) {
+func (s *Screen) drawTile(ts *tileset, id int, gid uint32, dest device.Rectangle, tint Color) {
 	texture, place, ok := ts.texture(id, s.time)
 	if !ok {
 		return
@@ -955,16 +955,16 @@ func (s *Screen) drawTileObjects(level *Map, l *mapLayer, x, y float32) {
 		if !ok {
 			continue
 		}
-		dest := rl.Rectangle{X: x + wholePixel(o.originX), Y: y + wholePixel(o.originY), Width: o.Width, Height: o.Height}
-		origin := rl.Vector2{X: o.alignX * o.Width, Y: o.alignY * o.Height}
-		source := rl.Rectangle{X: float32(place.Min.X), Y: float32(place.Min.Y), Width: float32(place.Dx()), Height: float32(place.Dy())}
+		dest := device.Rectangle{X: x + wholePixel(o.originX), Y: y + wholePixel(o.originY), Width: o.Width, Height: o.Height}
+		origin := device.Vector2{X: o.alignX * o.Width, Y: o.alignY * o.Height}
+		source := device.Rectangle{X: float32(place.Min.X), Y: float32(place.Min.Y), Width: float32(place.Dx()), Height: float32(place.Dy())}
 		if o.gid&tiledFlipX != 0 {
 			source.Width = -source.Width
 		}
 		if o.gid&tiledFlipY != 0 {
 			source.Height = -source.Height
 		}
-		rl.DrawTexturePro(texture, source, dest, origin, o.Rotation, l.tint)
+		device.DrawTexture(texture, source, dest, origin, o.Rotation, l.tint)
 	}
 }
 
@@ -995,7 +995,7 @@ func (s *Screen) drawImageLayer(l *mapLayer, x, y float32) {
 	}
 	for top := firstY; top <= lastY; top += h {
 		for left := firstX; left <= lastX; left += w {
-			drawTexturePart(texture, place, rl.Rectangle{X: left, Y: top, Width: w, Height: h}, 0, false, false, l.tint)
+			drawTexturePart(texture, place, device.Rectangle{X: left, Y: top, Width: w, Height: h}, 0, false, false, l.tint)
 		}
 	}
 }
@@ -1009,19 +1009,19 @@ func wholePixel(v float32) float32 {
 
 // drawTexturePart draws the part of texture at place into dest, rotated
 // clockwise by rotation degrees around its middle, and flipped.
-func drawTexturePart(texture rl.Texture2D, place image.Rectangle, dest rl.Rectangle, rotation float32, flipX, flipY bool, tint Color) {
-	source := rl.Rectangle{X: float32(place.Min.X), Y: float32(place.Min.Y), Width: float32(place.Dx()), Height: float32(place.Dy())}
+func drawTexturePart(texture device.Texture, place image.Rectangle, dest device.Rectangle, rotation float32, flipX, flipY bool, tint Color) {
+	source := device.Rectangle{X: float32(place.Min.X), Y: float32(place.Min.Y), Width: float32(place.Dx()), Height: float32(place.Dy())}
 	if flipX {
 		source.Width = -source.Width
 	}
 	if flipY {
 		source.Height = -source.Height
 	}
-	var origin rl.Vector2
+	var origin device.Vector2
 	if rotation != 0 {
-		origin = rl.Vector2{X: dest.Width / 2, Y: dest.Height / 2}
+		origin = device.Vector2{X: dest.Width / 2, Y: dest.Height / 2}
 		dest.X += origin.X
 		dest.Y += origin.Y
 	}
-	rl.DrawTexturePro(texture, source, dest, origin, rotation, tint)
+	device.DrawTexture(texture, source, dest, origin, rotation, tint)
 }

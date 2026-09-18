@@ -1,38 +1,18 @@
 package golib
 
 import (
-	"errors"
 	"fmt"
 	"sync"
 
-	rl "github.com/gen2brain/raylib-go/raylib"
+	"golib/internal/device"
 )
-
-// shaderVertexSource is the vertex shader every post-processing shader runs
-// with: raylib's default one, which hands the texture coordinates and colors
-// to the fragment shader.
-const shaderVertexSource = `#version 330
-in vec3 vertexPosition;
-in vec2 vertexTexCoord;
-in vec4 vertexColor;
-out vec2 fragTexCoord;
-out vec4 fragColor;
-uniform mat4 mvp;
-
-void main()
-{
-    fragTexCoord = vertexTexCoord;
-    fragColor = vertexColor;
-    gl_Position = mvp * vec4(vertexPosition, 1.0);
-}
-`
 
 // Shader is a post-processing effect, such as scanlines, a glow or a color
 // grade: a GLSL fragment shader that runs over the whole picture after Draw.
 // Create one with NewShader and turn it on with SetPostProcess.
 type Shader struct {
 	source    string
-	shader    rl.Shader
+	shader    device.Shader
 	loaded    bool
 	locations map[string]int32     // uniform locations, looked up once
 	uniforms  map[string][]float32 // set with SetUniform, sent every frame
@@ -103,10 +83,9 @@ func (s *Shader) load() error {
 	if s.loaded {
 		return nil
 	}
-	shader := rl.LoadShaderFromMemory(shaderVertexSource, s.source)
-	// raylib falls back to its default shader when the source doesn't compile.
-	if shader.ID == 0 || shader.ID == rl.GetShaderIdDefault() {
-		s.err = errors.New("golib: a post-processing shader doesn't compile: the raylib warnings above say where and why")
+	shader, err := device.NewShader(s.source)
+	if err != nil {
+		s.err = fmt.Errorf("golib: a post-processing shader cannot be used: %w", err)
 		return s.err
 	}
 	s.shader = shader
@@ -117,14 +96,14 @@ func (s *Shader) load() error {
 // unload frees the compiled shader, so it compiles again if used again.
 func (s *Shader) unload() {
 	if s.loaded {
-		rl.UnloadShader(s.shader)
+		device.UnloadShader(s.shader)
 		s.loaded = false
 		s.locations = map[string]int32{}
 	}
 }
 
 // apply sends the uniforms Run sets and those set with SetUniform. Call it
-// between rl.BeginShaderMode and rl.EndShaderMode.
+// while the shader is running.
 func (s *Shader) apply(time, screenWidth, screenHeight, outputWidth, outputHeight float32) {
 	s.send("time", []float32{time})
 	s.send("screenSize", []float32{screenWidth, screenHeight})
@@ -137,14 +116,13 @@ func (s *Shader) apply(time, screenWidth, screenHeight, outputWidth, outputHeigh
 func (s *Shader) send(name string, values []float32) {
 	location, found := s.locations[name]
 	if !found {
-		location = rl.GetShaderLocation(s.shader, name)
+		location = device.ShaderLocation(s.shader, name)
 		s.locations[name] = location
 	}
 	if location < 0 {
 		return
 	}
-	// ShaderUniformFloat, Vec2, Vec3 and Vec4 follow each other.
-	rl.SetShaderValue(s.shader, location, values, rl.ShaderUniformFloat+rl.ShaderUniformDataType(len(values)-1))
+	device.SetShaderValues(s.shader, location, values)
 }
 
 // postProcess holds the shaders SetPostProcess asks for.

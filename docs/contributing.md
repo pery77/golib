@@ -25,6 +25,7 @@ The framework's first reader is an AI agent writing a game from a short descript
 - **Documented exports.** Every exported identifier has a doc comment, with a short example when usage isn't obvious, and a line in the API guide, `framework/README.md`, in the section for its task. Examples must compile, in doc comments and in the guide alike.
 - **Generic, not game-specific.** A feature belongs in the framework only if games other than the one that asked for it would use it. The framework never imports or refers to a game. See [architecture.md](architecture.md).
 - **Content comes from files.** Maps, sprites and models are loaded from the files Tiled, Aseprite and Blender save. Don't add editors or content GUIs.
+- **The machine is behind the contract.** Package `golib` doesn't import raylib: drawing, sound, input and the window go through `framework/internal/device`. A feature that needs something the contract lacks adds it there, to the contract and to every backend, and keeps the code above it plain Go. `device_test.go` fails when a file of package `golib` reaches for raylib. See [architecture.md](architecture.md#framework-and-machine).
 
 ## Writing docs for agents
 

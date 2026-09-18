@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	rl "github.com/gen2brain/raylib-go/raylib"
+	"golib/internal/device"
 )
 
 // golib shot starts a game with these environment variables set. See
@@ -333,15 +333,15 @@ func runShots(game Game, config Config, plan *shotPlan) error {
 	if err := openWindow(config, true); err != nil {
 		return err
 	}
-	defer rl.CloseWindow()
+	defer device.CloseWindow()
 
 	// Draw the final picture into a texture instead of the window: a hidden or
 	// covered window has no reliable pixels to read back.
 	render := newRenderer(config)
 	defer render.close()
 	picture := render.loadTarget()
-	defer rl.UnloadRenderTexture(picture)
-	whole := rl.Rectangle{Width: float32(config.Width), Height: float32(config.Height)}
+	defer device.UnloadTarget(picture)
+	whole := device.Rectangle{Width: float32(config.Width), Height: float32(config.Height)}
 
 	screen := &Screen{width: float32(config.Width), height: float32(config.Height)}
 	scene := game
@@ -372,31 +372,24 @@ func runShots(game Game, config Config, plan *shotPlan) error {
 			if err := render.present(&picture, whole, float32(frame)*updateStep); err != nil {
 				return err
 			}
-			if err := saveTexture(picture.Texture, filepath.Join(plan.dir, shotFileName(frame)), plan.scale); err != nil {
+			if err := savePicture(picture, filepath.Join(plan.dir, shotFileName(frame)), plan.scale); err != nil {
 				return err
 			}
 			next++
 		}
-		// An empty drawing pass lets raylib handle window events, as every
-		// frame of a normal run does.
-		rl.BeginDrawing()
-		rl.EndDrawing()
+		// An empty drawing pass lets the backend handle window events, as
+		// every frame of a normal run does.
+		device.BeginFrame()
+		device.EndFrame()
 	}
 	return nil
 }
 
-// saveTexture writes a render texture to a PNG file, scale times as large.
-func saveTexture(texture rl.Texture2D, path string, scale int) error {
-	image := rl.LoadImageFromTexture(texture)
-	defer rl.UnloadImage(image)
-	rl.ImageFlipVertical(image) // render textures are stored bottom row first
-	if scale > 1 {
-		// Whole-number nearest neighbour, the way the window enlarges pixel
-		// art, so a bigger picture shows exactly the pixels the game drew.
-		rl.ImageResizeNN(image, image.Width*int32(scale), image.Height*int32(scale))
-	}
-	rl.ImageFormat(image, rl.UncompressedR8g8b8) // drop alpha, which blending leaves below 255 at soft edges
-	if !rl.ExportImage(*image, path) {
+// savePicture writes what was drawn into target to a PNG file, scale times as
+// large: whole-number nearest neighbour, the way the window enlarges pixel
+// art, so a bigger picture shows exactly the pixels the game drew.
+func savePicture(target device.Target, path string, scale int) error {
+	if !device.SavePicture(target, path, scale) {
 		return fmt.Errorf("golib.Run: could not save the screenshot %s", path)
 	}
 	return nil

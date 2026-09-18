@@ -249,7 +249,7 @@ func TestFontsInAWindow(t *testing.T) {
 	if got, want := screen.TextWidth("AB", 10, TextOptions{Font: broken}), screen.TextWidth("AB", 10); got != want {
 		t.Errorf("a broken font measured %v, want %v, as the built-in font", got, want)
 	}
-	wantError(t, `golib.NewFont("nocmap.ttf"): raylib could not read the font`)
+	wantError(t, `golib.NewFont("nocmap.ttf"): raylib could not read it`)
 	screen.TextWidth("AB", 10, options, options)
 	wantError(t, "golib: Screen.TextWidth got 2 TextOptions: pass at most one")
 

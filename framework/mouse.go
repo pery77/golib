@@ -1,15 +1,15 @@
 package golib
 
-import rl "github.com/gen2brain/raylib-go/raylib"
+import "golib/internal/device"
 
 // MouseButton is a button on the mouse.
 type MouseButton int32
 
 // Mouse buttons.
 const (
-	MouseLeft   = MouseButton(rl.MouseButtonLeft)
-	MouseRight  = MouseButton(rl.MouseButtonRight)
-	MouseMiddle = MouseButton(rl.MouseButtonMiddle)
+	MouseLeft   = MouseButton(device.MouseLeft)
+	MouseRight  = MouseButton(device.MouseRight)
+	MouseMiddle = MouseButton(device.MouseMiddle)
 )
 
 // mouseButtonCount is one more than the highest MouseButton, so buttons can

@@ -6,7 +6,7 @@ import (
 	"slices"
 	"strings"
 
-	rl "github.com/gen2brain/raylib-go/raylib"
+	"golib/internal/device"
 )
 
 // musicFormats are the file types raylib streams, by extension. Impulse Tracker
@@ -37,7 +37,7 @@ type Music struct {
 	name    string
 	tune    *TuneSpec // notes to make the music from, instead of reading a file
 	data    []byte    // raylib streams from this, so it has to stay reachable
-	stream  rl.Music
+	stream  device.Music
 	loaded  bool
 	tracked bool
 	checked bool // a tune has been made once, to find mistakes without a sound device
@@ -70,10 +70,10 @@ func (m *Music) Play() {
 	}
 	switch {
 	case m.paused:
-		rl.ResumeMusicStream(m.stream)
+		device.ResumeMusic(m.stream)
 		m.paused = false
 	case !m.playing:
-		rl.PlayMusicStream(m.stream)
+		device.PlayMusic(m.stream)
 		m.playing = true
 	}
 }
@@ -83,7 +83,7 @@ func (m *Music) Pause() {
 	if !m.playing || m.paused {
 		return
 	}
-	rl.PauseMusicStream(m.stream)
+	device.PauseMusic(m.stream)
 	m.paused = true
 }
 
@@ -92,7 +92,7 @@ func (m *Music) Stop() {
 	if !m.playing {
 		return
 	}
-	rl.StopMusicStream(m.stream)
+	device.StopMusic(m.stream)
 	m.playing, m.paused = false, false
 }
 
@@ -130,7 +130,7 @@ func (m *Music) Playing() bool {
 func (m *Music) SetVolume(volume float32) {
 	m.volume = max(0, min(volume, 1))
 	if m.loaded {
-		rl.SetMusicVolume(m.stream, m.volume)
+		device.SetMusicVolume(m.stream, m.volume)
 	}
 }
 
@@ -162,14 +162,13 @@ func (m *Music) load() bool {
 		}
 		data = read
 	}
-	stream := rl.LoadMusicStreamFromMemory(format, data, int32(len(data)))
-	if !rl.IsMusicValid(stream) {
+	stream, ok := device.NewMusic(format, data, true)
+	if !ok {
 		m.err = fmt.Errorf("golib: raylib could not play %s: see the raylib warnings above", m.describe())
 		return false
 	}
-	stream.Looping = true
 	m.data, m.stream, m.loaded = data, stream, true
-	rl.SetMusicVolume(stream, m.volume)
+	device.SetMusicVolume(stream, m.volume)
 	return true
 }
 
@@ -201,8 +200,8 @@ func (m *Music) describe() string {
 // unload frees the music, so that it is read again if a game runs again.
 func (m *Music) unload() {
 	if m.loaded {
-		rl.StopMusicStream(m.stream)
-		rl.UnloadMusicStream(m.stream)
+		device.StopMusic(m.stream)
+		device.UnloadMusic(m.stream)
 	}
 	m.data, m.loaded, m.tracked, m.checked, m.playing, m.paused, m.err = nil, false, false, false, false, false, nil
 }
