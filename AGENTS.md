@@ -12,7 +12,7 @@ The promise: someone downloads the template, runs a couple of commands, and buil
 
 Keep this section true: update it in the same change that lands or removes a feature. Never describe planned work as if it existed.
 
-Last updated: 2026-09-18 (milestones M5, Shipping, and M6, 2D essentials, done; Linux and macOS ran GoLib for the first time; M7, 3D, is next).
+Last updated: 2026-09-18 (milestones M5, Shipping, and M6, 2D essentials, done; Linux and macOS ran GoLib for the first time; the web build started with its first stage, the seam between the framework and the machine; M7, 3D, comes after it).
 
 | Area | State |
 | --- | --- |
@@ -23,6 +23,7 @@ Last updated: 2026-09-18 (milestones M5, Shipping, and M6, 2D essentials, done; 
 | Go 1.27.1 downloaded into `.tools/` by `golib setup` | Done |
 | raylib 6.0 through raylib-go, with no C compiler | Done |
 | `framework/` (package `golib`) and the example game, `games/platformer` | Done |
+| `framework/internal/device`: the line between package `golib` and the machine, with the raylib backend behind a build tag | Done (2026-09-18, stage 0 of the web build). Package `golib` imports no raylib: add to the contract instead, and `device_test.go` fails when a file of package `golib` reaches for raylib. See [docs/architecture.md](docs/architecture.md#framework-and-machine) |
 | `golib run`, `golib build`, `golib test`, `golib go` | Done |
 | VS Code: Go extension on the local toolchain | Done |
 | VS Code debug configuration: "GoLib: debug game" (F5) | Done |
@@ -57,7 +58,8 @@ Last updated: 2026-09-18 (milestones M5, Shipping, and M6, 2D essentials, done; 
 | Music from notes, with no music file: `golib.NewTune` | Done (M6) |
 | `Map.Err` and `golib.ListAssets`: whether a map loaded, and what is in the assets folder | Done (M6) |
 | `golib.Timer` for cooldowns and intervals; `golib.Lerp`, `golib.Clamp` and the easings; `Sound.PlayWith` for one play's volume and pitch; `Config.PauseUnfocused` and `golib.WindowFocused` | Done (M6) |
-| 3D: glTF models from Blender, a 3D camera, basic lighting | Planned (M7, after M6); nothing built |
+| Games in the browser: a web backend of GoLib's own, on WebGL 2, and `golib web` | Done for the picture and the input (2026-09-18, stages 0 and 1): `games/platformer`, `crates` and `tetris` play in a browser. No sound, post-processing shaders, fonts from files or saving between visits yet; the stages are in [docs/roadmap.md](docs/roadmap.md#web-build-started-2026-09-18) |
+| 3D: glTF models from Blender, a 3D camera, basic lighting | Planned (M7, after the web build); nothing built |
 
 **The framework is still small.** It opens a window, runs a fixed-step game loop, reads the keyboard, the mouse and gamepads, draws rectangles, circles, lines, triangles and polygons, filled or outlined, text in its built-in font or in fonts from files, aligned as the game wants, sprites from PNG and Aseprite files with their animations, and Tiled maps, whose tiles and objects a game can look up, shows worlds larger than the screen through a camera, does vector math, scales the screen to any window or fullscreen, runs post-processing shaders, makes random numbers, counts time down with timers and softens movement with easings, makes and plays sound effects, once, in a loop or at another volume and pitch, from code, from jfxr's `.jfxr` files or from sound files, streams music from a file or from notes, switches between scenes, reads files from the game's `assets/` folder, saves high scores, settings and progress, waits while the player is in another program, quits when the game asks, and takes screenshots for `golib shot`. [framework/README.md](framework/README.md) is its API guide: every exported name, grouped by task, with the rules the names don't tell you and what is still missing. Read it before writing game code; the doc comments in `framework/*.go` have the details. `games/platformer` is the reference for using it: read it before writing a game. It shows sprites, animations, a Tiled map seen through `golib.Camera`, pixel art, and a sound designed in jfxr. `games/asteroids` shows post-processing shaders, fullscreen, sound and music. Sound effects are made in code, from `.jfxr` files or from sound files, and music, sprites, maps and fonts are files in the game's `assets/` folder. There is no 3D yet (M7, after M6). If someone asks for a game that needs it, or anything else the API guide lists as missing, say what is missing and point to [docs/roadmap.md](docs/roadmap.md). Do not improvise a stand-alone engine to fill the gap.
 
@@ -93,7 +95,8 @@ Run from the project root. The command name is the same everywhere; only the pre
 | `run [game] [--dist]` | Builds the game, then runs it with `games/<game>/` as the working directory. With `--dist`, makes the dist build instead and runs it from its own folder, with the player's environment: the way to see what players get, assets and all. |
 | `shot [game] [frame...] [--input "<script>"] [--save <file>] [--scale <n>]` | Builds the game, runs it in a hidden window and saves screenshots of the given frames (default: 60) as `build/<game>/shots/frame-NNNNNN.png`. Frame N shows the game after N updates. `--input "Enter@1 Right@30-90 Mouse@100:640,360 MouseLeft@101"` presses Enter in update 1, holds Right from update 30 to 90, moves the mouse pointer to 640, 360 and clicks. `--save <file.json>` starts the game with that data saved, so a shot opens on level 8 instead of playing there, and `--scale <1-8>` enlarges the pictures, for pixel art too small to read (see [docs/tooling.md](docs/tooling.md#screenshots)). Random numbers start from the same seed, so shots repeat. Open the files to see the game. |
 | `test [game]` | Runs `go vet` and `go test` for the framework, every game and `tools/cli`. Given a game, only for `games/<game>`, so another game in progress doesn't get in the way. |
-| `go <args>` | Runs the project's Go toolchain with GoLib's environment, for example `go -C games/platformer mod tidy`. |
+| `web [game] [--port <n>] [--no-open]` | Builds the game for the browser into `build/<game>/web/` and serves it at a `http://localhost` address, opening it unless `--no-open`. Stage 1 of the web build: the picture and the input, with no sound, post-processing shaders, fonts from files or saving between visits (see [docs/tooling.md](docs/tooling.md#web-builds)). |
+| `go <args>` | Runs the project's Go toolchain with GoLib's environment, for example `go -C games/platformer mod tidy`. It also puts `.tools/raylib/` on the library search path, so `golib go run` and `golib go test` can start programs that load raylib. |
 | `clean` | Deletes `build/`. |
 | `clean --all` | Also deletes `.tools/`. Run `setup` again afterwards. |
 | `help` | Lists commands. |
@@ -118,6 +121,7 @@ tools/cli/           The CLI in Go, built into build/golib/: new, build, run, sh
 tools/ui/            The GoLib window: golib-ui.ps1, buttons that run the CLI
 tools/template/game/ The files golib new copies into games/<name>/
 framework/           The framework: Go module and package "golib"; README.md is its API guide
+  internal/device/   The line to the machine: the contract, the raylib backend and the web one (web.js included)
 games/               One folder per game, each its own Go module
   platformer/        The example game: tests each framework feature and shows how to use it
   asteroids/         A second example: post-processing shaders, fullscreen, sound and music
@@ -156,5 +160,5 @@ The test game developed alongside the framework is still a game: it follows the 
 - Windows baseline: Windows 10 or later with the built-in Windows PowerShell 5.1. PowerShell 7 is not required.
 - Always type the `.\` or `./` prefix. Some environments, including agent sandboxes, stop Windows from running programs from the current folder by bare name; an explicit relative path always works.
 - On Windows, `./golib` from Git Bash and `.\golib` from PowerShell run the same implementation (`golib.ps1`), so their results match.
-- A debug build loads the raylib library, and libffi on Windows and macOS, when it starts, and stops with `cannot load library ...` if it can't find them (on Windows, with exit code 1 and a line that says where they go, and in a message box when nobody sees the console). `golib build`, `run`, `shot` and `test` take care of that; `golib go test` and running a debug executable from outside `build/<game>/` don't. A `golib dist` build loads them from its own folder, where `dist` copies them, except on macOS, where it carries both inside; on Windows, moved away from them, it says so in a message box.
+- A debug build loads the raylib library, and libffi on Windows and macOS, when it starts, and stops with `cannot load library ...` if it can't find them (on Windows, with exit code 1 and a line that says where they go, and in a message box when nobody sees the console). `golib build`, `run`, `shot`, `test` and `go` take care of that; running a debug executable from outside `build/<game>/` doesn't. A `golib dist` build loads them from its own folder, where `dist` copies them, except on macOS, where it carries both inside; on Windows, moved away from them, it says so in a message box.
 - `.gitattributes` enforces line endings: LF everywhere, CRLF only for `*.cmd` and `*.bat`. Don't change files to work around it.

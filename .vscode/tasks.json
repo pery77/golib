@@ -64,6 +64,17 @@
       "problemMatcher": []
     },
     {
+      "label": "GoLib: web",
+      "detail": "Build the game in games/ for the browser and serve it on this machine (needs exactly one game)",
+      "type": "process",
+      "command": "sh",
+      "args": ["./golib", "web"],
+      "windows": { "command": "cmd.exe", "args": ["/d", "/c", ".\\golib.cmd", "web"] },
+      "options": { "cwd": "${workspaceFolder}" },
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
       "label": "GoLib: dist",
       "detail": "Build the game in games/ to share: a folder and its zip in build/<game>/dist/ (needs exactly one game)",
       "type": "process",

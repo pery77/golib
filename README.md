@@ -64,6 +64,7 @@ GoLib reads Tiled maps, Aseprite files, PNG images, fonts, jfxr sounds and sound
 | `golib build [game]` | Builds a game into `build/`, for development. |
 | `golib dist [game]` | Builds a game to share: a folder with everything it needs, zipped, with the licenses that go with it and, on Windows, its icon and version details. |
 | `golib shot [game] [frame...]` | Saves screenshots of a game at the given frames, without opening a visible window. |
+| `golib web [game]` | Builds a game for the browser and serves it on your machine, so you can play it in a tab. No sound yet. |
 | `golib test` | Checks and tests the framework, every game and GoLib's own Go program. |
 | `golib go <args>` | Runs the project's own Go, for example `golib go version`. |
 | `golib clean` | Deletes build outputs. Add `--all` to also delete the downloaded tools. |

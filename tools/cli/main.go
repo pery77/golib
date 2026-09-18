@@ -2,8 +2,8 @@
 // tools/bootstrap/ build it into build/golib/ and start it for the commands
 // that have moved here, passing their arguments on; nobody needs to start it
 // by hand. Commands move here from the scripts one at a time (see
-// docs/roadmap.md): new, build, run, shot, test, dist, and setup once Go is
-// installed. The scripts keep help, the start of setup, doctor, clean and go,
+// docs/roadmap.md): new, build, run, shot, test, dist, web, and setup once Go
+// is installed. The scripts keep help, the start of setup, doctor, clean and go,
 // which have to work before this program can be built.
 //
 // It prints what the scripts print: one fact per line, starting with [ok],
@@ -33,6 +33,7 @@ var commands = map[string]func(c *cli, options []string) int{
 	"shot":  (*cli).shot,
 	"test":  (*cli).test,
 	"dist":  (*cli).dist,
+	"web":   (*cli).web,
 }
 
 func main() {

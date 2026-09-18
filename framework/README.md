@@ -1113,6 +1113,22 @@ import rl "github.com/gen2brain/raylib-go/raylib"
 - Read input through `Input`, not raylib: raylib reports the mouse in window pixels, and its presses aren't delivered once per update.
 - Never replace the game loop or open a window of your own.
 
+## Playing in a browser
+
+`golib web <game>` builds the game for the browser and serves it on the machine it runs on, so it can be played in a tab. The game's code is the same: package `golib` is the same on every platform, and the game's assets travel inside the build, so `ReadAsset` and `ListAssets` work as they do everywhere else.
+
+A web build does less than a desktop build for now, and a game that wants to run in both should keep to the left column:
+
+| Works in a browser | Doesn't yet |
+| --- | --- |
+| Shapes, sprites, tilemaps, the camera, blend modes, fullscreen | Post-processing shaders (`NewShader`, `SetPostProcess`): the game stops with a message on the page |
+| Text in the built-in font, in the same places as on the desktop | Fonts from `.ttf` and `.otf` files (`NewFont`) |
+| Keyboard, mouse and gamepads | Sound and music: a web build plays in silence, as `golib shot` does |
+| `SaveData` and `LoadData` while the page is open | Keeping saved data after the page is closed |
+| `golib run`, `build`, `dist`, `shot` on the desktop, unchanged | `golib shot` of a web build |
+
+A game that calls raylib directly (see above) doesn't build for the browser at all. What is missing is being built in stages; see [docs/roadmap.md](../docs/roadmap.md#web-build-started-2026-09-18).
+
 ## What GoLib doesn't have yet
 
 | Missing | Status | Meanwhile |
@@ -1122,6 +1138,7 @@ import rl "github.com/gen2brain/raylib-go/raylib"
 | Positional sound: louder on the side it comes from | Not on the roadmap yet | `Sound.PlayWith` at a lower volume for what is far away |
 | Physics | Not planned: GoLib is for games, not engines | Simple movement and `Rectangle` overlap checks in the game |
 | Trigger pressure, vibration | Not on the roadmap yet | Triggers read as buttons |
-| 3D | M7, after M6 | None |
+| 3D | M7, after the web build | None |
+| Sound, shaders, font files and saved data that lasts, in a browser | Stages 2 and 3 of the web build | The desktop build has them all; see "Playing in a browser" above |
 
 When a game needs one of these, say so to the user and point to [docs/roadmap.md](../docs/roadmap.md), as [AGENTS.md](../AGENTS.md) asks, instead of building an engine to fill the gap.

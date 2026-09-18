@@ -72,6 +72,9 @@ Commands:
                           finished level; --scale <1-8> enlarges the pictures (see docs/tooling.md)
   test [game]             Vet and test the framework, every game and GoLib's Go tools,
                           or only games/<game>
+  web [game] [--port n]   Build games/<game> for the browser into build/<game>/web/ and serve it
+                          on this machine. --no-open keeps the browser closed. No sound or
+                          post-processing shaders yet (see docs/roadmap.md)
   go <args>               Run the project's Go toolchain, with GoLib's settings
   clean                   Delete build outputs (build/)
   clean --all             Also delete downloaded tools (.tools/); run setup again afterwards
@@ -414,6 +417,10 @@ function Invoke-Doctor([string[]]$Options) {
 function Invoke-GoCommand([string[]]$Options) {
     if ($Options.Count -eq 0) { Stop-WithUsageError 'go needs arguments, for example: golib go version' }
     Assert-Toolchain 'go'
+    # go run and go test start programs that load raylib when they do, as games do. build, run,
+    # shot and test put the libraries next to the executable; here they come from .tools/raylib/,
+    # so that "golib go test ./..." and generators written against raylib work.
+    if (Test-Path -LiteralPath $RaylibDir) { $env:PATH = $RaylibDir + ';' + $env:PATH }
     & $GoExe @Options
     exit $LASTEXITCODE
 }
@@ -457,6 +464,7 @@ switch -CaseSensitive ($command) {
     'run'    { Invoke-Cli 'run' $options }
     'shot'   { Invoke-Cli 'shot' $options }
     'test'   { Invoke-Cli 'test' $options }
+    'web'    { Invoke-Cli 'web' $options }
     'go'     { Invoke-GoCommand $options }
     'clean'  { Invoke-Clean $options }
     'help'   { Show-Help; exit 0 }

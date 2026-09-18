@@ -1,0 +1,710 @@
+// The JavaScript half of GoLib's web backend: a WebGL 2 renderer, the
+// keyboard, the mouse and the gamepads, and the frame the browser asks for.
+// web.go and web_draw.go are the Go half; the command numbers below and the
+// ones in web_draw.go are the same list, so change one and change the other.
+//
+// A game never calls into this file. Package golib writes its drawing into a
+// buffer of numbers and hands the whole frame over at once, because a call
+// per shape would cost more than the drawing.
+
+window.golib = (function () {
+	'use strict';
+
+	// The drawing commands, as web_draw.go writes them.
+	const CLEAR = 1, RECTANGLE = 2, RECTANGLE_OUTLINE = 3, CIRCLE = 4, RING = 5,
+		LINE = 6, TRIANGLE = 7, TEXTURE = 8, BEGIN_TARGET = 9, END_TARGET = 10,
+		BEGIN_CAMERA = 11, END_CAMERA = 12, BLEND = 13, BEGIN_SHADER = 14,
+		END_SHADER = 15, SHADER_VALUES = 16, BEGIN_FRAME = 17, END_FRAME = 18;
+
+	const BLEND_NORMAL = 0, BLEND_ADD = 1, BLEND_COPY = 2;
+
+	// How many vertices a batch holds before it goes to the graphics card.
+	const BATCH_VERTICES = 24576;
+	const FLOATS_PER_VERTEX = 8; // x, y, u, v, r, g, b, a
+
+	const DEG = Math.PI / 180;
+
+	let canvas = null, gl = null, program = null, screenLocation = null;
+	let vertices = null, vertexBuffer = null, vertexArray = null, used = 0;
+	let white = null; // a single white pixel, for shapes
+
+	// What is being drawn on now.
+	let boundTarget = 0, boundTexture = 0, boundBlend = BLEND_NORMAL;
+	let viewWidth = 0, viewHeight = 0;
+
+	// The camera, as an offset and a zoom: BeginCamera sets it, and every
+	// point is moved by it as it is added to the batch.
+	let camera = null;
+
+	const textures = new Map(); // id -> WebGLTexture
+	const targets = new Map();  // id -> { framebuffer, texture, textureID, width, height }
+	let nextID = 1;
+
+	let frameTime = 0, wake = null, closed = false;
+	let wantFullscreen = false, fullscreenAsked = false;
+	let cursorShown = true;
+
+	let commandBytes = null, commandFloats = null;
+
+	// ---------------------------------------------------------------- setup
+
+	function open(width, height, title) {
+		if (title) document.title = title;
+		canvas = document.getElementById('game');
+		if (!canvas) throw new Error('golib: the page has no <canvas id="game">');
+		gl = canvas.getContext('webgl2', {
+			alpha: false,
+			antialias: false,
+			depth: false,
+			stencil: false,
+			premultipliedAlpha: false,
+			preserveDrawingBuffer: true,
+		});
+		if (!gl) throw new Error('golib: this browser has no WebGL 2');
+		resize();
+		program = buildProgram();
+		gl.useProgram(program);
+		screenLocation = gl.getUniformLocation(program, 'screen');
+		gl.uniform1i(gl.getUniformLocation(program, 'image'), 0);
+		setUpBatch();
+		white = gl.createTexture();
+		gl.bindTexture(gl.TEXTURE_2D, white);
+		gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE,
+			new Uint8Array([255, 255, 255, 255]));
+		clampAndFilter(gl.NEAREST);
+		gl.enable(gl.BLEND);
+		setBlend(BLEND_NORMAL);
+		bindCanvas();
+		listen();
+		frameTime = performance.now() / 1000;
+	}
+
+	function buildProgram() {
+		const vertex = `#version 300 es
+in vec2 position;
+in vec2 texcoord;
+in vec4 color;
+uniform vec2 screen;
+out vec2 vTexcoord;
+out vec4 vColor;
+void main() {
+	vec2 clip = position / screen * 2.0 - 1.0;
+	gl_Position = vec4(clip.x, -clip.y, 0.0, 1.0);
+	vTexcoord = texcoord;
+	vColor = color;
+}`;
+		const fragment = `#version 300 es
+precision highp float;
+in vec2 vTexcoord;
+in vec4 vColor;
+uniform sampler2D image;
+out vec4 result;
+void main() {
+	result = texture(image, vTexcoord) * vColor;
+}`;
+		const built = gl.createProgram();
+		gl.attachShader(built, compile(gl.VERTEX_SHADER, vertex));
+		gl.attachShader(built, compile(gl.FRAGMENT_SHADER, fragment));
+		gl.linkProgram(built);
+		if (!gl.getProgramParameter(built, gl.LINK_STATUS)) {
+			throw new Error('golib: ' + gl.getProgramInfoLog(built));
+		}
+		return built;
+	}
+
+	function compile(kind, source) {
+		const shader = gl.createShader(kind);
+		gl.shaderSource(shader, source);
+		gl.compileShader(shader);
+		if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+			throw new Error('golib: ' + gl.getShaderInfoLog(shader));
+		}
+		return shader;
+	}
+
+	function setUpBatch() {
+		vertices = new Float32Array(BATCH_VERTICES * FLOATS_PER_VERTEX);
+		vertexArray = gl.createVertexArray();
+		gl.bindVertexArray(vertexArray);
+		vertexBuffer = gl.createBuffer();
+		gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
+		gl.bufferData(gl.ARRAY_BUFFER, vertices.byteLength, gl.DYNAMIC_DRAW);
+		const stride = FLOATS_PER_VERTEX * 4;
+		bindAttribute('position', 2, 0, stride);
+		bindAttribute('texcoord', 2, 8, stride);
+		bindAttribute('color', 4, 16, stride);
+	}
+
+	function bindAttribute(name, size, offset, stride) {
+		const at = gl.getAttribLocation(program, name);
+		gl.enableVertexAttribArray(at);
+		gl.vertexAttribPointer(at, size, gl.FLOAT, false, stride, offset);
+	}
+
+	function clampAndFilter(filter) {
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filter);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filter);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+	}
+
+	// resize keeps the drawing buffer the size of the canvas on the screen,
+	// counting the pixels the display really has.
+	function resize() {
+		const scale = window.devicePixelRatio || 1;
+		const width = Math.max(1, Math.round(canvas.clientWidth * scale));
+		const height = Math.max(1, Math.round(canvas.clientHeight * scale));
+		if (canvas.width !== width || canvas.height !== height) {
+			canvas.width = width;
+			canvas.height = height;
+			if (boundTarget === 0) bindCanvas();
+		}
+	}
+
+	// ------------------------------------------------------------- drawing
+
+	function drawBuffer(size) {
+		commandBytes = new Uint8Array(size);
+		commandFloats = new Float32Array(commandBytes.buffer);
+		return commandBytes;
+	}
+
+	// draw runs the commands package golib wrote, in order.
+	function draw(count) {
+		const c = commandFloats;
+		let i = 0;
+		while (i < count) {
+			switch (c[i++]) {
+				case BEGIN_FRAME:
+					bindCanvas();
+					break;
+				case END_FRAME:
+					flush();
+					break;
+				case CLEAR: {
+					flush();
+					gl.clearColor(c[i] / 255, c[i + 1] / 255, c[i + 2] / 255, c[i + 3] / 255);
+					gl.clear(gl.COLOR_BUFFER_BIT);
+					i += 4;
+					break;
+				}
+				case RECTANGLE:
+					rectangle(c[i], c[i + 1], c[i + 2], c[i + 3], c, i + 4);
+					i += 8;
+					break;
+				case RECTANGLE_OUTLINE:
+					rectangleOutline(c[i], c[i + 1], c[i + 2], c[i + 3], c[i + 4], c, i + 5);
+					i += 9;
+					break;
+				case CIRCLE:
+					circle(c[i], c[i + 1], c[i + 2], c, i + 3);
+					i += 7;
+					break;
+				case RING:
+					ring(c[i], c[i + 1], c[i + 2], c[i + 3], c, i + 4);
+					i += 8;
+					break;
+				case LINE:
+					line(c[i], c[i + 1], c[i + 2], c[i + 3], c[i + 4], c, i + 5);
+					i += 9;
+					break;
+				case TRIANGLE:
+					useTexture(0);
+					triangle(c[i], c[i + 1], c[i + 2], c[i + 3], c[i + 4], c[i + 5], c, i + 6);
+					i += 10;
+					break;
+				case TEXTURE:
+					texture(c, i);
+					i += 18;
+					break;
+				case BEGIN_TARGET:
+					bindTarget(c[i]);
+					i += 1;
+					break;
+				case END_TARGET:
+					bindCanvas();
+					break;
+				case BEGIN_CAMERA:
+					flush();
+					camera = { offsetX: c[i], offsetY: c[i + 1], targetX: c[i + 2], targetY: c[i + 3], zoom: c[i + 4] };
+					i += 5;
+					break;
+				case END_CAMERA:
+					flush();
+					camera = null;
+					break;
+				case BLEND:
+					setBlend(c[i]);
+					i += 1;
+					break;
+				case BEGIN_SHADER:
+				case END_SHADER:
+					// Post-processing shaders are stage 3; package golib
+					// refuses them before they reach this file.
+					break;
+				case SHADER_VALUES:
+					i += 7;
+					break;
+				default:
+					// A command this file doesn't know means the two halves
+					// have drifted apart. Stopping says so loudly.
+					throw new Error('golib: unknown drawing command ' + c[i - 1]);
+			}
+		}
+	}
+
+	// where moves a point through the camera, as raylib's Camera2D does.
+	function whereX(x, y) {
+		return camera ? (x - camera.targetX) * camera.zoom + camera.offsetX : x;
+	}
+
+	function whereY(x, y) {
+		return camera ? (y - camera.targetY) * camera.zoom + camera.offsetY : y;
+	}
+
+	// vertex adds one corner to the batch.
+	function vertex(x, y, u, v, c, at) {
+		const i = used * FLOATS_PER_VERTEX;
+		vertices[i] = whereX(x, y);
+		vertices[i + 1] = whereY(x, y);
+		vertices[i + 2] = u;
+		vertices[i + 3] = v;
+		vertices[i + 4] = c[at] / 255;
+		vertices[i + 5] = c[at + 1] / 255;
+		vertices[i + 6] = c[at + 2] / 255;
+		vertices[i + 7] = c[at + 3] / 255;
+		used++;
+		if (used >= BATCH_VERTICES - 3) flush();
+	}
+
+	function triangle(x1, y1, x2, y2, x3, y3, c, at) {
+		// The graphics card fills a triangle whatever way its corners turn,
+		// so, unlike raylib, this needs no winding check.
+		vertex(x1, y1, 0, 0, c, at);
+		vertex(x2, y2, 0, 0, c, at);
+		vertex(x3, y3, 0, 0, c, at);
+	}
+
+	function rectangle(x, y, width, height, c, at) {
+		useTexture(0);
+		triangle(x, y, x, y + height, x + width, y + height, c, at);
+		triangle(x, y, x + width, y + height, x + width, y, c, at);
+	}
+
+	// rectangleOutline draws the four edges inside the rectangle, as raylib
+	// does, thinning them when the rectangle is smaller than twice the edge.
+	function rectangleOutline(x, y, width, height, thick, c, at) {
+		if (thick > width / 2) thick = width / 2;
+		if (thick > height / 2) thick = height / 2;
+		rectangle(x, y, width, thick, c, at);
+		rectangle(x, y - thick + height, width, thick, c, at);
+		rectangle(x, y + thick, thick, height - thick * 2, c, at);
+		rectangle(x - thick + width, y + thick, thick, height - thick * 2, c, at);
+	}
+
+	// circle draws raylib's 36 slices, so a circle has the same corners here.
+	function circle(x, y, radius, c, at) {
+		useTexture(0);
+		const step = 360 / 36;
+		for (let i = 0; i < 36; i++) {
+			const a = i * step, b = a + step;
+			triangle(x, y,
+				x + Math.cos(b * DEG) * radius, y + Math.sin(b * DEG) * radius,
+				x + Math.cos(a * DEG) * radius, y + Math.sin(a * DEG) * radius, c, at);
+		}
+	}
+
+	// ring draws the space between two circles, with as many slices as raylib
+	// picks for a circle that size.
+	function ring(x, y, inner, outer, c, at) {
+		useTexture(0);
+		if (outer <= 0) return;
+		if (inner > outer) { const swap = inner; inner = outer; outer = swap; }
+		// raylib's own count, from how far a straight edge may stray.
+		const th = Math.acos(2 * Math.pow(1 - 0.5 / outer, 2) - 1);
+		let segments = Math.floor(360 * Math.ceil(2 * Math.PI / th) / 360);
+		if (!isFinite(segments) || segments <= 0) segments = 4;
+		const step = 360 / segments;
+		for (let i = 0; i < segments; i++) {
+			const a = i * step, b = a + step;
+			const ca = Math.cos(a * DEG), sa = Math.sin(a * DEG);
+			const cb = Math.cos(b * DEG), sb = Math.sin(b * DEG);
+			triangle(x + ca * inner, y + sa * inner, x + ca * outer, y + sa * outer,
+				x + cb * outer, y + sb * outer, c, at);
+			triangle(x + ca * inner, y + sa * inner, x + cb * outer, y + sb * outer,
+				x + cb * inner, y + sb * inner, c, at);
+		}
+	}
+
+	// line draws a straight line as a quad, the way raylib's DrawLineEx does.
+	function line(x1, y1, x2, y2, thick, c, at) {
+		const dx = x2 - x1, dy = y2 - y1;
+		const length = Math.sqrt(dx * dx + dy * dy);
+		if (length <= 0 || thick <= 0) return;
+		const scale = thick / (2 * length);
+		const rx = -scale * dy, ry = scale * dx;
+		useTexture(0);
+		triangle(x1 - rx, y1 - ry, x1 + rx, y1 + ry, x2 - rx, y2 - ry, c, at);
+		triangle(x1 + rx, y1 + ry, x2 + rx, y2 + ry, x2 - rx, y2 - ry, c, at);
+	}
+
+	// texture draws a part of a picture into a rectangle, turned around an
+	// origin: the corners and the flipping are raylib's DrawTexturePro.
+	function texture(c, i) {
+		const id = c[i], width = c[i + 1], height = c[i + 2];
+		let sx = c[i + 3], sy = c[i + 4], sw = c[i + 5], sh = c[i + 6];
+		const dx = c[i + 7], dy = c[i + 8], dw = c[i + 9], dh = c[i + 10];
+		const ox = c[i + 11], oy = c[i + 12], rotation = c[i + 13];
+		const at = i + 14;
+		if (width <= 0 || height <= 0) return;
+
+		let flipX = false;
+		if (sw < 0) { flipX = true; sw = -sw; }
+		if (sh < 0) sy -= sh;
+
+		let u0 = sx / width, u1 = (sx + sw) / width;
+		if (flipX) { const swap = u0; u0 = u1; u1 = swap; }
+		const v0 = sy / height, v1 = (sy + sh) / height;
+
+		let ax, ay, bx, by, cx, cy, ex, ey; // the four corners, clockwise
+		if (rotation === 0) {
+			const x = dx - ox, y = dy - oy;
+			ax = x; ay = y;
+			bx = x; by = y + dh;
+			cx = x + dw; cy = y + dh;
+			ex = x + dw; ey = y;
+		} else {
+			const s = Math.sin(rotation * DEG), k = Math.cos(rotation * DEG);
+			const nx = -ox, ny = -oy;
+			ax = dx + nx * k - ny * s; ay = dy + nx * s + ny * k;
+			bx = dx + nx * k - (ny + dh) * s; by = dy + nx * s + (ny + dh) * k;
+			cx = dx + (nx + dw) * k - (ny + dh) * s; cy = dy + (nx + dw) * s + (ny + dh) * k;
+			ex = dx + (nx + dw) * k - ny * s; ey = dy + (nx + dw) * s + ny * k;
+		}
+		useTexture(id);
+		vertex(ax, ay, u0, v0, c, at);
+		vertex(bx, by, u0, v1, c, at);
+		vertex(cx, cy, u1, v1, c, at);
+		vertex(ax, ay, u0, v0, c, at);
+		vertex(cx, cy, u1, v1, c, at);
+		vertex(ex, ey, u1, v0, c, at);
+	}
+
+	// useTexture picks the picture the next corners are cut from; 0 is the
+	// single white pixel that shapes use.
+	function useTexture(id) {
+		if (boundTexture === id) return;
+		flush();
+		boundTexture = id;
+		gl.bindTexture(gl.TEXTURE_2D, id === 0 ? white : textures.get(id));
+	}
+
+	function setBlend(mode) {
+		if (boundBlend === mode) return;
+		flush();
+		boundBlend = mode;
+		gl.blendEquation(gl.FUNC_ADD);
+		if (mode === BLEND_ADD) gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+		else if (mode === BLEND_COPY) gl.blendFunc(gl.ONE, gl.ZERO);
+		else gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+	}
+
+	function bindCanvas() {
+		if (boundTarget === 0 && viewWidth === canvas.width && viewHeight === canvas.height) return;
+		flush();
+		boundTarget = 0;
+		gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+		setView(canvas.width, canvas.height);
+	}
+
+	function bindTarget(id) {
+		if (boundTarget === id) return;
+		flush();
+		const target = targets.get(id);
+		if (!target) return;
+		boundTarget = id;
+		gl.bindFramebuffer(gl.FRAMEBUFFER, target.framebuffer);
+		setView(target.width, target.height);
+	}
+
+	function setView(width, height) {
+		viewWidth = width;
+		viewHeight = height;
+		gl.viewport(0, 0, width, height);
+		gl.uniform2f(screenLocation, width, height);
+	}
+
+	// flush sends the corners built so far to the graphics card.
+	function flush() {
+		if (used === 0) return;
+		gl.bufferSubData(gl.ARRAY_BUFFER, 0, vertices, 0, used * FLOATS_PER_VERTEX);
+		gl.drawArrays(gl.TRIANGLES, 0, used);
+		used = 0;
+	}
+
+	// -------------------------------------------------------------- pictures
+
+	function newTexture(width, height, pixels) {
+		const id = nextID++;
+		const made = gl.createTexture();
+		gl.bindTexture(gl.TEXTURE_2D, made);
+		gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+		clampAndFilter(gl.NEAREST); // raylib's own default for a new picture
+		textures.set(id, made);
+		boundTexture = -1;
+		return id;
+	}
+
+	function unloadTexture(id) {
+		const made = textures.get(id);
+		if (!made) return;
+		gl.deleteTexture(made);
+		textures.delete(id);
+		if (boundTexture === id) boundTexture = -1;
+	}
+
+	function newTarget(width, height, smooth) {
+		const textureID = nextID++, id = nextID++;
+		const made = gl.createTexture();
+		gl.bindTexture(gl.TEXTURE_2D, made);
+		gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+		clampAndFilter(smooth ? gl.LINEAR : gl.NEAREST);
+		textures.set(textureID, made);
+		const framebuffer = gl.createFramebuffer();
+		gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+		gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, made, 0);
+		gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+		targets.set(id, { framebuffer: framebuffer, texture: made, textureID: textureID, width: width, height: height });
+		boundTexture = -1;
+		boundTarget = -1;
+		bindCanvas();
+		return [id, textureID];
+	}
+
+	function unloadTarget(id) {
+		const target = targets.get(id);
+		if (!target) return;
+		gl.deleteFramebuffer(target.framebuffer);
+		gl.deleteTexture(target.texture);
+		textures.delete(target.textureID);
+		targets.delete(id);
+		if (boundTarget === id) { boundTarget = -1; bindCanvas(); }
+	}
+
+	// readTarget copies what was drawn into a target back into pixels, the
+	// bottom row first, as the graphics card holds it.
+	function readTarget(id, width, height, pixels) {
+		const target = targets.get(id);
+		if (!target) return;
+		flush();
+		gl.bindFramebuffer(gl.FRAMEBUFFER, target.framebuffer);
+		gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+		gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+		boundTarget = -1;
+		bindCanvas();
+	}
+
+	// ----------------------------------------------------------------- input
+
+	// The keys GoLib names, by what the browser calls them. The numbers are
+	// GLFW's, which device.go fixes for every backend.
+	const KEYS = {
+		Space: 32, Enter: 257, NumpadEnter: 257, Escape: 256, Tab: 258, Backspace: 259,
+		ArrowLeft: 263, ArrowRight: 262, ArrowUp: 265, ArrowDown: 264,
+		ShiftLeft: 340, ShiftRight: 344, ControlLeft: 341, ControlRight: 345,
+		AltLeft: 342, AltRight: 346,
+	};
+	for (let i = 0; i < 26; i++) KEYS['Key' + String.fromCharCode(65 + i)] = 65 + i;
+	for (let i = 0; i < 10; i++) { KEYS['Digit' + i] = 48 + i; KEYS['Numpad' + i] = 48 + i; }
+	for (let i = 1; i <= 12; i++) KEYS['F' + i] = 289 + i;
+
+	// The browser's gamepad buttons, in GoLib's order. -1 is a button GoLib
+	// doesn't name.
+	const PAD_BUTTONS = [7, 6, 8, 5, 9, 11, 10, 12, 13, 15, 16, 17, 1, 3, 4, 2, 14];
+	const PAD_BUTTON_COUNT = 18, MAX_PADS = 4;
+
+	const keysDown = new Uint8Array(349), keysPressed = new Uint8Array(349);
+	const mouseDown = new Uint8Array(3), mousePressed = new Uint8Array(3);
+	let mouseX = 0, mouseY = 0, wheel = 0;
+	const padWas = []; // what each pad's buttons were last frame, for presses
+
+	let inputBytes = null, inputFloats = null;
+
+	function inputBuffer(size) {
+		inputBytes = new Uint8Array(size);
+		inputFloats = new Float32Array(inputBytes.buffer, 0, 19);
+		return inputBytes;
+	}
+
+	function listen() {
+		window.addEventListener('keydown', function (e) {
+			const key = KEYS[e.code];
+			if (key !== undefined) {
+				if (!keysDown[key]) keysPressed[key] = 1;
+				keysDown[key] = 1;
+				// Arrows, space and tab would otherwise scroll the page or
+				// move the focus out of the game.
+				if (key === 32 || key === 258 || (key >= 262 && key <= 265)) e.preventDefault();
+			}
+			takeFullscreen();
+		});
+		window.addEventListener('keyup', function (e) {
+			const key = KEYS[e.code];
+			if (key !== undefined) keysDown[key] = 0;
+		});
+		window.addEventListener('blur', function () {
+			// A game that never sees the key go up would walk on for ever.
+			keysDown.fill(0);
+			mouseDown.fill(0);
+		});
+		canvas.addEventListener('mousemove', function (e) {
+			const box = canvas.getBoundingClientRect();
+			const scale = canvas.width / Math.max(1, box.width);
+			mouseX = (e.clientX - box.left) * scale;
+			mouseY = (e.clientY - box.top) * (canvas.height / Math.max(1, box.height));
+		});
+		canvas.addEventListener('mousedown', function (e) {
+			const button = domButton(e.button);
+			if (button >= 0) {
+				if (!mouseDown[button]) mousePressed[button] = 1;
+				mouseDown[button] = 1;
+			}
+			takeFullscreen();
+			e.preventDefault();
+		});
+		window.addEventListener('mouseup', function (e) {
+			const button = domButton(e.button);
+			if (button >= 0) mouseDown[button] = 0;
+		});
+		canvas.addEventListener('wheel', function (e) {
+			wheel += e.deltaY > 0 ? -1 : (e.deltaY < 0 ? 1 : 0);
+			e.preventDefault();
+		}, { passive: false });
+		canvas.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+	}
+
+	// domButton turns the browser's button number into GoLib's.
+	function domButton(button) {
+		if (button === 0) return 0; // left
+		if (button === 1) return 2; // middle
+		if (button === 2) return 1; // right
+		return -1;
+	}
+
+	// snapshotInput writes the state the next frame reads and clears the
+	// presses, so each press reaches exactly one frame.
+	function snapshotInput() {
+		if (!inputBytes) return;
+		inputFloats[0] = mouseX;
+		inputFloats[1] = mouseY;
+		inputFloats[2] = wheel;
+		wheel = 0;
+
+		const keysAt = 76; // where the bytes start, as web_input.go says
+		inputBytes.set(keysDown, keysAt);
+		inputBytes.set(keysPressed, keysAt + 349);
+		inputBytes.set(mouseDown, keysAt + 698);
+		inputBytes.set(mousePressed, keysAt + 701);
+		keysPressed.fill(0);
+		mousePressed.fill(0);
+
+		const connectedAt = keysAt + 704;
+		const downAt = connectedAt + MAX_PADS;
+		const pressedAt = downAt + MAX_PADS * PAD_BUTTON_COUNT;
+		const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+		for (let pad = 0; pad < MAX_PADS; pad++) {
+			const found = pads[pad];
+			inputBytes[connectedAt + pad] = found ? 1 : 0;
+			if (!padWas[pad]) padWas[pad] = new Uint8Array(PAD_BUTTON_COUNT);
+			const was = padWas[pad];
+			for (let button = 0; button < PAD_BUTTON_COUNT; button++) {
+				inputBytes[downAt + pad * PAD_BUTTON_COUNT + button] = 0;
+				inputBytes[pressedAt + pad * PAD_BUTTON_COUNT + button] = 0;
+			}
+			if (!found) { was.fill(0); continue; }
+			for (let i = 0; i < PAD_BUTTONS.length && i < found.buttons.length; i++) {
+				const button = PAD_BUTTONS[i];
+				if (button < 0 || button >= PAD_BUTTON_COUNT) continue;
+				const down = found.buttons[i].pressed ? 1 : 0;
+				inputBytes[downAt + pad * PAD_BUTTON_COUNT + button] = down;
+				if (down && !was[button]) inputBytes[pressedAt + pad * PAD_BUTTON_COUNT + button] = 1;
+				was[button] = down;
+			}
+			const sticks = 3 + pad * 4;
+			inputFloats[sticks] = found.axes[0] || 0;
+			inputFloats[sticks + 1] = found.axes[1] || 0;
+			inputFloats[sticks + 2] = found.axes[2] || 0;
+			inputFloats[sticks + 3] = found.axes[3] || 0;
+		}
+	}
+
+	function gamepadName(pad) {
+		const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+		return pads[pad] ? pads[pad].id : '';
+	}
+
+	// ----------------------------------------------------------------- frames
+
+	function onFrame(fn) { wake = fn; }
+
+	function askForFrame() {
+		requestAnimationFrame(function (stamp) {
+			frameTime = stamp / 1000;
+			resize();
+			if (wake) wake();
+		});
+	}
+
+	function frame() {
+		return [frameTime, canvas ? canvas.width : 0, canvas ? canvas.height : 0, document.hasFocus(), closed];
+	}
+
+	// takeFullscreen makes the request golib.SetFullscreen asked for. A
+	// browser only allows it while it is handling a key or a click, which is
+	// why it waits here for one.
+	function takeFullscreen() {
+		if (wantFullscreen === fullscreenAsked) return;
+		fullscreenAsked = wantFullscreen;
+		if (wantFullscreen) {
+			if (canvas.requestFullscreen) canvas.requestFullscreen().catch(function () { });
+		} else if (document.exitFullscreen && document.fullscreenElement) {
+			document.exitFullscreen().catch(function () { });
+		}
+	}
+
+	function setFullscreen(on) { wantFullscreen = !!on; }
+
+	function setCursorVisible(visible) {
+		cursorShown = !!visible;
+		if (canvas) canvas.style.cursor = cursorShown ? '' : 'none';
+	}
+
+	function cursorVisible() { return cursorShown; }
+
+	function close() { closed = true; }
+
+	// showError puts a message over the game. A player in a browser never
+	// opens its console, so a game that stops says why here.
+	function showError(title, message) {
+		let box = document.getElementById('message');
+		if (!box) {
+			box = document.createElement('div');
+			box.id = 'message';
+			document.body.appendChild(box);
+		}
+		box.textContent = message;
+		if (title) document.title = title;
+		console.error(title + ': ' + message);
+	}
+
+	return {
+		open: open, close: close, frame: frame,
+		draw: draw, drawBuffer: drawBuffer,
+		newTexture: newTexture, unloadTexture: unloadTexture,
+		newTarget: newTarget, unloadTarget: unloadTarget, readTarget: readTarget,
+		inputBuffer: inputBuffer, snapshotInput: snapshotInput, gamepadName: gamepadName,
+		onFrame: onFrame, askForFrame: askForFrame,
+		setFullscreen: setFullscreen, setCursorVisible: setCursorVisible, cursorVisible: cursorVisible,
+		showError: showError,
+	};
+})();

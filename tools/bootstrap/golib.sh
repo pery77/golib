@@ -64,6 +64,9 @@ Commands:
                           finished level; --scale <1-8> enlarges the pictures (see docs/tooling.md)
   test [game]             Vet and test the framework, every game and GoLib's Go tools,
                           or only games/<game>
+  web [game] [--port n]   Build games/<game> for the browser into build/<game>/web/ and serve it
+                          on this machine. --no-open keeps the browser closed. No sound or
+                          post-processing shaders yet (see docs/roadmap.md)
   go <args>               Run the project's Go toolchain, with GoLib's settings
   clean                   Delete build outputs (build/)
   clean --all             Also delete downloaded tools (.tools/); run setup again afterwards
@@ -441,6 +444,18 @@ cmd_doctor() {
 cmd_go() {
   if [ $# -eq 0 ]; then usage_error "go needs arguments, for example: golib go version"; fi
   assert_toolchain go
+  # go run and go test start programs that load raylib when they do, as games do. build, run,
+  # shot and test put the libraries next to the executable; here they come from .tools/raylib/,
+  # so that "golib go test ./..." and generators written against raylib work.
+  if [ -d "$raylib_dir" ]; then
+    if [ "$goos" = darwin ]; then
+      DYLD_LIBRARY_PATH="$raylib_dir${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
+      export DYLD_LIBRARY_PATH
+    else
+      LD_LIBRARY_PATH="$raylib_dir${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+      export LD_LIBRARY_PATH
+    fi
+  fi
   exec "$go_exe" "$@"
 }
 
@@ -480,7 +495,7 @@ if [ $# -gt 0 ]; then shift; fi
 case "$command" in
   setup) cmd_setup "$@" ;;
   doctor) cmd_doctor "$@" ;;
-  new | build | run | shot | test | dist) run_cli "$command" "$@" ;;
+  new | build | run | shot | test | dist | web) run_cli "$command" "$@" ;;
   go) cmd_go "$@" ;;
   clean) cmd_clean "$@" ;;
   help | -h | --help) show_help ;;

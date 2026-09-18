@@ -307,6 +307,26 @@ Windows PowerShell 5.1 splits arguments that start with `-` and contain a dot be
 
 `.tools/` stays visible in the VS Code Explorer on purpose: nothing is hidden from the user. It is only excluded from search and file watching, for speed.
 
+## Web builds
+
+`golib web [game]` builds a game for the browser and serves it on this machine, so it can be played at a `http://localhost` address. It is stage 1 of the web build (see [roadmap.md](roadmap.md#web-build-started-2026-09-18)): the picture and the input, without sound, post-processing shaders, fonts from files or saving between visits.
+
+```text
+build/<game>/web/
+  <game>.wasm     the game, built with GOOS=js GOARCH=wasm, with its assets inside
+  index.html      the page: a canvas that fills the window, and the three files below
+  wasm_exec.js    Go's own loader, copied from .tools/go/lib/wasm/
+  golib.js        the other half of the web backend, copied from framework/internal/device/web.js
+```
+
+`--port <n>` chooses the port (8080 by default, and 0 picks a free one), and `--no-open` leaves the browser closed, for a machine with none. The server sends `.wasm` files as `application/wasm`, which browsers insist on, and asks for nothing to be cached, so a rebuild shows on the next reload.
+
+A web build carries its assets inside, as a dist build does, so a game needs `assets.go` (see `golib.EmbedAssets`) and `ReadAsset` works unchanged, with no loading screen. It is built with the `golib_dist` tag for that reason.
+
+The browser decides when to draw: the game waits for `requestAnimationFrame` in `device.EndFrame`, which is what paces it, and the fixed-step loop is the same one the desktop runs. Drawing doesn't cross into JavaScript one shape at a time: package golib writes its shapes into a buffer of numbers that `web.js` reads once a frame, and the keyboard, the mouse and the gamepads come back the same way, because a call per key would cost more than the game.
+
+Nothing is published by this command: it serves on `127.0.0.1` for the person running it. A zip to put on itch.io is stage 3.
+
 ## Adding a command
 
 1. Write it in [the Go program](#the-go-program), `tools/cli`, and add it to `commands` in `main.go`. Only what has to work without Go goes in the scripts.
