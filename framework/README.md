@@ -1127,7 +1127,7 @@ A web build does less than a desktop build for now, and a game that wants to run
 | Text in the built-in font, in the same places as on the desktop | Text from a `.ttf` or `.otf` file lands within a few pixels of where the desktop puts it, not on it: a browser's font metrics are not raylib's |
 | Keyboard, mouse and gamepads | |
 | `SaveData` and `LoadData`, kept by the browser for the address the game is served from | Data kept for a player who clears their browsing data, plays in a private window, or opens the game at another address |
-| `golib run`, `build`, `dist`, `shot` on the desktop, unchanged | `golib shot` of a web build |
+| `golib shot <game> --web` takes the same screenshots in a browser, into `build/<game>/shots-web/` | `golib shot --web --save`: a page cannot read a file from the machine |
 
 A game that calls raylib directly (see above) doesn't build for the browser at all.
 

@@ -327,8 +327,10 @@ func shotFileName(frame int) string {
 // Every frame runs exactly one update, so frame N always shows the game after N
 // updates, on any machine. The planned frames are saved as PNG files.
 func runShots(game Game, config Config, plan *shotPlan) error {
-	if err := os.MkdirAll(plan.dir, 0o755); err != nil {
-		return fmt.Errorf("golib.Run: cannot create the screenshot folder: %w", err)
+	if device.WritesFiles {
+		if err := os.MkdirAll(plan.dir, 0o755); err != nil {
+			return fmt.Errorf("golib.Run: cannot create the screenshot folder: %w", err)
+		}
 	}
 	if err := openWindow(config, true); err != nil {
 		return err

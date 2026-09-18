@@ -329,6 +329,12 @@ Sound goes through Web Audio. The synthesizers above the backend already turn a 
 
 Post-processing shaders are compiled for OpenGL ES, which is what browsers have: `device.ESShader` replaces the first lines of a game's `#version 330` shader and leaves the rest alone, so a shader that mixes whole numbers into float arithmetic, which ES refuses, still fails and says so on the page. `golib.SaveData` writes into the browser's own store for the address the game is served from, which survives the page being closed, and which a player clears with their browsing data.
 
+`golib shot [game] [frame...] --web` checks a web build the way `golib shot` checks a desktop one. It serves the game, opens it in Microsoft Edge, Google Chrome or Chromium with no window and a profile of its own, and writes into `build/<game>/shots-web/` the pictures the page posts back to it, because a page cannot write files. The frames, the input script and the scale travel in the address, and the page puts them where a game on the desktop finds them in its environment, so the framework reads them with `os.Getenv` either way. A game that stops says why back to the terminal. `--save` doesn't work there yet: a page cannot read a file from this machine.
+
+A browser's own `--screenshot` is not used, and shouldn't be: it needs a fresh profile for every run and gives up on a page that takes more than about four seconds, which a game loading its assets often does.
+
+The two backends draw the same picture. Measured by taking the same frames both ways: `games/platformer`, `games/tetris` and `games/crates` come out byte for byte identical, sprites, tilemaps, cameras, text and blending included. Games with post-processing shaders differ by one or two levels of 255 on many pixels, and by more than eight on 0.01% of them, because GLSL arithmetic is not required to give the same answer on two graphics stacks.
+
 Nothing is published by `golib web`: it serves on `127.0.0.1` for the person running it. To share a game, `golib dist [game] --web` builds it into `build/<game>/dist/web/` and zips what is in that folder:
 
 ```text

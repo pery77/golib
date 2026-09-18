@@ -53,6 +53,10 @@ const ShowsErrors = false
 // ShowError has nothing to show: see ShowsErrors.
 func ShowError(title, message string) {}
 
+// WritesFiles says that a game here can write files where it runs, which is
+// how golib shot saves its screenshots.
+const WritesFiles = true
+
 // HasSaveStore says that this backend keeps no saved data of its own: a game
 // here has a folder to write its high scores, settings and progress in.
 const HasSaveStore = false

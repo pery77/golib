@@ -359,6 +359,11 @@ const webPageTemplate = `<!DOCTYPE html>
 		fail('This browser has no WebGL 2, which the game draws with.');
 	} else {
 		const go = new Go();
+		// golib shot --web opens this page with the settings the terminal
+		// gives a game on the desktop, and the game reads them the same way.
+		new URLSearchParams(location.search).forEach(function (value, name) {
+			if (name.indexOf('GOLIB_') === 0) go.env[name] = value;
+		});
 		WebAssembly.instantiateStreaming(fetch('{{wasm}}'), go.importObject).then(function (loaded) {
 			message.remove();
 			return go.run(loaded.instance);

@@ -71,6 +71,8 @@ Commands:
                           mouse and gamepad input in those updates.
                           --save <file.json> starts the game with that data saved, such as a
                           finished level; --scale <1-8> enlarges the pictures (see docs/tooling.md)
+                          --web takes the same shots of the web build, in a browser with no
+                          window, into build/<game>/shots-web/
   test [game]             Vet and test the framework, every game and GoLib's Go tools,
                           or only games/<game>
   web [game] [--port n]   Build games/<game> for the browser into build/<game>/web/ and serve it

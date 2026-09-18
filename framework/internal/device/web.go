@@ -12,8 +12,12 @@
 package device
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"image"
+	"image/png"
+	"strings"
 	"syscall/js"
 )
 
@@ -90,6 +94,11 @@ const ShowsErrors = true
 func ShowError(title, message string) {
 	js_().Call("showError", title, message)
 }
+
+// WritesFiles says that a page cannot write files where it runs. golib shot
+// still works there: SavePicture sends each screenshot back to the golib that
+// started the browser, which writes it.
+const WritesFiles = false
 
 // HasSaveStore says that this backend keeps saved data itself: a page has no
 // folder to write in, but the browser keeps a store of its own for the
@@ -235,10 +244,64 @@ func SetCursorVisible(visible bool) {
 	js_().Call("setCursorVisible", visible)
 }
 
-// SavePicture cannot write files from a page. golib shot doesn't run here;
-// stage 3 gives the CLI its own way to take screenshots of a web build.
+// SavePicture sends what was drawn into target back to the golib that opened
+// the page, which writes it as a PNG file at path. A page cannot write files
+// itself, so golib shot --web serves the game and takes the pictures it posts
+// back, named after the file the game would have written.
+//
+// scale enlarges the picture by whole numbers, nearest neighbour, as the
+// window enlarges pixel art.
 func SavePicture(target Target, path string, scale int) bool {
-	return false
+	picture := enlarge(opaque(ReadTarget(target)), scale)
+	var file bytes.Buffer
+	if err := png.Encode(&file, picture); err != nil {
+		return false
+	}
+	name := path
+	if cut := strings.LastIndexAny(name, "/\\"); cut >= 0 {
+		name = name[cut+1:]
+	}
+	body := js.Global().Get("Uint8Array").New(file.Len())
+	js.CopyBytesToJS(body, file.Bytes())
+
+	// The page sends it, so that a web build carries no HTTP of its own: that
+	// would be megabytes in every game, for a post only golib shot makes.
+	sent := make(chan bool, 1)
+	var answer js.Func
+	answer = js.FuncOf(func(_ js.Value, args []js.Value) any {
+		answer.Release()
+		sent <- args[0].Truthy()
+		return nil
+	})
+	js_().Call("postPicture", name, body, answer)
+	return <-sent
+}
+
+// opaque makes every pixel solid, dropping the opacity that blending leaves
+// below 255 at soft edges: a screenshot is a picture of the game, not a
+// see-through one, and the raylib backend drops it the same way. It also lets
+// the PNG be written without an alpha channel at all, as that backend's are.
+func opaque(picture *image.NRGBA) *image.NRGBA {
+	for at := 3; at < len(picture.Pix); at += 4 {
+		picture.Pix[at] = 255
+	}
+	return picture
+}
+
+// enlarge returns picture scale times as large, each pixel repeated, or
+// picture itself when scale is 1 or less.
+func enlarge(picture *image.NRGBA, scale int) *image.NRGBA {
+	if scale <= 1 {
+		return picture
+	}
+	size := picture.Bounds().Size()
+	larger := image.NewNRGBA(image.Rect(0, 0, size.X*scale, size.Y*scale))
+	for y := range larger.Rect.Dy() {
+		for x := range larger.Rect.Dx() {
+			larger.SetNRGBA(x, y, picture.NRGBAAt(x/scale, y/scale))
+		}
+	}
+	return larger
 }
 
 // CursorVisible reports whether the mouse pointer shows over the canvas.

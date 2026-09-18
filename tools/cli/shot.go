@@ -26,12 +26,16 @@ func (c *cli) shot(options []string) int {
 	var frames []int
 	input, save := "", ""
 	scale := 1
+	web := false
 	for i := 0; i < len(options); i++ {
 		option := options[i]
 		value := ""
 		switch {
 		case option == "":
 			return c.usage("shot got an empty argument")
+		case option == "--web":
+			web = true
+			continue
 		case option == "--input", option == "--save", option == "--scale":
 			if i+1 >= len(options) {
 				return c.usage(shotOptionUsage(option))
@@ -89,6 +93,12 @@ func (c *cli) shot(options []string) int {
 	game, exitCode := c.resolveGame("shot", names)
 	if game == "" {
 		return exitCode
+	}
+	if web {
+		if savePath != "" {
+			return c.usage("shot --web cannot use --save yet: a page cannot read a file from this machine")
+		}
+		return c.shotWeb(game, frames, input, scale)
 	}
 	exe := c.buildGame(game)
 	if exe == "" {

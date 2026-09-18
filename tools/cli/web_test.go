@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -240,5 +241,81 @@ func TestWebWarnsAboutSoundsBrowsersCannotPlay(t *testing.T) {
 	}
 	if tp.c.failures != 0 {
 		t.Errorf("%d failures, want none: a game with such a file still builds", tp.c.failures)
+	}
+}
+
+// shot --web hands the game the same settings the terminal gives it on the
+// desktop, through the page.
+func TestShotWebSettings(t *testing.T) {
+	got := shotSettings([]int{1, 60, 240}, `Enter@1 Right@30-90`, 3)
+	values, err := url.ParseQuery(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{
+		"GOLIB_SHOT_DIR":    "shots",
+		"GOLIB_SHOT_FRAMES": "1,60,240",
+		"GOLIB_SHOT_INPUT":  "Enter@1 Right@30-90",
+		"GOLIB_SHOT_SCALE":  "3",
+	}
+	for name, value := range want {
+		if values.Get(name) != value {
+			t.Errorf("%s = %q, want %q", name, values.Get(name), value)
+		}
+	}
+	// Without an input script or a scale, the game hears nothing about them.
+	plain, err := url.ParseQuery(shotSettings([]int{60}, "", 1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"GOLIB_SHOT_INPUT", "GOLIB_SHOT_SCALE"} {
+		if plain.Has(name) {
+			t.Errorf("%s is set when it was not asked for", name)
+		}
+	}
+}
+
+// The page posts each screenshot back, and says when the game stopped.
+func TestShotHandler(t *testing.T) {
+	folder, shots := t.TempDir(), t.TempDir()
+	writeFile(t, filepath.Join(folder, webPageFile), "<!DOCTYPE html>")
+	arrived := make(chan string, 4)
+	stopped := make(chan string, 1)
+	handler := shotHandler(folder, shots, arrived, stopped)
+
+	post := func(path, body string) *httptest.ResponseRecorder {
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, path, strings.NewReader(body)))
+		return recorder
+	}
+	if code := post(shotWebPath+"?name=frame-000060.png", "a picture").Code; code != http.StatusOK {
+		t.Errorf("posting a screenshot: %d, want 200", code)
+	}
+	if got, err := os.ReadFile(filepath.Join(shots, "frame-000060.png")); err != nil || string(got) != "a picture" {
+		t.Errorf("the screenshot was written as %q, %v", got, err)
+	}
+	if name := <-arrived; name != "frame-000060.png" {
+		t.Errorf("arrived %q, want frame-000060.png", name)
+	}
+
+	// A name that would climb out of the folder is cut down to its file.
+	post(shotWebPath+"?name=../../escaped.png", "a picture")
+	if isFile(filepath.Join(filepath.Dir(shots), "escaped.png")) {
+		t.Error("a posted name wrote outside the screenshots folder")
+	}
+	if code := post(shotWebPath+"?name=notes.txt", "not a picture").Code; code != http.StatusBadRequest {
+		t.Errorf("posting something that isn't a screenshot: %d, want 400", code)
+	}
+
+	post(shotWebErrorPath, "  the game stopped  ")
+	if message := <-stopped; message != "the game stopped" {
+		t.Errorf("the game's message came back as %q", message)
+	}
+
+	// Everything else is the game itself.
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/", nil))
+	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), "DOCTYPE") {
+		t.Errorf("GET /: %d, %q", recorder.Code, recorder.Body.String())
 	}
 }

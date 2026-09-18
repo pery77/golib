@@ -29,7 +29,11 @@ window.golib = (function () {
 	let white = null; // a single white pixel, for shapes
 
 	// What is being drawn on now.
-	let boundTarget = 0, boundTexture = 0, boundBlend = BLEND_NORMAL;
+	// boundBlend starts as no mode at all, so that the first setBlend really
+	// sets it: a graphics card starts by copying what is drawn instead of
+	// blending it, which would show the transparent parts of a letter as
+	// boxes until something changed the mode.
+	let boundTarget = 0, boundTexture = 0, boundBlend = -1;
 	let viewWidth = 0, viewHeight = 0;
 
 	// The camera, as an offset and a zoom: BeginCamera sets it, and every
@@ -299,6 +303,12 @@ void main() {
 					throw new Error('golib: unknown drawing command ' + c[i - 1]);
 			}
 		}
+		// Nothing is left waiting when this returns: package golib hands the
+		// drawing over before it makes or frees a texture, a target or a
+		// shader, and those change what the graphics card is holding. Corners
+		// left in the batch would be drawn with the new state instead of the
+		// one they were built for.
+		flush();
 	}
 
 	// where moves a point through the camera, as raylib's Camera2D does.
@@ -952,14 +962,29 @@ void main() {
 	// .mod and .qoa are formats it has never heard of. The game waits for
 	// this, so done is always called.
 	function decodeSound(bytes, done) {
-		if (!audio) { done(-1); return; }
+		const reader = decoder();
+		if (!reader) { done(-1); return; }
 		// decodeAudioData empties the buffer it is given, so it gets a copy.
 		const data = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
-		audio.decodeAudioData(data, function (buffer) {
+		reader.decodeAudioData(data, function (buffer) {
 			const id = nextSoundID++;
 			decoded.set(id, buffer);
 			done(id);
 		}, function () { done(-1); });
+	}
+
+	// decoder returns something that reads sound files: the sound device when
+	// there is one, and otherwise a context that only decodes. golib shot
+	// opens no sound device, and a game still has to know whether its sound
+	// files are good, as it does on the desktop.
+	let silentDecoder = null;
+	function decoder() {
+		if (audio) return audio;
+		if (!silentDecoder) {
+			const Offline = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+			if (Offline) silentDecoder = new Offline(1, 1, 44100);
+		}
+		return silentDecoder;
 	}
 
 	function unloadWave(id) { decoded.delete(id); }
@@ -1128,6 +1153,22 @@ void main() {
 		musics.delete(id);
 	}
 
+	// postPicture sends a screenshot back to the golib that opened the page,
+	// which writes it: golib shot --web listens for these. A page cannot
+	// write files itself, and a game carrying its own HTTP would be megabytes
+	// heavier for a post only golib shot makes.
+	function postPicture(name, bytes, done) {
+		fetch('/golib-shot?name=' + encodeURIComponent(name), {
+			method: 'POST',
+			headers: { 'Content-Type': 'image/png' },
+			body: bytes,
+		}).then(function (answer) {
+			done(answer.ok);
+		}).catch(function () {
+			done(false);
+		});
+	}
+
 	// ----------------------------------------------------------------- frames
 
 	function onFrame(fn) { wake = fn; }
@@ -1171,6 +1212,12 @@ void main() {
 	// showError puts a message over the game. A player in a browser never
 	// opens its console, so a game that stops says why here.
 	function showError(title, message) {
+		// golib shot --web opened this page and is waiting: tell it, so that
+		// it says why the game stopped instead of only that it never
+		// finished. The page shows the message too, for whoever is looking.
+		if (location.search.indexOf('GOLIB_SHOT_') >= 0) {
+			fetch('/golib-shot-error', { method: 'POST', body: message }).catch(function () { });
+		}
 		let box = document.getElementById('message');
 		if (!box) {
 			box = document.createElement('div');
@@ -1191,6 +1238,7 @@ void main() {
 		onFrame: onFrame, askForFrame: askForFrame,
 		setFullscreen: setFullscreen, setCursorVisible: setCursorVisible, cursorVisible: cursorVisible,
 		showError: showError,
+		postPicture: postPicture,
 		newShader: newShader, unloadShader: unloadShader, shaderLocation: shaderLocation,
 		readFont: readFont,
 		openAudio: openAudio, closeAudio: closeAudio, setMasterVolume: setMasterVolume,
