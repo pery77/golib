@@ -213,3 +213,32 @@ func TestDistWeb(t *testing.T) {
 		t.Errorf("output:\n%s\nwant it to say where index.html is", tp.stdout.String())
 	}
 }
+
+// A game whose assets hold music or sounds no browser decodes is told while
+// it builds, not when someone opens the page. It still builds: the rest of
+// the game plays.
+func TestWebWarnsAboutSoundsBrowsersCannotPlay(t *testing.T) {
+	tp := webProject(t, "rocks")
+	tp.embeds = []string{"all:assets"}
+	writeFile(t, tp.c.path("games", "rocks", "assets", "music", "tune.xm"), "tracker music")
+	writeFile(t, tp.c.path("games", "rocks", "assets", "sounds", "hit.qoa"), "a qoa sound")
+	writeFile(t, tp.c.path("games", "rocks", "assets", "sounds", "coin.wav"), "a wav sound")
+	if folder := tp.c.buildWeb("rocks"); folder == "" {
+		t.Fatalf("no web build, output:\n%s%s", tp.stdout.String(), tp.stderr.String())
+	}
+	out := tp.stdout.String()
+	for _, want := range []string{"assets/music/tune.xm", "assets/sounds/hit.qoa", ".ogg or .mp3"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output:\n%s\nwant a warning naming %q", out, want)
+		}
+	}
+	if strings.Contains(out, "coin.wav") {
+		t.Errorf("output:\n%s\nwarns about a .wav, which browsers play", out)
+	}
+	if tp.c.warnings != 1 {
+		t.Errorf("%d warnings, want 1", tp.c.warnings)
+	}
+	if tp.c.failures != 0 {
+		t.Errorf("%d failures, want none: a game with such a file still builds", tp.c.failures)
+	}
+}

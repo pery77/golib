@@ -3,11 +3,13 @@ package main
 import (
 	"fmt"
 	"html"
+	"io/fs"
 	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -101,6 +103,10 @@ func (c *cli) buildWebInto(game, folder string) (gameInfo, bool) {
 		c.check("fail", shown+"/assets/ would be missing from the web build: add "+shown+"/assets.go, as the golib.EmbedAssets documentation shows")
 		return info, false
 	}
+	if silent := unplayableOnWeb(filepath.Join(dir, "assets")); len(silent) > 0 {
+		c.check("warn", fmt.Sprintf("a browser cannot play %s, so the game stops with a message when it reaches %s: save %s as .ogg or .mp3 for the web",
+			joinWords(webSilentFormats), joinWords(silent), pluralThem(len(silent))))
+	}
 
 	shownFolder := c.shown(folder) + "/"
 	if err := os.MkdirAll(folder, 0o755); err != nil {
@@ -144,6 +150,39 @@ func (c *cli) buildWebInto(game, folder string) (gameInfo, bool) {
 
 // webEnv builds for the browser instead of this machine.
 var webEnv = []string{"GOOS=js", "GOARCH=wasm"}
+
+// webSilentFormats are the sound files GoLib plays on the desktop that no
+// browser decodes: the tracker music raylib reads, and QOA. A game that wants
+// to be played in a browser keeps its music as .ogg or .mp3.
+var webSilentFormats = []string{".xm", ".mod", ".qoa"}
+
+// unplayableOnWeb returns the files in the game's assets folder that no
+// browser can play, named from that folder.
+func unplayableOnWeb(assets string) []string {
+	var found []string
+	filepath.WalkDir(assets, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil || entry.IsDir() {
+			return nil
+		}
+		if !slices.Contains(webSilentFormats, strings.ToLower(filepath.Ext(path))) {
+			return nil
+		}
+		if name, err := filepath.Rel(assets, path); err == nil {
+			found = append(found, "assets/"+filepath.ToSlash(name))
+		}
+		return nil
+	})
+	slices.Sort(found)
+	return found
+}
+
+// pluralThem names one file or several, for a sentence about them.
+func pluralThem(count int) string {
+	if count == 1 {
+		return "it"
+	}
+	return "them"
+}
 
 // listWebPackages lists what a web build is made of, which is not what a
 // desktop build is made of: raylib and the libraries it calls stay out.
