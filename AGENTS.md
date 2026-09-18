@@ -17,7 +17,7 @@ Last updated: 2026-09-17 (milestone M5, Shipping, done on Windows; M6, 2D essent
 | Area | State |
 | --- | --- |
 | `golib` CLI: `setup`, `doctor`, `clean`, `help` | Done |
-| The CLI in Go, `tools/cli`: one program for every platform with the commands' logic, started by the twin scripts | Done (M5): `new`, `build`, `run`, `shot`, `test`, `dist` and most of `setup`; `help`, `doctor`, `go` and `clean` stay in the scripts. Tested on Windows only |
+| The CLI in Go, `tools/cli`: one program for every platform with the commands' logic, started by the twin scripts | Done (M5): `new`, `build`, `run`, `shot`, `test`, `dist` and most of `setup`; `help`, `doctor`, `go` and `clean` stay in the scripts. Tested on Windows, and it set up, built and ran games on Linux and macOS on 2026-09-18 |
 | VS Code workspace: extensions, settings, tasks | Done |
 | AI instructions: this file, `CLAUDE.md`, Claude Code settings, `/make-game` skill | Done |
 | Go 1.27.1 downloaded into `.tools/` by `golib setup` | Done |
@@ -27,10 +27,10 @@ Last updated: 2026-09-17 (milestone M5, Shipping, done on Windows; M6, 2D essent
 | VS Code: Go extension on the local toolchain | Done |
 | VS Code debug configuration: "GoLib: debug game" (F5) | Done |
 | GoLib window (`golib-ui.cmd`): a button for each `golib` command, with its output | Done (Windows only) |
-| Linux and macOS (`golib.sh`) | On hold: written but never run on a real Linux or macOS machine; Windows comes first for now (see "Other platforms" in [docs/roadmap.md](docs/roadmap.md)) |
+| Linux and macOS (`golib.sh`) | Works: on 2026-09-18 two other people set up GoLib on their own Linux and macOS machines, built and played a game, and ran an unzipped `golib dist` build. Windows still comes first, and `doctor`, `test`, `shot`, the icon and the version information there are unreported (see "Other platforms" in [docs/roadmap.md](docs/roadmap.md)) |
 | Fixed-step game loop: 60 updates per second at any frame rate | Done (M2) |
 | `golib shot`: screenshots of chosen frames, rendered in a hidden window, with scripted keyboard, mouse and gamepad input (`--input`) and random numbers from a fixed seed | Done (brought forward from M3) |
-| `golib dist`: the game to share, as a folder with the executable (assets inside), the raylib libraries and `THIRD-PARTY-LICENSES.txt`, and a zip of it | Done (M5; tested on Windows only; on macOS the executable still carries the libraries) |
+| `golib dist`: the game to share, as a folder with the executable (assets inside), the raylib libraries and `THIRD-PARTY-LICENSES.txt`, and a zip of it | Done (M5; tried on Windows, and on Linux and macOS on 2026-09-18; on macOS the executable still carries the libraries) |
 | Windows icon and version information, from the game's `icon.png` and `game.json`, in dist builds and in the debug builds of `build`, `run` and `shot` | Done (M5; not yet on Linux and macOS) |
 | A Windows game that can't load raylib or libffi says why, in a message box when nobody sees its console, instead of ending silently | Done (M5) |
 | On Windows, `build` and `shot` work while `run` has the game open, and `golib` works while one of its copies is running | Done (M5) |
