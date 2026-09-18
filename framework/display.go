@@ -52,6 +52,29 @@ func IsMouseVisible() bool {
 	return !mouseHiddenWanted.Load()
 }
 
+// windowUnfocused is whether the game's window has lost the player's
+// attention. Run keeps it in step at the start of every frame. It stays false
+// where there is no window to focus, under golib shot and in tests, so game
+// code takes the same path there.
+var windowUnfocused atomic.Bool
+
+// WindowFocused reports whether the game's window has the player's attention.
+// It is false while they work in another program, so a game can quieten its
+// music or draw a sign over itself; with Config.PauseUnfocused, Run stops
+// updating the game meanwhile, and Draw keeps running:
+//
+//	func (s *playScene) Draw(screen *golib.Screen) {
+//		s.drawWorld(screen)
+//		if !golib.WindowFocused() {
+//			screen.DrawText("Paused", 640, 360, golib.TextOptions{Align: golib.AlignCenter})
+//		}
+//	}
+//
+// Under golib shot and in tests it is always true.
+func WindowFocused() bool {
+	return !windowUnfocused.Load()
+}
+
 // window switches the game window between windowed and fullscreen, and
 // remembers where the window was. Fullscreen is a window without borders that
 // covers the monitor, so the monitor keeps its resolution, and switching back

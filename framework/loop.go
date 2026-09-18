@@ -24,6 +24,19 @@ type clock struct {
 	pending float64 // real seconds not yet covered by updates; can be slightly negative
 }
 
+// advanceUnlessPaused adds a frame that took frameTime seconds and returns how
+// many updates to run for it, or none while the game is paused, which also
+// makes the clock forget the time that passed: a game that waited for the
+// player to come back doesn't run through that time at once.
+func (c *clock) advanceUnlessPaused(frameTime float64, paused bool) int {
+	updates := c.advance(frameTime)
+	if paused {
+		c.pending = 0
+		return 0
+	}
+	return updates
+}
+
 // advance adds a frame that took frameTime seconds and returns how many updates
 // to run for it.
 func (c *clock) advance(frameTime float64) int {

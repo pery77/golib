@@ -230,11 +230,46 @@ func NewSoundFile(name string) *Sound {
 // Nothing is heard when there is no sound device, so screenshots from golib
 // shot stay silent.
 func (s *Sound) Play() {
+	s.play(1, 1)
+}
+
+// PlayWith plays the sound like Play, but louder, quieter, higher or lower,
+// so that the same sound over and over doesn't tire the ear:
+//
+//	hit.PlayWith(1, golib.RandomFloat(0.9, 1.1))  // a little different every time
+//	boom.PlayWith(0.4, 0.7)                       // far away: quieter and deeper
+//
+// volume goes from 0, silent, to 1, as loud as Play, under the sound's own
+// [Sound.SetVolume] and the game's [SetVolume]. pitch is 1 for the sound as
+// it is, 2 an octave higher and half as long, 0.5 an octave lower and twice
+// as long, from 0.25 to 4. Both are kept inside those limits, and the next
+// Play sounds as it always did.
+func (s *Sound) PlayWith(volume, pitch float32) {
+	s.play(playbackLimits(volume, pitch))
+}
+
+// play plays one copy of the sound, volume times as loud as the sound's own
+// volume and pitch times its pitch.
+func (s *Sound) play(volume, pitch float32) {
 	if !s.load() {
 		return
 	}
-	rl.PlaySound(s.voices[s.next])
+	voice := s.voices[s.next]
+	rl.SetSoundVolume(voice, s.volume*volume)
+	rl.SetSoundPitch(voice, pitch)
+	rl.PlaySound(voice)
 	s.next = (s.next + 1) % len(s.voices)
+}
+
+// The pitches PlayWith takes: two octaves down and two octaves up.
+const (
+	minPitch = 0.25
+	maxPitch = 4
+)
+
+// playbackLimits keeps a volume and a pitch inside what PlayWith takes.
+func playbackLimits(volume, pitch float32) (float32, float32) {
+	return Clamp(volume, 0, 1), Clamp(pitch, minPitch, maxPitch)
 }
 
 // Loop plays the sound over and over, with no gap, until Stop: an engine, an

@@ -148,6 +148,16 @@ type Config struct {
 	Height     int    // Screen height in pixels. Default: 720.
 	Fullscreen bool   // Start in fullscreen (see SetFullscreen). Default: in a window.
 
+	// PauseUnfocused stops the game while its window doesn't have the
+	// player's attention, such as while they work in another program, and
+	// carries on where it was when they come back. Run calls no update
+	// meanwhile, and drops the time that passed, so the game never catches
+	// up in a burst. Draw keeps running, so the window still shows
+	// the game, and sounds and music play on: a game that wants silence
+	// stops them itself, and [WindowFocused] tells it when to. Default: the
+	// game keeps playing without the player.
+	PauseUnfocused bool
+
 	// PixelArt scales the screen by whole numbers only, without smoothing,
 	// so every pixel stays square and sharp, and opens the window as many
 	// times larger than the screen as fits the monitor. Use it with a small
@@ -240,6 +250,8 @@ func runWindow(game Game, config Config) error {
 	last := rl.GetTime()
 	for !rl.WindowShouldClose() {
 		display.apply()
+		focused := rl.IsWindowFocused()
+		windowUnfocused.Store(!focused)
 		fit := fitScreen(screenWidth, screenHeight, float32(rl.GetScreenWidth()), float32(rl.GetScreenHeight()), config.PixelArt)
 
 		now := rl.GetTime()
@@ -248,7 +260,7 @@ func runWindow(game Game, config Config) error {
 		mouseX, mouseY := toScreen(mouse.X, mouse.Y, fit, screenWidth, screenHeight)
 		queue.readMouse(mouseX, mouseY, rl.GetMouseWheelMove(), raylibMouseDown, raylibMousePressed)
 		queue.readGamepads(raylibGamepadFrame)
-		frameUpdates := gameClock.advance(now - last)
+		frameUpdates := gameClock.advanceUnlessPaused(now-last, !focused && config.PauseUnfocused)
 		var (
 			quit bool
 			err  error

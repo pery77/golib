@@ -136,6 +136,7 @@ func TestPlayWithoutASoundDevice(t *testing.T) {
 	}
 	sound := NewSound(SoundSpec{})
 	sound.Play()
+	sound.PlayWith(0.5, 1.5)
 	if len(sound.voices) != 0 {
 		t.Error("Play made the sound without a device")
 	}
@@ -285,8 +286,13 @@ func TestSoundFilesWithADevice(t *testing.T) {
 	}
 	made := NewSound(SoundSpec{Duration: 0.05})
 	made.Play()
-	if len(made.voices) != soundVoices {
-		t.Errorf("a sound made in code has %d voices", len(made.voices))
+	made.PlayWith(0.5, 1.5)
+	made.PlayWith(-1, 99) // kept inside the limits, not refused
+	if err := takeError(); err != nil {
+		t.Fatalf("PlayWith: %v", err)
+	}
+	if len(made.voices) != soundVoices || made.next != 3 {
+		t.Errorf("a sound made in code has %d voices, next %d, want %d and 3", len(made.voices), made.next, soundVoices)
 	}
 	if len(audio.sounds) != 4 {
 		t.Errorf("the device tracks %d sounds, want 4", len(audio.sounds))
@@ -342,5 +348,21 @@ func TestNegativeFadesMeanNone(t *testing.T) {
 	faded := SoundSpec{Duration: 0.25}.samples()
 	if faded[0] == samples[0] {
 		t.Errorf("with the default attack, the first sample is %d, as loud as without one", faded[0])
+	}
+}
+
+// TestPlaybackLimits checks the volume and pitch PlayWith takes, which it
+// keeps inside their limits instead of refusing them.
+func TestPlaybackLimits(t *testing.T) {
+	for _, tt := range []struct{ volume, pitch, wantVolume, wantPitch float32 }{
+		{1, 1, 1, 1},
+		{0.5, 1.5, 0.5, 1.5},
+		{-1, 0, 0, minPitch},
+		{2, 99, 1, maxPitch},
+	} {
+		volume, pitch := playbackLimits(tt.volume, tt.pitch)
+		if volume != tt.wantVolume || pitch != tt.wantPitch {
+			t.Errorf("playbackLimits(%v, %v) = %v, %v, want %v, %v", tt.volume, tt.pitch, volume, pitch, tt.wantVolume, tt.wantPitch)
+		}
 	}
 }

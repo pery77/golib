@@ -98,6 +98,7 @@ func main() {
 | `Config.Title` | `"GoLib"` | Window title |
 | `Config.Width`, `Config.Height` | 1280, 720 | Size of the screen the game draws on, in pixels. It never changes; the window scales it. |
 | `Config.Fullscreen` | `false` | Start in fullscreen |
+| `Config.PauseUnfocused` | `false` | Stop the game while its window doesn't have the player's attention, such as while they work in another program, and carry on where it was. `Draw` keeps running, so the window still shows the game, and sound and music play on. Ask `WindowFocused` to draw a sign or quieten the music. |
 | `Config.PixelArt` | `false` | Scale the screen by whole numbers only, without smoothing, so pixels stay square and sharp. Use it with a small screen, such as 320 by 180: the window opens as many times larger as fits in most of the monitor, 1280 by 720 on a 1920 by 1080 monitor. |
 
 ## Time
@@ -114,6 +115,42 @@ if s.spawnTimer <= 0 {
 // For animation: pulse goes from 0 to 1 and back, twice per second.
 s.time += dt
 pulse := 0.5 + 0.5*float32(math.Sin(float64(s.time)*4*math.Pi))
+```
+
+A `Timer` does that counting, for cooldowns, waits and anything that happens every so often.
+
+| Name | What it does |
+| --- | --- |
+| `Timer` | Counts seconds down. Keep it in the game's state; the zero `Timer` is stopped. |
+| `NewTimer` | `NewTimer(seconds float32) Timer`: runs for `seconds` and stops, such as how long a shield lasts. |
+| `NewRepeatingTimer` | `NewRepeatingTimer(seconds float32) Timer`: finishes every `seconds` and starts over, such as the wait between enemies. |
+| `Timer.Tick` | `Tick(dt float32) bool`: counts `dt` off and reports whether the timer reached zero in this update. A stopped timer counts nothing and reports false, so `Update` can tick every timer it has. |
+| `Timer.Start` | `Start(seconds float32)`: runs it for `seconds` from now, whatever it was doing. Zero or less stops it. |
+| `Timer.Stop` | `Stop()`: stops it without letting it finish. |
+| `Timer.Running` | `Running() bool`: it has time left. A cooldown is ready again when it isn't running. |
+| `Timer.Left` | `Left() float32`: the seconds left, 0 when it isn't running, to draw a countdown. |
+| `Timer.Progress` | `Progress() float32`: how far it has come, from 0 to 1, for bars and fades; a stopped timer is 1. |
+
+```go
+type playScene struct {
+	spawn    golib.Timer
+	cooldown golib.Timer
+}
+
+func newPlayScene() *playScene {
+	return &playScene{spawn: golib.NewRepeatingTimer(2)} // an enemy every 2 seconds
+}
+
+func (s *playScene) Update(input *golib.Input, dt float32) {
+	if s.spawn.Tick(dt) {
+		s.spawnEnemy()
+	}
+	s.cooldown.Tick(dt)
+	if input.KeyDown(golib.KeySpace) && !s.cooldown.Running() {
+		s.shoot()
+		s.cooldown.Start(0.25) // no shot for a quarter of a second
+	}
+}
 ```
 
 A paused game stops counting because its scene stops getting updates.
@@ -522,6 +559,26 @@ enemy.position = enemy.position.MoveTowards(s.ship.position, enemySpeed*dt)
 hit := enemy.position.Distance(bullet.position) < enemyRadius+bulletRadius
 ```
 
+### Numbers
+
+The small maths every game writes again: moving a number towards another one, keeping one inside its limits, and the curves that make a movement start or stop gently. Each takes and returns `float32`.
+
+| Name | What it does |
+| --- | --- |
+| `Lerp` | `Lerp(a, b, t float32) float32`: the number a share `t` of the way from `a` to `b`. Outside 0 to 1 it carries on past the ends. `Vector2.Lerp` does the same for a point. |
+| `Clamp` | `Clamp(value, low, high float32) float32`: `value` kept inside `low` to `high`. |
+| `EaseIn` | `EaseIn(t float32) float32`: a share from 0 to 1 that starts slowly and speeds up, for something setting off. |
+| `EaseOut` | `EaseOut(t float32) float32`: starts fast and slows down, for something coming to rest. The usual choice for menus and pop-ups. |
+| `EaseInOut` | `EaseInOut(t float32) float32`: slow, fast, slow, for a camera or a door that shouldn't snap. |
+
+```go
+// A menu sliding in, and a health bar that never leaves the screen.
+s.menuX = golib.Lerp(-menuWidth, 0, golib.EaseOut(s.opening.Progress()))
+width := golib.Clamp(barWidth*s.health/maxHealth, 0, barWidth)
+```
+
+The easings take a share of the way from 0 to 1, which is usually `Timer.Progress`, and clamp anything outside it.
+
 That is all the geometry GoLib has: no physics. Pushing a player out of a wall is game code: `games/platformer/world.go` moves one axis at a time and pushes the player back out of any solid tile of the map it overlaps.
 
 ## Camera
@@ -641,6 +698,7 @@ GoLib makes sound effects in code from a few numbers, so a game needs no sound f
 | `NewSoundFile` | `NewSoundFile(name string) *Sound`: the `.wav`, `.ogg`, `.mp3`, `.qoa` or `.jfxr` file `name` in the game's assets folder, with forward slashes, as in `ReadAsset`. |
 | `Sound` | A sound effect, ready to play. |
 | `Sound.Play` | `Play()`: plays the sound, over any copy of it that is still playing; up to four copies at once, and a fifth cuts off the oldest. |
+| `Sound.PlayWith` | `PlayWith(volume, pitch float32)`: plays it like `Play`, but louder, quieter, higher or lower, so the same sound over and over doesn't tire the ear. `volume` is 0 to 1, under the sound's own `SetVolume`; `pitch` is 1 for the sound as it is, 2 an octave up, 0.5 an octave down, from 0.25 to 4. Both are kept inside their limits, and the next `Play` sounds as it always did. |
 | `Sound.Loop` | `Loop()`: plays the sound over and over, with no gap, until `Stop`: an engine, an alarm, rain. Calling it while it loops changes nothing, so a game can call it in every update. |
 | `Sound.Stop` | `Stop()`: silences the sound, its loop and every copy `Play` started. |
 | `Sound.Looping` | `Looping() bool`: `Loop` was called, and `Stop` wasn't since. True in tests and shots too, where nothing is heard. |
@@ -866,6 +924,7 @@ var theme = golib.NewTune(themeSpec)
 | --- | --- |
 | `SetFullscreen` | `SetFullscreen(on bool)`: fullscreen or a window, from the next frame. Fullscreen covers the monitor without changing its resolution, and the screen keeps its size. Call it from `Update`; to start in fullscreen, set `Config.Fullscreen`, because `Run` replaces an earlier call with it. |
 | `IsFullscreen` | `IsFullscreen() bool`: the game is in fullscreen, or will be from the next frame. |
+| `WindowFocused` | `WindowFocused() bool`: the window has the player's attention. False while they work in another program, so a game can draw a sign over itself or quieten its music; with `Config.PauseUnfocused`, `Run` stops updating the game meanwhile and keeps drawing it. Always true under `golib shot` and in tests. |
 
 ```go
 altEnter := (input.KeyDown(golib.KeyLeftAlt) || input.KeyDown(golib.KeyRightAlt)) && input.KeyPressed(golib.KeyEnter)
@@ -1060,8 +1119,7 @@ import rl "github.com/gen2brain/raylib-go/raylib"
 | --- | --- | --- |
 | Parts of an image that aren't on a grid, Aseprite slices and tilemap layers | Not on the roadmap yet | Save each part as its own PNG file, or put the parts on a grid |
 | Isometric and hexagonal maps; drawing a map's shapes and text | Not on the roadmap yet | Orthogonal maps; draw what objects stand for with sprites and shapes |
-| Another volume or pitch for each play of a sound | Not on the roadmap yet | A few sounds made with different settings |
-| Pausing when the window loses focus | Not on the roadmap yet | Pause with Esc or Start |
+| Positional sound: louder on the side it comes from | Not on the roadmap yet | `Sound.PlayWith` at a lower volume for what is far away |
 | Physics | Not planned: GoLib is for games, not engines | Simple movement and `Rectangle` overlap checks in the game |
 | Trigger pressure, vibration | Not on the roadmap yet | Triggers read as buttons |
 | 3D | M7, after M6 | None |

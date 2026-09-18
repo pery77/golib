@@ -43,3 +43,29 @@ func TestClockIgnoresNegativeTime(t *testing.T) {
 		t.Errorf("advance(-1) = %d, want 0", got)
 	}
 }
+
+// TestAdvanceUnlessPaused checks a game with Config.PauseUnfocused: while its
+// window doesn't have the player's attention it runs no updates, and it comes
+// back where it was instead of running through the time it waited.
+func TestAdvanceUnlessPaused(t *testing.T) {
+	var c clock
+	if updates := c.advanceUnlessPaused(updateStep, false); updates != 1 {
+		t.Errorf("a normal frame ran %d updates, want 1", updates)
+	}
+	// Ten seconds go by while the player works in another program.
+	if updates := c.advanceUnlessPaused(10, true); updates != 0 {
+		t.Errorf("a paused frame ran %d updates, want 0", updates)
+	}
+	if c.pending != 0 {
+		t.Errorf("a paused frame left %v seconds to catch up on, want none", c.pending)
+	}
+	// Back in the game: one update for one frame, not a burst.
+	if updates := c.advanceUnlessPaused(updateStep, false); updates != 1 {
+		t.Errorf("the frame after the pause ran %d updates, want 1", updates)
+	}
+	// A paused frame drops even the time gathered before it.
+	c.pending = updateStep * 3
+	if updates := c.advanceUnlessPaused(0, true); updates != 0 || c.pending != 0 {
+		t.Errorf("a paused frame ran %d updates and left %v seconds, want 0 and 0", updates, c.pending)
+	}
+}
