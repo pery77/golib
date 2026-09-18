@@ -1123,7 +1123,8 @@ A web build does less than a desktop build for now, and a game that wants to run
 | --- | --- |
 | Shapes, sprites, tilemaps, the camera, blend modes, fullscreen | Post-processing shaders (`NewShader`, `SetPostProcess`): the game stops with a message on the page |
 | Text in the built-in font, in the same places as on the desktop | Fonts from `.ttf` and `.otf` files (`NewFont`) |
-| Keyboard, mouse and gamepads | Sound and music: a web build plays in silence, as `golib shot` does |
+| Sound effects and music, from code, `.jfxr`, `.wav`, `.ogg` and `.mp3` | |
+| Keyboard, mouse and gamepads | Sound files in `.qoa`, and music in `.xm` and `.mod`: browsers cannot decode them |
 | `SaveData` and `LoadData` while the page is open | Keeping saved data after the page is closed |
 | `golib run`, `build`, `dist`, `shot` on the desktop, unchanged | `golib shot` of a web build |
 
@@ -1139,6 +1140,6 @@ A game that calls raylib directly (see above) doesn't build for the browser at a
 | Physics | Not planned: GoLib is for games, not engines | Simple movement and `Rectangle` overlap checks in the game |
 | Trigger pressure, vibration | Not on the roadmap yet | Triggers read as buttons |
 | 3D | M7, after the web build | None |
-| Sound, shaders, font files and saved data that lasts, in a browser | Stages 2 and 3 of the web build | The desktop build has them all; see "Playing in a browser" above |
+| Shaders, font files, `.qoa`, `.xm`, `.mod` and saved data that lasts, in a browser | Stage 3 of the web build | The desktop build has them all; see "Playing in a browser" above |
 
 When a game needs one of these, say so to the user and point to [docs/roadmap.md](../docs/roadmap.md), as [AGENTS.md](../AGENTS.md) asks, instead of building an engine to fill the gap.

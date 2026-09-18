@@ -547,6 +547,7 @@ void main() {
 				if (key === 32 || key === 258 || (key >= 262 && key <= 265)) e.preventDefault();
 			}
 			takeFullscreen();
+			wakeAudio();
 		});
 		window.addEventListener('keyup', function (e) {
 			const key = KEYS[e.code];
@@ -570,6 +571,7 @@ void main() {
 				mouseDown[button] = 1;
 			}
 			takeFullscreen();
+			wakeAudio();
 			e.preventDefault();
 		});
 		window.addEventListener('mouseup', function (e) {
@@ -643,6 +645,233 @@ void main() {
 		return pads[pad] ? pads[pad].id : '';
 	}
 
+	// ----------------------------------------------------------------- sound
+
+	// Web Audio. Package golib hands over the bytes of a sound file, the
+	// browser decodes them, and every play is a fresh source node, which is
+	// how a sound overlaps itself. A voice is one of the copies package golib
+	// keeps of a sound, with its own volume and pitch.
+	let audio = null, master = null;
+	const decoded = new Map(); // id -> AudioBuffer, waiting to become a sound
+	const voices = new Map();  // id -> { buffer, volume, pitch, node, gain }
+	const musics = new Map();  // id -> a sound that plays on, and may loop
+	let nextSoundID = 1;
+
+	function openAudio() {
+		if (audio) return true;
+		const Context = window.AudioContext || window.webkitAudioContext;
+		if (!Context) return false;
+		audio = new Context();
+		master = audio.createGain();
+		master.gain.value = 1;
+		master.connect(audio.destination);
+		return true;
+	}
+
+	// wakeAudio starts the sound device at the first key or click. Browsers
+	// keep it asleep until then, whatever the game asks for.
+	function wakeAudio() {
+		if (audio && audio.state === 'suspended') audio.resume().catch(function () { });
+	}
+
+	function closeAudio() {
+		voices.forEach(function (voice, id) { stopSound(id); });
+		musics.forEach(stopMusicNode);
+		voices.clear();
+		musics.clear();
+		decoded.clear();
+		if (audio) {
+			audio.close().catch(function () { });
+			audio = null;
+			master = null;
+		}
+	}
+
+	function setMasterVolume(volume) {
+		if (master) master.gain.value = volume;
+	}
+
+	// decodeSound hands a sound file to the browser and calls done with the
+	// number of the decoded sound, or -1 when the browser can't read it: .xm,
+	// .mod and .qoa are formats it has never heard of. The game waits for
+	// this, so done is always called.
+	function decodeSound(bytes, done) {
+		if (!audio) { done(-1); return; }
+		// decodeAudioData empties the buffer it is given, so it gets a copy.
+		const data = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+		audio.decodeAudioData(data, function (buffer) {
+			const id = nextSoundID++;
+			decoded.set(id, buffer);
+			done(id);
+		}, function () { done(-1); });
+	}
+
+	function unloadWave(id) { decoded.delete(id); }
+
+	function newSound(waveID) {
+		const buffer = decoded.get(waveID);
+		if (!buffer) return [-1, 0];
+		return [newVoice(buffer), buffer.length];
+	}
+
+	function newSoundAlias(soundID) {
+		const voice = voices.get(soundID);
+		if (!voice) return [-1, 0];
+		return [newVoice(voice.buffer), voice.buffer.length];
+	}
+
+	function newVoice(buffer) {
+		const id = nextSoundID++;
+		voices.set(id, { buffer: buffer, volume: 1, pitch: 1, node: null, gain: null });
+		return id;
+	}
+
+	function unloadSound(id) {
+		stopSound(id);
+		voices.delete(id);
+	}
+
+	// playSound plays a voice from its start, over whatever it was playing,
+	// as raylib does.
+	function playSound(id) {
+		const voice = voices.get(id);
+		if (!voice || !audio) return;
+		stopSound(id);
+		const node = audio.createBufferSource();
+		node.buffer = voice.buffer;
+		node.playbackRate.value = voice.pitch;
+		const gain = audio.createGain();
+		gain.gain.value = voice.volume;
+		node.connect(gain);
+		gain.connect(master);
+		node.onended = function () {
+			if (voice.node === node) { voice.node = null; voice.gain = null; }
+		};
+		node.start();
+		voice.node = node;
+		voice.gain = gain;
+	}
+
+	function stopSound(id) {
+		const voice = voices.get(id);
+		if (!voice || !voice.node) return;
+		try { voice.node.stop(); } catch (e) { /* it had already ended */ }
+		voice.node = null;
+		voice.gain = null;
+	}
+
+	function setSoundVolume(id, volume) {
+		const voice = voices.get(id);
+		if (!voice) return;
+		voice.volume = volume;
+		if (voice.gain) voice.gain.gain.value = volume;
+	}
+
+	function setSoundPitch(id, pitch) {
+		const voice = voices.get(id);
+		if (!voice) return;
+		voice.pitch = pitch;
+		if (voice.node) voice.node.playbackRate.value = pitch;
+	}
+
+	function soundPlaying(id) {
+		const voice = voices.get(id);
+		return !!(voice && voice.node);
+	}
+
+	// A music is a decoded sound that plays on its own, and loops without a
+	// gap when asked to: package golib loops a sound effect this way too.
+	function newMusic(waveID, looping) {
+		const buffer = decoded.get(waveID);
+		if (!buffer) return -1;
+		decoded.delete(waveID); // the music holds it now
+		const id = nextSoundID++;
+		musics.set(id, {
+			buffer: buffer, volume: 1, looping: !!looping,
+			node: null, gain: null, offset: 0, startedAt: 0, playing: false,
+		});
+		return id;
+	}
+
+	function playMusic(id) {
+		const music = musics.get(id);
+		if (!music || !audio) return;
+		stopMusicNode(music);
+		music.offset = 0;
+		startMusic(music);
+	}
+
+	function startMusic(music) {
+		const node = audio.createBufferSource();
+		node.buffer = music.buffer;
+		node.loop = music.looping;
+		const gain = audio.createGain();
+		gain.gain.value = music.volume;
+		node.connect(gain);
+		gain.connect(master);
+		node.onended = function () {
+			if (music.node === node && !music.looping) {
+				music.node = null;
+				music.playing = false;
+			}
+		};
+		const length = Math.max(music.buffer.duration, 0.001);
+		node.start(0, music.offset % length);
+		music.node = node;
+		music.gain = gain;
+		music.startedAt = audio.currentTime;
+		music.playing = true;
+	}
+
+	function stopMusicNode(music) {
+		if (!music.node) return;
+		try { music.node.stop(); } catch (e) { /* it had already ended */ }
+		music.node = null;
+		music.gain = null;
+	}
+
+	// pauseMusic remembers how far the music got, because a source node can
+	// only be started and stopped, never held.
+	function pauseMusic(id) {
+		const music = musics.get(id);
+		if (!music || !music.playing) return;
+		music.offset += audio.currentTime - music.startedAt;
+		stopMusicNode(music);
+		music.playing = false;
+	}
+
+	function resumeMusic(id) {
+		const music = musics.get(id);
+		if (!music || music.playing || !audio) return;
+		startMusic(music);
+	}
+
+	function stopMusic(id) {
+		const music = musics.get(id);
+		if (!music) return;
+		stopMusicNode(music);
+		music.offset = 0;
+		music.playing = false;
+	}
+
+	function setMusicVolume(id, volume) {
+		const music = musics.get(id);
+		if (!music) return;
+		music.volume = volume;
+		if (music.gain) music.gain.gain.value = volume;
+	}
+
+	function musicPlaying(id) {
+		const music = musics.get(id);
+		return !!(music && music.playing);
+	}
+
+	function unloadMusic(id) {
+		const music = musics.get(id);
+		if (music) stopMusicNode(music);
+		musics.delete(id);
+	}
+
 	// ----------------------------------------------------------------- frames
 
 	function onFrame(fn) { wake = fn; }
@@ -706,5 +935,13 @@ void main() {
 		onFrame: onFrame, askForFrame: askForFrame,
 		setFullscreen: setFullscreen, setCursorVisible: setCursorVisible, cursorVisible: cursorVisible,
 		showError: showError,
+		openAudio: openAudio, closeAudio: closeAudio, setMasterVolume: setMasterVolume,
+		decodeSound: decodeSound, unloadWave: unloadWave,
+		newSound: newSound, newSoundAlias: newSoundAlias, unloadSound: unloadSound,
+		playSound: playSound, stopSound: stopSound, soundPlaying: soundPlaying,
+		setSoundVolume: setSoundVolume, setSoundPitch: setSoundPitch,
+		newMusic: newMusic, playMusic: playMusic, pauseMusic: pauseMusic,
+		resumeMusic: resumeMusic, stopMusic: stopMusic, unloadMusic: unloadMusic,
+		setMusicVolume: setMusicVolume, musicPlaying: musicPlaying,
 	};
 })();

@@ -309,7 +309,7 @@ Windows PowerShell 5.1 splits arguments that start with `-` and contain a dot be
 
 ## Web builds
 
-`golib web [game]` builds a game for the browser and serves it on this machine, so it can be played at a `http://localhost` address. It is stage 1 of the web build (see [roadmap.md](roadmap.md#web-build-started-2026-09-18)): the picture and the input, without sound, post-processing shaders, fonts from files or saving between visits.
+`golib web [game]` builds a game for the browser and serves it on this machine, so it can be played at a `http://localhost` address. The picture, the input and the sound work; post-processing shaders, fonts from files, `.xm`, `.mod` and `.qoa`, and saving between visits do not yet (see [roadmap.md](roadmap.md#web-build-started-2026-09-18)).
 
 ```text
 build/<game>/web/
@@ -324,6 +324,8 @@ build/<game>/web/
 A web build carries its assets inside, as a dist build does, so a game needs `assets.go` (see `golib.EmbedAssets`) and `ReadAsset` works unchanged, with no loading screen. It is built with the `golib_dist` tag for that reason.
 
 The browser decides when to draw: the game waits for `requestAnimationFrame` in `device.EndFrame`, which is what paces it, and the fixed-step loop is the same one the desktop runs. Drawing doesn't cross into JavaScript one shape at a time: package golib writes its shapes into a buffer of numbers that `web.js` reads once a frame, and the keyboard, the mouse and the gamepads come back the same way, because a call per key would cost more than the game.
+
+Sound goes through Web Audio. The synthesizers above the backend already turn a `SoundSpec`, a `.jfxr` file or a tune into the bytes of a WAV file, so the backend only hands those bytes to the browser and plays what comes back. The browser decodes them asynchronously while the contract is synchronous, so the first play of a sound waits for it: when every goroutine waits, Go hands the thread back to the page, which finishes the decoding and wakes the game. Browsers refuse to make a sound before the player has pressed a key or clicked, so the first of either starts the sound device.
 
 Nothing is published by this command: it serves on `127.0.0.1` for the person running it. A zip to put on itch.io is stage 3.
 

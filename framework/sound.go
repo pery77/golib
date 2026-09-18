@@ -397,9 +397,9 @@ func (s *Sound) wave() (device.Wave, error) {
 	if err != nil {
 		return device.Wave{}, err
 	}
-	wave, ok := device.NewWave(format, data)
-	if !ok {
-		return device.Wave{}, fmt.Errorf("golib.NewSoundFile(%q): raylib could not read the sound: see the raylib warnings above", s.name)
+	wave, err := device.NewWave(format, data)
+	if err != nil {
+		return device.Wave{}, fmt.Errorf("golib: the sound %s could not be read: %w", s.describe(), err)
 	}
 	return wave, nil
 }
@@ -416,9 +416,9 @@ func (s *Sound) loadLoop() bool {
 		reportError(err)
 		return false
 	}
-	stream, ok := device.NewMusic(format, data, true)
-	if !ok {
-		s.err = fmt.Errorf("golib: raylib could not loop the sound %s: see the raylib warnings above", s.describe())
+	stream, err := device.NewMusic(format, data, true)
+	if err != nil {
+		s.err = fmt.Errorf("golib: the sound %s could not be looped: %w", s.describe(), err)
 		reportError(s.err)
 		return false
 	}

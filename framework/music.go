@@ -162,9 +162,9 @@ func (m *Music) load() bool {
 		}
 		data = read
 	}
-	stream, ok := device.NewMusic(format, data, true)
-	if !ok {
-		m.err = fmt.Errorf("golib: raylib could not play %s: see the raylib warnings above", m.describe())
+	stream, err := device.NewMusic(format, data, true)
+	if err != nil {
+		m.err = fmt.Errorf("golib: %s could not be played: %w", m.describe(), err)
 		return false
 	}
 	m.data, m.stream, m.loaded = data, stream, true

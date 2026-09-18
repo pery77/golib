@@ -189,7 +189,7 @@ func TestSoundFiles(t *testing.T) {
 
 	tests := map[string]string{
 		"sounds/missing.wav": `golib.NewSoundFile("sounds/missing.wav"): golib.ReadAsset: assets/sounds/missing.wav not found`,
-		"sounds/broken.ogg":  `golib.NewSoundFile("sounds/broken.ogg"): raylib could not read the sound`,
+		"sounds/broken.ogg":  `golib: the sound "sounds/broken.ogg" could not be read`,
 		"sounds/tune.flac":   `golib.NewSoundFile("sounds/tune.flac"): GoLib plays sound effects from .wav, .ogg, .mp3, .qoa, .jfxr files, not ".flac" ones`,
 		"sounds/loud.jfxr":   `golib.NewSoundFile("sounds/loud.jfxr"): jfxr has no setting called "volume"`,
 		"sounds/music.xm":    `not ".xm" ones`,

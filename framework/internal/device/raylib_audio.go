@@ -2,7 +2,11 @@
 
 package device
 
-import rl "github.com/gen2brain/raylib-go/raylib"
+import (
+	"errors"
+
+	rl "github.com/gen2brain/raylib-go/raylib"
+)
 
 // OpenAudio starts the sound device and reports whether it is ready. A game
 // on a machine with no sound plays on in silence.
@@ -21,16 +25,16 @@ func SetMasterVolume(volume float32) {
 	rl.SetMasterVolume(volume)
 }
 
-// NewWave reads the samples of a sound file held in memory, and reports
-// whether they could be read. format is the file's extension, such as ".wav".
-func NewWave(format string, data []byte) (Wave, bool) {
+// NewWave reads the samples of a sound file held in memory, or says why it
+// couldn't. format is the file's extension, such as ".wav".
+func NewWave(format string, data []byte) (Wave, error) {
 	// Without the window, raylib would otherwise print a line for each file.
 	rl.SetTraceLogLevel(rl.LogWarning)
 	wave := rl.LoadWaveFromMemory(format, data, int32(len(data)))
 	if !rl.IsWaveValid(wave) {
-		return Wave{}, false
+		return Wave{}, errors.New("raylib could not read it: see the raylib warnings above")
 	}
-	return wave, true
+	return wave, nil
 }
 
 // UnloadWave frees the samples NewWave read.
@@ -85,16 +89,16 @@ func SetSoundPitch(sound Sound, pitch float32) {
 }
 
 // NewMusic opens a stream of sound from a file held in memory, repeating with
-// no gap when looping, and reports whether it could be read. format is the
-// file's extension, such as ".ogg". The data has to stay reachable while the
-// music plays: the backend streams from it.
-func NewMusic(format string, data []byte, looping bool) (Music, bool) {
+// no gap when looping, or says why it couldn't. format is the file's
+// extension, such as ".ogg". The data has to stay reachable while the music
+// plays: the backend streams from it.
+func NewMusic(format string, data []byte, looping bool) (Music, error) {
 	stream := rl.LoadMusicStreamFromMemory(format, data, int32(len(data)))
 	if !rl.IsMusicValid(stream) {
-		return Music{}, false
+		return Music{}, errors.New("raylib could not read it: see the raylib warnings above")
 	}
 	stream.Looping = looping
-	return stream, true
+	return stream, nil
 }
 
 // PlayMusic starts a music from its beginning.
