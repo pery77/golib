@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -27,6 +29,51 @@ var saveName string
 var memorySaves struct {
 	sync.Mutex
 	data map[string][]byte
+}
+
+// init puts the data of golib shot --save in memory before main runs, so that
+// a scene built in a package variable, or in main before Run, already finds
+// what LoadData would have read from a player's save file.
+func init() { seedShotSaves(os.Getenv, os.ReadFile) }
+
+// seedShotSaves reads the file shotSaveEnv names, if any, into the data this
+// program keeps in memory. A file that can't be used stops Run, as any other
+// mistake made before Run does.
+func seedShotSaves(getenv func(string) string, readFile func(string) ([]byte, error)) {
+	path := getenv(shotSaveEnv)
+	if path == "" {
+		return
+	}
+	if err := readShotSaves(path, readFile); err != nil {
+		reportError(err)
+	}
+}
+
+// readShotSaves puts the contents of a golib shot --save file in memory: a
+// JSON object with one saved value per name, as SaveData stores them.
+func readShotSaves(path string, readFile func(string) ([]byte, error)) error {
+	data, err := readFile(path)
+	if err != nil {
+		return fmt.Errorf("golib.Run: cannot read %s, the file golib shot --save was given: %w", path, err)
+	}
+	var saved map[string]json.RawMessage
+	if err := json.Unmarshal(data, &saved); err != nil {
+		return fmt.Errorf(`golib.Run: %s isn't saved data for golib shot --save: it holds one value per name, such as {"progress": {"Level": 5}}: %w`, path, err)
+	}
+	for _, name := range slices.Sorted(maps.Keys(saved)) {
+		if !validSaveName(name) {
+			return fmt.Errorf("golib.Run: %s: %q isn't a valid name for saved data: use lowercase letters, digits, - and _, such as \"progress\"", path, name)
+		}
+	}
+	memorySaves.Lock()
+	defer memorySaves.Unlock()
+	if memorySaves.data == nil {
+		memorySaves.data = map[string][]byte{}
+	}
+	for name, value := range saved {
+		memorySaves.data[name] = value
+	}
+	return nil
 }
 
 // SaveData stores value under name, such as "progress" or "settings",
@@ -51,8 +98,10 @@ var memorySaves struct {
 // saves next to its executable, in build/<game>/save/, which golib clean
 // deletes. Under golib shot and go test nothing is written: data is kept in
 // memory until the program ends, so screenshots and tests start with nothing
-// saved. SaveData returns an error when the data can't be written, such as
-// on a full disk; the game should tell the player and carry on.
+// saved, unless golib shot --save gives the game data to start from, such as
+// a finished level (see docs/tooling.md#screenshots). SaveData returns an
+// error when the data can't be written, such as on a full disk; the game
+// should tell the player and carry on.
 func SaveData(name string, value any) error {
 	if err := checkSaveName("SaveData", name); err != nil {
 		return err
@@ -211,16 +260,23 @@ func distSaveFolder(settings, exe, name string) string {
 	return filepath.Join(settings, saveFolderName, name)
 }
 
+// validSaveName reports whether name can be a file name everywhere.
+func validSaveName(name string) bool {
+	if name == "" || len(name) > 64 {
+		return false
+	}
+	for _, r := range name {
+		if !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '-' || r == '_') {
+			return false
+		}
+	}
+	return true
+}
+
 // checkSaveName reports a name that can't be a file name everywhere, as a
 // mistake that stops Run.
 func checkSaveName(function, name string) error {
-	valid := name != "" && len(name) <= 64
-	for _, r := range name {
-		if !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '-' || r == '_') {
-			valid = false
-		}
-	}
-	if valid {
+	if validSaveName(name) {
 		return nil
 	}
 	err := fmt.Errorf("golib.%s: the name %q isn't valid: use lowercase letters, digits, - and _, such as \"progress\"", function, name)

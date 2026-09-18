@@ -116,17 +116,30 @@ To update raylib-go, run `golib go -C framework get github.com/gen2brain/raylib-
 
 ## Screenshots
 
-`golib shot [game] [frame...] [--input "<script>"]` builds a game and runs it with these environment variables set:
+`golib shot [game] [frame...] [--input "<script>"] [--save <file>] [--scale <n>]` builds a game and runs it with these environment variables set:
 
 | Variable | Value |
 | --- | --- |
 | `GOLIB_SHOT_DIR` | `build/<game>/shots/`, emptied first |
 | `GOLIB_SHOT_FRAMES` | The requested frames, ascending, separated by commas. Default: `60`, one second of game time. |
 | `GOLIB_SHOT_INPUT` | The `--input` value, or unset |
+| `GOLIB_SHOT_SAVE` | The whole path of the `--save` file, or unset |
+| `GOLIB_SHOT_SCALE` | The `--scale` value, or unset for pictures at the screen's size |
 
 `golib.Run` reads them, so games need no code for screenshots. It opens a hidden window, runs exactly one update per frame without waiting, draws each frame into an off-screen texture, runs the post-processing shaders over the requested frames and saves them as `frame-NNNNNN.png` (RGB, no alpha channel). Screenshots are always the screen's size, `Config.Width` by `Config.Height`, and ignore fullscreen. Then `Run` returns and the game exits. Frame N always shows the game after N updates, so the same code gives the same pictures on any machine, as long as the game bases its timing on `dt`.
 
 The CLI stops a game that is still running after 120 seconds. It then prints an `[ok]` line for each saved file and a `[fail]` line for each missing one.
+
+`--save <file.json>` gives the game data to start from, so a shot can open on level 8, with the music off, instead of playing all the way there. The file holds one saved value per name, exactly what `golib.SaveData` stores:
+
+    {
+      "progress": { "best": { "maps/level01.tmx": 14, "maps/level08.tmx": 88 }, "musicOff": true },
+      "settings": { "Volume": 0.5 }
+    }
+
+The framework puts those values in memory before `main` runs, so a scene built in a package variable already finds them through `golib.LoadData`. The game still writes nothing to disk, and `golib.SaveData` replaces the seeded values in memory as usual. The path is relative to where you run `golib`, the project root, and names are the same lowercase letters, digits, `-` and `_` that `SaveData` takes. A file that isn't there, isn't a JSON object, or holds a name `SaveData` wouldn't take, stops the command. Write one by hand, or copy `build/<game>/save/<name>.json` from a debug build after playing to the state you want to see.
+
+`--scale <n>`, from 1 to 8, enlarges every picture by whole numbers with nearest-neighbour sampling, the way the window enlarges pixel art, so a 320 by 180 game with `--scale 3` saves 960 by 540 pictures of exactly the pixels the game drew. Use it when a pixel art game is too small to judge: the game still runs at the screen's size, so the shots show the same thing, only bigger.
 
 `--input` plays keyboard and mouse input, so shots can reach every scene. It takes items separated by spaces:
 

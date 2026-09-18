@@ -11,32 +11,35 @@ import (
 )
 
 // Shot settings: the frame captured when none is given, one second of game
-// time, and how long a game may run before it is stopped.
+// time, how long a game may run before it is stopped, and the largest --scale.
 const (
 	shotDefaultFrame = 60
 	shotTimeout      = 120 * time.Second
+	shotMaxScale     = 8
 )
 
 // shot runs a debug build of a game in a hidden window and saves screenshots
 // of chosen frames (see docs/tooling.md#screenshots). Its options are frame
-// numbers, --input and a game name, in any order.
+// numbers, --input, --save, --scale and a game name, in any order.
 func (c *cli) shot(options []string) int {
 	var names []string
 	var frames []int
-	input := ""
+	input, save := "", ""
+	scale := 1
 	for i := 0; i < len(options); i++ {
 		option := options[i]
+		value := ""
 		switch {
 		case option == "":
 			return c.usage("shot got an empty argument")
-		case option == "--input":
+		case option == "--input", option == "--save", option == "--scale":
 			if i+1 >= len(options) {
-				return c.usage(`shot --input needs input to play, for example: --input "Enter@1 Right@30-90"`)
+				return c.usage(shotOptionUsage(option))
 			}
 			i++
-			input = options[i]
-		case strings.HasPrefix(option, "--input="):
-			input = strings.TrimPrefix(option, "--input=")
+			value = options[i]
+		case strings.HasPrefix(option, "--input="), strings.HasPrefix(option, "--save="), strings.HasPrefix(option, "--scale="):
+			option, value, _ = strings.Cut(option, "=")
 		case strings.HasPrefix(option, "-"):
 			return c.usage("unknown option for shot: " + option)
 		case strings.Trim(option, "0123456789") == "":
@@ -45,12 +48,41 @@ func (c *cli) shot(options []string) int {
 				return c.usage(fmt.Sprintf("frame numbers go from 1 to 999999 (got: %s)", option))
 			}
 			frames = append(frames, frame)
+			continue
 		default:
 			names = append(names, option)
+			continue
 		}
+		switch option {
+		case "--input":
+			input = value
+		case "--save":
+			if value == "" {
+				return c.usage(shotOptionUsage(option))
+			}
+			save = value
+		case "--scale":
+			size, err := strconv.Atoi(value)
+			if err != nil || size < 1 || size > shotMaxScale {
+				return c.usage(fmt.Sprintf("shot --scale takes a whole number from 1 to %d, which the screenshots are enlarged by (got: %s)", shotMaxScale, value))
+			}
+			scale = size
+		}
+	}
+	savePath := ""
+	if save != "" {
+		path, err := filepath.Abs(save)
+		if err != nil {
+			return c.usage(fmt.Sprintf("shot --save cannot use the path %s: %v", save, err))
+		}
+		savePath = path
 	}
 	if len(frames) == 0 {
 		frames = []int{shotDefaultFrame}
+	}
+	if savePath != "" && !isFile(savePath) {
+		c.check("fail", fmt.Sprintf("shot --save: there is no file %s (it holds the data the game starts with, such as {\"progress\": {\"level\": 8}})", c.shown(savePath)))
+		return c.summary("shot")
 	}
 	slices.Sort(frames)
 	frames = slices.Compact(frames)
@@ -72,11 +104,17 @@ func (c *cli) shot(options []string) int {
 		c.check("fail", fmt.Sprintf("cannot empty build/%s/shots/: %v", game, err))
 		return c.summary("shot")
 	}
-	playing := ""
+	extras := ""
 	if input != "" {
-		playing = ", playing " + shortInput(input)
+		extras += ", playing " + shortInput(input)
 	}
-	c.check("info", fmt.Sprintf("running %s for %d frame(s) in a hidden window%s", game, frames[len(frames)-1], playing))
+	if savePath != "" {
+		extras += ", starting with the data in " + c.shown(savePath)
+	}
+	if scale > 1 {
+		extras += fmt.Sprintf(", enlarged %d times", scale)
+	}
+	c.check("info", fmt.Sprintf("running %s for %d frame(s) in a hidden window%s", game, frames[len(frames)-1], extras))
 	list := make([]string, len(frames))
 	for i, frame := range frames {
 		list[i] = strconv.Itoa(frame)
@@ -85,6 +123,12 @@ func (c *cli) shot(options []string) int {
 	env := c.gameEnv(game, "GOLIB_SHOT_DIR="+shots, "GOLIB_SHOT_FRAMES="+strings.Join(list, ","))
 	if input != "" {
 		env = append(env, "GOLIB_SHOT_INPUT="+input)
+	}
+	if savePath != "" {
+		env = append(env, "GOLIB_SHOT_SAVE="+savePath)
+	}
+	if scale > 1 {
+		env = append(env, "GOLIB_SHOT_SCALE="+strconv.Itoa(scale))
 	}
 	// A game that never finishes is stopped, so whoever waits for shot isn't
 	// stuck.
@@ -106,6 +150,18 @@ func (c *cli) shot(options []string) int {
 		}
 	}
 	return c.summary("shot")
+}
+
+// shotOptionUsage explains an option of shot that was given no value.
+func shotOptionUsage(option string) string {
+	switch option {
+	case "--save":
+		return `shot --save needs a JSON file with the data the game starts with, for example: --save shots/level8.json`
+	case "--scale":
+		return fmt.Sprintf("shot --scale needs a whole number from 1 to %d, which the screenshots are enlarged by, for example: --scale 3", shotMaxScale)
+	default:
+		return `shot --input needs input to play, for example: --input "Enter@1 Right@30-90"`
+	}
 }
 
 // shortInputLength is how much of an --input script shot repeats in its

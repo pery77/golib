@@ -67,7 +67,9 @@ Commands:
   shot [game] [frame...]  Run games/<game> in a hidden window and save screenshots of the given
                           frames into build/<game>/shots/ (default: frame 60, one second in).
                           --input "Enter@1 Right@30-90 Mouse@100:640,360 MouseLeft@101" plays keyboard,
-                          mouse and gamepad input in those updates (see docs/tooling.md)
+                          mouse and gamepad input in those updates.
+                          --save <file.json> starts the game with that data saved, such as a
+                          finished level; --scale <1-8> enlarges the pictures (see docs/tooling.md)
   test [game]             Vet and test the framework, every game and GoLib's Go tools,
                           or only games/<game>
   go <args>               Run the project's Go toolchain, with GoLib's settings

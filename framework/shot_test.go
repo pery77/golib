@@ -21,7 +21,37 @@ func TestShotPlanFromEnv(t *testing.T) {
 		{
 			name: "frames are sorted and deduplicated",
 			env:  map[string]string{"GOLIB_SHOT_DIR": "shots", "GOLIB_SHOT_FRAMES": "60, 1,60"},
-			want: &shotPlan{dir: "shots", frames: []int{1, 60}},
+			want: &shotPlan{dir: "shots", frames: []int{1, 60}, scale: 1},
+		},
+		{
+			name: "pictures enlarged",
+			env:  map[string]string{"GOLIB_SHOT_DIR": "shots", "GOLIB_SHOT_FRAMES": "60", "GOLIB_SHOT_SCALE": "3"},
+			want: &shotPlan{dir: "shots", frames: []int{60}, scale: 3},
+		},
+		{
+			name:    "a scale on its own",
+			env:     map[string]string{"GOLIB_SHOT_SCALE": "3"},
+			wantErr: true,
+		},
+		{
+			name:    "data to start from on its own",
+			env:     map[string]string{"GOLIB_SHOT_SAVE": "state.json"},
+			wantErr: true,
+		},
+		{
+			name:    "scale zero",
+			env:     map[string]string{"GOLIB_SHOT_DIR": "shots", "GOLIB_SHOT_FRAMES": "60", "GOLIB_SHOT_SCALE": "0"},
+			wantErr: true,
+		},
+		{
+			name:    "scale too big",
+			env:     map[string]string{"GOLIB_SHOT_DIR": "shots", "GOLIB_SHOT_FRAMES": "60", "GOLIB_SHOT_SCALE": "9"},
+			wantErr: true,
+		},
+		{
+			name:    "scale not a number",
+			env:     map[string]string{"GOLIB_SHOT_DIR": "shots", "GOLIB_SHOT_FRAMES": "60", "GOLIB_SHOT_SCALE": "three"},
+			wantErr: true,
 		},
 		{
 			name:    "folder without frames",

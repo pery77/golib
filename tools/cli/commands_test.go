@@ -745,3 +745,77 @@ func TestShortInput(t *testing.T) {
 		t.Errorf("long script: %q, want %q", got, want)
 	}
 }
+
+// TestShotSaveAndScale checks shot --save, which gives a game data to start
+// from, and shot --scale, which enlarges the screenshots.
+func TestShotSaveAndScale(t *testing.T) {
+	tp := newTestProject(t, "windows", "rocks")
+	state := tp.c.path("build", "rocks", "level8.json")
+	writeFile(t, state, `{"progress": {"Level": 8}}`)
+	if code := tp.c.shot([]string{"--save", state, "--scale=3"}); code != 0 {
+		t.Fatalf("exit code %d, output:\n%s%s", code, tp.stdout.String(), tp.stderr.String())
+	}
+	if want := "[info] running rocks for 60 frame(s) in a hidden window, starting with the data in build/rocks/level8.json, enlarged 3 times\n"; !strings.Contains(tp.stdout.String(), want) {
+		t.Errorf("output:\n%s\nwant a line:\n%s", tp.stdout.String(), want)
+	}
+	if len(tp.games) != 1 {
+		t.Fatalf("%d games ran, want 1", len(tp.games))
+	}
+	env := tp.games[0].env
+	if got := tp.c.lookupEnv(env, "GOLIB_SHOT_SAVE"); got != state {
+		t.Errorf("GOLIB_SHOT_SAVE = %q, want the file's whole path %q", got, state)
+	}
+	if got := tp.c.lookupEnv(env, "GOLIB_SHOT_SCALE"); got != "3" {
+		t.Errorf("GOLIB_SHOT_SCALE = %q, want %q", got, "3")
+	}
+
+	// Without the options, a game gets neither variable.
+	tp = newTestProject(t, "windows", "rocks")
+	if code := tp.c.shot(nil); code != 0 {
+		t.Fatalf("exit code %d, output:\n%s%s", code, tp.stdout.String(), tp.stderr.String())
+	}
+	env = tp.games[0].env
+	if tp.c.lookupEnv(env, "GOLIB_SHOT_SAVE") != "" || tp.c.lookupEnv(env, "GOLIB_SHOT_SCALE") != "" {
+		t.Errorf("a plain shot passed %q", env)
+	}
+
+	// A file that isn't there fails before the game runs.
+	tp = newTestProject(t, "windows", "rocks")
+	missing := tp.c.path("build", "rocks", "no-such-file.json")
+	if code := tp.c.shot([]string{"--save", missing}); code != 1 {
+		t.Errorf("a missing file: exit code %d, want 1", code)
+	}
+	if want := "[fail] shot --save: there is no file build/rocks/no-such-file.json"; !strings.Contains(tp.stdout.String(), want) {
+		t.Errorf("a missing file, output:\n%s\nwant a line starting with:\n%s", tp.stdout.String(), want)
+	}
+	if len(tp.games) > 0 {
+		t.Error("the game ran although --save named a file that isn't there")
+	}
+}
+
+func TestShotSaveAndScaleUsage(t *testing.T) {
+	tests := []struct {
+		options []string
+		want    string
+	}{
+		{[]string{"--save"}, "shot --save needs a JSON file"},
+		{[]string{"--save="}, "shot --save needs a JSON file"},
+		{[]string{"--scale"}, "shot --scale needs a whole number from 1 to 8"},
+		{[]string{"--scale", "0"}, "shot --scale takes a whole number from 1 to 8"},
+		{[]string{"--scale", "9"}, "shot --scale takes a whole number from 1 to 8"},
+		{[]string{"--scale=three"}, "shot --scale takes a whole number from 1 to 8"},
+		{[]string{"--scaled=2"}, "unknown option for shot: --scaled=2"},
+	}
+	for _, tt := range tests {
+		tp := newTestProject(t, "windows", "rocks")
+		if code := tp.c.shot(tt.options); code != 2 {
+			t.Errorf("shot %q: exit code %d, want 2", tt.options, code)
+		}
+		if !strings.Contains(tp.stderr.String(), tt.want) {
+			t.Errorf("shot %q: stderr %q, want it to mention %q", tt.options, tp.stderr.String(), tt.want)
+		}
+		if len(tp.games) > 0 {
+			t.Errorf("shot %q: the game ran after a usage mistake", tt.options)
+		}
+	}
+}

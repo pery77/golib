@@ -17,7 +17,13 @@ const (
 	shotDirEnv    = "GOLIB_SHOT_DIR"    // folder to save screenshots in
 	shotFramesEnv = "GOLIB_SHOT_FRAMES" // frames to capture, separated by commas, such as "1,60,300"
 	shotInputEnv  = "GOLIB_SHOT_INPUT"  // input to play, such as "Enter@1 Right@30-90"; may be empty
+	shotSaveEnv   = "GOLIB_SHOT_SAVE"   // a JSON file the game starts with saved, such as a finished level; may be empty
+	shotScaleEnv  = "GOLIB_SHOT_SCALE"  // whole number the saved pictures are enlarged by; may be empty
 )
+
+// shotMaxScale is the largest --scale golib shot takes. Bigger pictures are
+// slow to save and hard to open.
+const shotMaxScale = 8
 
 // scriptedGamepadName is the name of gamepad 0 when an input script uses it.
 const scriptedGamepadName = "golib shot"
@@ -28,6 +34,7 @@ type shotPlan struct {
 	dir    string
 	frames []int // ascending, no duplicates, each at least 1
 	input  inputScript
+	scale  int // whole number the saved pictures are enlarged by, at least 1
 }
 
 // shotPlanFromEnv reads the screenshot plan from the environment. It returns
@@ -36,7 +43,12 @@ func shotPlanFromEnv(getenv func(string) string) (*shotPlan, error) {
 	dir := getenv(shotDirEnv)
 	list := getenv(shotFramesEnv)
 	script := getenv(shotInputEnv)
-	if dir == "" && list == "" && script == "" {
+	scaleText := getenv(shotScaleEnv)
+	// save is read when the program starts, before main (see seedShotSaves);
+	// it counts here so that setting it alone says what is missing instead of
+	// quietly doing nothing.
+	save := getenv(shotSaveEnv)
+	if dir == "" && list == "" && script == "" && scaleText == "" && save == "" {
 		return nil, nil
 	}
 	if dir == "" || list == "" {
@@ -59,7 +71,25 @@ func shotPlanFromEnv(getenv func(string) string) (*shotPlan, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &shotPlan{dir: dir, frames: frames, input: input}, nil
+	scale, err := shotScale(scaleText)
+	if err != nil {
+		return nil, err
+	}
+	return &shotPlan{dir: dir, frames: frames, input: input, scale: scale}, nil
+}
+
+// shotScale reads how much bigger than the screen the saved pictures are:
+// 1, its default, saves them at the screen's size.
+func shotScale(text string) (int, error) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return 1, nil
+	}
+	scale, err := strconv.Atoi(text)
+	if err != nil || scale < 1 || scale > shotMaxScale {
+		return 0, fmt.Errorf("golib.Run: invalid %s %q: use a whole number from 1 to %d", shotScaleEnv, text, shotMaxScale)
+	}
+	return scale, nil
 }
 
 // hold holds a key or a button down from update first to update last, both
@@ -342,7 +372,7 @@ func runShots(game Game, config Config, plan *shotPlan) error {
 			if err := render.present(&picture, whole, float32(frame)*updateStep); err != nil {
 				return err
 			}
-			if err := saveTexture(picture.Texture, filepath.Join(plan.dir, shotFileName(frame))); err != nil {
+			if err := saveTexture(picture.Texture, filepath.Join(plan.dir, shotFileName(frame)), plan.scale); err != nil {
 				return err
 			}
 			next++
@@ -355,11 +385,16 @@ func runShots(game Game, config Config, plan *shotPlan) error {
 	return nil
 }
 
-// saveTexture writes a render texture to a PNG file.
-func saveTexture(texture rl.Texture2D, path string) error {
+// saveTexture writes a render texture to a PNG file, scale times as large.
+func saveTexture(texture rl.Texture2D, path string, scale int) error {
 	image := rl.LoadImageFromTexture(texture)
 	defer rl.UnloadImage(image)
-	rl.ImageFlipVertical(image)                  // render textures are stored bottom row first
+	rl.ImageFlipVertical(image) // render textures are stored bottom row first
+	if scale > 1 {
+		// Whole-number nearest neighbour, the way the window enlarges pixel
+		// art, so a bigger picture shows exactly the pixels the game drew.
+		rl.ImageResizeNN(image, image.Width*int32(scale), image.Height*int32(scale))
+	}
 	rl.ImageFormat(image, rl.UncompressedR8g8b8) // drop alpha, which blending leaves below 255 at soft edges
 	if !rl.ExportImage(*image, path) {
 		return fmt.Errorf("golib.Run: could not save the screenshot %s", path)

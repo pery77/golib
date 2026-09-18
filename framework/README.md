@@ -963,7 +963,7 @@ if err := golib.SaveData("progress", s.progress); err != nil {
 ```
 
 - **Where it goes:** a `golib dist` build saves in the player's settings folder, in `GoLib games/<game>` (`%AppData%\GoLib games\<game>` on Windows); a debug build saves in `build/<game>/save/`, next to its executable, which `golib clean` deletes.
-- **Under `golib shot` and in tests, nothing is written:** data lives in memory while the program runs, so every shot and every test program starts with nothing saved. Tests of one game share their data, so a test that needs nothing saved calls `DeleteData` first, and a test can call `SaveData` to start from saved progress.
+- **Under `golib shot` and in tests, nothing is written:** data lives in memory while the program runs, so every shot and every test program starts with nothing saved. Tests of one game share their data, so a test that needs nothing saved calls `DeleteData` first, and a test can call `SaveData` to start from saved progress. `golib shot --save <file.json>` does the same for a screenshot, so a shot can open on level 8 (see [docs/tooling.md](../docs/tooling.md#screenshots)).
 - Save when something worth keeping changes, such as a finished level or a changed setting, not in every update.
 - Names are lowercase letters, digits, `-` and `_`. Keep the data small: settings, scores and how far the player got, not whole worlds.
 - A failed save or load returns an error: tell the player, and carry on playing.

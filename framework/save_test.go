@@ -131,3 +131,80 @@ func TestDistSaveFolder(t *testing.T) {
 		}
 	}
 }
+
+// TestSeedShotSaves checks the data golib shot --save gives a game before it
+// starts, so that a screenshot can show a finished level.
+func TestSeedShotSaves(t *testing.T) {
+	t.Cleanup(func() {
+		DeleteData("progress")
+		DeleteData("settings")
+		takeError()
+	})
+	path := filepath.Join(t.TempDir(), "state.json")
+	if err := os.WriteFile(path, []byte(`{"progress": {"Level": 8}, "settings": {"Level": 2}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Nothing to seed leaves the saved data alone.
+	seedShotSaves(func(string) string { return "" }, os.ReadFile)
+	if found, _ := LoadData("progress", &savedProgress{}); found {
+		t.Fatal("LoadData found data before anything was seeded")
+	}
+
+	seedShotSaves(func(key string) string {
+		if key == shotSaveEnv {
+			return path
+		}
+		return ""
+	}, os.ReadFile)
+	if err := takeError(); err != nil {
+		t.Fatalf("seeding %s reported %v", path, err)
+	}
+	progress := savedProgress{Level: 1}
+	found, err := LoadData("progress", &progress)
+	if !found || err != nil || progress.Level != 8 {
+		t.Errorf("LoadData = %v, %v, %+v, want the seeded level 8", found, err, progress)
+	}
+	// The game saves over the seeded data as usual, in memory.
+	if err := SaveData("progress", savedProgress{Level: 9}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadData("progress", &progress); err != nil || progress.Level != 9 {
+		t.Errorf("after SaveData, LoadData = %v, %+v", err, progress)
+	}
+}
+
+func TestSeedShotSavesMistakes(t *testing.T) {
+	t.Cleanup(func() { takeError() })
+	dir := t.TempDir()
+	tests := []struct {
+		name, json, want string
+	}{
+		{"not an object", `[1, 2]`, "isn't saved data"},
+		{"a name that isn't a file name", `{"Progress": {"Level": 8}}`, `"Progress" isn't a valid name`},
+		{"an empty name", `{"": {}}`, "isn't a valid name"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(dir, "state.json")
+			if err := os.WriteFile(path, []byte(tt.json), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			err := readShotSaves(path, os.ReadFile)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Errorf("readShotSaves(%s) = %v, want an error about %s", tt.json, err, tt.want)
+			}
+		})
+	}
+	// A file that isn't there stops Run, as any mistake before Run does.
+	missing := filepath.Join(dir, "no-such-file.json")
+	seedShotSaves(func(key string) string {
+		if key == shotSaveEnv {
+			return missing
+		}
+		return ""
+	}, os.ReadFile)
+	err := takeError()
+	if err == nil || !strings.Contains(err.Error(), "golib shot --save") {
+		t.Errorf("seeding a missing file reported %v, want an error naming golib shot --save", err)
+	}
+}
