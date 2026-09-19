@@ -313,6 +313,8 @@ Windows PowerShell 5.1 splits arguments that start with `-` and contain a dot be
 
 A site that shows the game inside an `<iframe>`, as itch.io does, sends key events to whichever document holds the keyboard focus. The web backend takes it when the game opens and at every click or touch, so a player only has to click the game once if the page around it takes the focus back. Nothing is needed in the page itself.
 
+`golib test` checks that, in `framework/internal/device/webfocus_test.go`: it serves `web.js` in a page inside another page, in a browser with no window, lets the outer page take the keyboard away, clicks the game and asks who holds it. It needs no game and no web build, since `golib.open` is what a game's first frame calls, and it is skipped on a machine with no browser. A page served on its own already holds the keyboard, which is why this bug reached itch.io unseen.
+
 Music is the one of those a game doesn't have to give up. Where `golib.NewMusic` is given a `.xm` or `.mod` file, a web build plays a file of the same name in `.ogg`, `.mp3` or `.wav` beside it, in that order, and runs without the music when there is none, saying so in the browser's console. `golib web` and `golib dist --web` say which file each module will be played from while they build: an `[info]` line when there is one, a `[warn]` line when the game will be quiet. A `.qoa` sound has no such way out and still stops the game in a browser.
 
 ```text
