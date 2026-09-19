@@ -12,6 +12,13 @@ the author's contact):
 <https://modarchive.org/index.php?request=view_by_moduleid&query=185456>
 Licensed under the Public Domain license
 
+## music/drozerix_-_building_energy.ogg
+
+The same module, rendered to OGG (911 KB), under the name the framework looks
+for: a browser cannot play tracker modules, so a web build plays this file
+while the desktop build keeps playing the module. Same author, source and
+license as above.
+
 ## sounds/*.jfxr
 
 Made for this game in jfxr (<https://jfxr.frozenfractal.com>), from its own
