@@ -877,6 +877,7 @@ func (s *playScene) Update(input *golib.Input, dt float32) {
 ```
 
 - Formats: `.ogg`, `.mp3`, `.wav`, `.qoa`, and the tracker modules `.xm` and `.mod`, which are a few dozen kilobytes. Not `.it`. The first `Play` stops `Run` with an error if the file is missing or in another format. `golib shot` and tests play nothing, so they don't notice: start the game with `golib run` to check.
+- Not every machine plays every format: a browser reads `.ogg`, `.mp3` and `.wav` and nothing else. Where the file's format doesn't play, GoLib plays a file beside it with the same name in one that does, so `music/theme.ogg` next to `music/theme.xm` is what a web build plays, and the game's code says `music/theme.xm` everywhere. With no such file, the game runs without that music and GoLib says so on the console, instead of stopping a game that plays on the desktop. `golib web` and `golib dist --web` say which file the browser will play while they build.
 - A game with music has an `assets/` folder, so it needs `assets.go` (see [Files](#files-the-assets-folder)).
 - Only use music the user provides, and write where it came from, and its license, in `assets/ATTRIBUTION.md`, as `games/asteroids` does. `golib dist` copies that file into the `THIRD-PARTY-LICENSES.txt` it puts next to the game.
 - There are no crossfades or playlists: `Stop` one `Music` and `Play` another.
@@ -1121,7 +1122,8 @@ A web build does less than a desktop build for now, and a game that wants to run
 
 | Works in a browser | Doesn't, or not quite |
 | --- | --- |
-| Shapes, sprites, tilemaps, the camera, blend modes, fullscreen | Sound files in `.qoa`, and music in `.xm` and `.mod`: browsers cannot decode them, and a game that asks for one stops with a message on the page saying so |
+| Shapes, sprites, tilemaps, the camera, blend modes, fullscreen | Sound files in `.qoa`: browsers cannot decode them, and a game that asks for one stops with a message on the page saying so |
+| Music in `.xm` and `.mod`, when a file of the same name in `.ogg`, `.mp3` or `.wav` sits beside it: GoLib plays that one | Music in `.xm` or `.mod` with no such file beside it: the game plays on without it, and says so in the browser's console |
 | Sound effects and music, from code, `.jfxr`, `.wav`, `.ogg` and `.mp3` | |
 | Post-processing shaders, compiled for OpenGL ES | A shader that mixes whole numbers into float arithmetic, such as `uv * 2`: ES refuses it, where the desktop allows it. Write `uv * 2.0` |
 | Text in the built-in font, in the same places as on the desktop | Text from a `.ttf` or `.otf` file lands within a few pixels of where the desktop puts it, not on it: a browser's font metrics are not raylib's |
@@ -1143,6 +1145,6 @@ A game that calls raylib directly (see above) doesn't build for the browser at a
 | Physics | Not planned: GoLib is for games, not engines | Simple movement and `Rectangle` overlap checks in the game |
 | Trigger pressure, vibration | Not on the roadmap yet | Triggers read as buttons |
 | 3D | M7, after the web build | None |
-| `.qoa`, `.xm` and `.mod` in a browser | Not planned: browsers cannot decode them | Save the sound as `.wav`, `.ogg` or `.mp3`, or keep the game on the desktop |
+| `.qoa`, `.xm` and `.mod` in a browser | Not planned: browsers cannot decode them | Save the sound as `.wav`, `.ogg` or `.mp3`. For music, put that file next to the `.xm` under the same name: a web build plays it, and the desktop keeps playing the module |
 
 When a game needs one of these, say so to the user and point to [docs/roadmap.md](../docs/roadmap.md), as [AGENTS.md](../AGENTS.md) asks, instead of building an engine to fill the gap.

@@ -40,10 +40,19 @@ func SetMasterVolume(volume float32) {
 	js_().Call("setMasterVolume", float64(volume))
 }
 
-// browserFormats are the sound files every browser decodes. The rest of what
-// GoLib reads on the desktop, .qoa for sounds and .xm and .mod for music,
-// browsers have never heard of.
-var browserFormats = []string{".wav", ".ogg", ".mp3"}
+// browserFormats are the sound files every browser decodes, in the order to
+// prefer them: .ogg is the smallest for a long piece of music. The rest of
+// what GoLib reads on the desktop, .qoa for sounds and .xm and .mod for
+// music, browsers have never heard of.
+var browserFormats = []string{".ogg", ".mp3", ".wav"}
+
+// PlayableFormats returns the sound file formats this machine decodes, in
+// the order to prefer them when there is a choice. Package golib plays a
+// file beside the one a game asked for when that one's format is missing
+// here, so a game whose music is .xm still plays its .ogg in a browser.
+func PlayableFormats() []string {
+	return slices.Clone(browserFormats)
+}
 
 // NewWave decodes the samples of a sound file held in memory, or says why the
 // browser couldn't. format is the file's extension, such as ".wav". It waits

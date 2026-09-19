@@ -25,6 +25,16 @@ func SetMasterVolume(volume float32) {
 	rl.SetMasterVolume(volume)
 }
 
+// PlayableFormats returns the sound file formats this machine decodes, in
+// the order to prefer them when there is a choice. raylib reads all of them:
+// the tracker modules are music only, which package golib knows. A format
+// missing from this list is one the machine cannot play at all, and package
+// golib looks for another file rather than stopping the game: see the web
+// backend, where a browser decodes only the first three.
+func PlayableFormats() []string {
+	return []string{".ogg", ".mp3", ".wav", ".qoa", ".xm", ".mod"}
+}
+
 // NewWave reads the samples of a sound file held in memory, or says why it
 // couldn't. format is the file's extension, such as ".wav".
 func NewWave(format string, data []byte) (Wave, error) {

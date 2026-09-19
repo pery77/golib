@@ -103,10 +103,7 @@ func (c *cli) buildWebInto(game, folder string) (gameInfo, bool) {
 		c.check("fail", shown+"/assets/ would be missing from the web build: add "+shown+"/assets.go, as the golib.EmbedAssets documentation shows")
 		return info, false
 	}
-	if silent := unplayableOnWeb(filepath.Join(dir, "assets")); len(silent) > 0 {
-		c.check("warn", fmt.Sprintf("a browser cannot play %s, so the game stops with a message when it reaches %s: save %s as .ogg or .mp3 for the web",
-			joinWords(webSilentFormats), joinWords(silent), pluralThem(len(silent))))
-	}
+	c.reportSilentOnWeb(unplayableOnWeb(filepath.Join(dir, "assets")))
 
 	shownFolder := c.shown(folder) + "/"
 	if err := os.MkdirAll(folder, 0o755); err != nil {
@@ -156,24 +153,97 @@ var webEnv = []string{"GOOS=js", "GOARCH=wasm"}
 // to be played in a browser keeps its music as .ogg or .mp3.
 var webSilentFormats = []string{".xm", ".mod", ".qoa"}
 
+// webTrackerFormats are the ones among them that golib.NewMusic plays. Where
+// a game's music is one of these, a web build plays a file beside it with the
+// same name in a format the browser reads, and runs without the music when
+// there is none. A .qoa sound has no such way out and stops the game.
+var webTrackerFormats = []string{".xm", ".mod"}
+
+// browserFormats are the sound files browsers decode, in the order package
+// golib prefers them, which is the order it looks for music to play in place
+// of a tracker module.
+var browserFormats = []string{".ogg", ".mp3", ".wav"}
+
+// silentOnWeb is a file in the game's assets folder that no browser can play,
+// named from that folder, and what a web build plays in its place.
+type silentOnWeb struct {
+	name    string // "assets/music/tune.xm"
+	instead string // "assets/music/tune.ogg", or "" when there is no such file
+	music   bool   // tracker music, which package golib replaces or skips
+}
+
 // unplayableOnWeb returns the files in the game's assets folder that no
-// browser can play, named from that folder.
-func unplayableOnWeb(assets string) []string {
-	var found []string
+// browser can play, sorted, each with the file a web build plays instead.
+func unplayableOnWeb(assets string) []silentOnWeb {
+	var found []silentOnWeb
 	filepath.WalkDir(assets, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil || entry.IsDir() {
 			return nil
 		}
-		if !slices.Contains(webSilentFormats, strings.ToLower(filepath.Ext(path))) {
+		format := strings.ToLower(filepath.Ext(path))
+		if !slices.Contains(webSilentFormats, format) {
 			return nil
 		}
-		if name, err := filepath.Rel(assets, path); err == nil {
-			found = append(found, "assets/"+filepath.ToSlash(name))
+		name, err := filepath.Rel(assets, path)
+		if err != nil {
+			return nil
 		}
+		file := silentOnWeb{name: "assets/" + filepath.ToSlash(name), music: slices.Contains(webTrackerFormats, format)}
+		if file.music {
+			file.instead = insteadOnWeb(assets, name)
+		}
+		found = append(found, file)
 		return nil
 	})
-	slices.Sort(found)
+	slices.SortFunc(found, func(a, b silentOnWeb) int { return strings.Compare(a.name, b.name) })
 	return found
+}
+
+// insteadOnWeb returns the file, named from the assets folder, that a web
+// build plays in place of the music named name, which is a path inside that
+// folder: the same name in the first browser format that is there, as package
+// golib looks for it. It returns "" when there is none.
+func insteadOnWeb(assets, name string) string {
+	base := strings.TrimSuffix(name, filepath.Ext(name))
+	for _, format := range browserFormats {
+		if isFile(filepath.Join(assets, base+format)) {
+			return "assets/" + filepath.ToSlash(base+format)
+		}
+	}
+	return ""
+}
+
+// reportSilentOnWeb says what a browser will do with the sound files it can't
+// decode: play another file, run without the music, or stop the game.
+func (c *cli) reportSilentOnWeb(files []silentOnWeb) {
+	var quiet, stopping []string
+	for _, file := range files {
+		switch {
+		case file.instead != "":
+			// One line each: they are separate files, with a fix each.
+			c.check("info", "a browser cannot play "+file.name+", so a web build plays "+file.instead+" instead")
+		case file.music:
+			quiet = append(quiet, file.name)
+		default:
+			stopping = append(stopping, file.name)
+		}
+	}
+	if len(quiet) > 0 {
+		c.check("warn", fmt.Sprintf("a browser cannot play %s, and there is no %s file of the same name beside %s, so the game runs in a browser without that music: save %s as .ogg for the web",
+			joinWords(quiet), joinEither(browserFormats), pluralThem(len(quiet)), pluralThem(len(quiet))))
+	}
+	if len(stopping) > 0 {
+		c.check("warn", fmt.Sprintf("a browser cannot play %s, so the game stops with a message when it reaches %s: save %s as .ogg or .mp3 for the web",
+			joinWords(stopping), pluralThem(len(stopping)), pluralThem(len(stopping))))
+	}
+}
+
+// joinEither lists choices, where joinWords lists things that go together.
+func joinEither(words []string) string {
+	if len(words) <= 1 {
+		return strings.Join(words, "")
+	}
+	return strings.Join(words[:len(words)-1], ", ") + " or " + words[len(words)-1]
 }
 
 // pluralThem names one file or several, for a sentence about them.

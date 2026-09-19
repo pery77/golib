@@ -217,7 +217,8 @@ func TestDistWeb(t *testing.T) {
 
 // A game whose assets hold music or sounds no browser decodes is told while
 // it builds, not when someone opens the page. It still builds: the rest of
-// the game plays.
+// the game plays. Music with nothing beside it to play instead only goes
+// quiet in a browser; a .qoa sound stops the game there.
 func TestWebWarnsAboutSoundsBrowsersCannotPlay(t *testing.T) {
 	tp := webProject(t, "rocks")
 	tp.embeds = []string{"all:assets"}
@@ -228,7 +229,7 @@ func TestWebWarnsAboutSoundsBrowsersCannotPlay(t *testing.T) {
 		t.Fatalf("no web build, output:\n%s%s", tp.stdout.String(), tp.stderr.String())
 	}
 	out := tp.stdout.String()
-	for _, want := range []string{"assets/music/tune.xm", "assets/sounds/hit.qoa", ".ogg or .mp3"} {
+	for _, want := range []string{"assets/music/tune.xm", "without that music", "assets/sounds/hit.qoa", "stops with a message"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output:\n%s\nwant a warning naming %q", out, want)
 		}
@@ -236,11 +237,33 @@ func TestWebWarnsAboutSoundsBrowsersCannotPlay(t *testing.T) {
 	if strings.Contains(out, "coin.wav") {
 		t.Errorf("output:\n%s\nwarns about a .wav, which browsers play", out)
 	}
-	if tp.c.warnings != 1 {
-		t.Errorf("%d warnings, want 1", tp.c.warnings)
+	if tp.c.warnings != 2 {
+		t.Errorf("%d warnings, want 2: one for the music that goes quiet, one for the sound that stops the game", tp.c.warnings)
 	}
 	if tp.c.failures != 0 {
 		t.Errorf("%d failures, want none: a game with such a file still builds", tp.c.failures)
+	}
+}
+
+// Music in a format no browser decodes, with a file of the same name beside
+// it that every browser does, is not a problem: package golib plays that one
+// in a web build, and the build says which file it will play.
+func TestWebSaysWhichFileItPlaysInsteadOfTrackerMusic(t *testing.T) {
+	tp := webProject(t, "rocks")
+	tp.embeds = []string{"all:assets"}
+	writeFile(t, tp.c.path("games", "rocks", "assets", "music", "tune.xm"), "tracker music")
+	writeFile(t, tp.c.path("games", "rocks", "assets", "music", "tune.mp3"), "the same tune")
+	writeFile(t, tp.c.path("games", "rocks", "assets", "music", "tune.ogg"), "the same tune, smaller")
+	if folder := tp.c.buildWeb("rocks"); folder == "" {
+		t.Fatalf("no web build, output:\n%s%s", tp.stdout.String(), tp.stderr.String())
+	}
+	out := tp.stdout.String()
+	// .ogg comes first in what package golib looks for, so it wins.
+	if want := "assets/music/tune.xm, so a web build plays assets/music/tune.ogg instead"; !strings.Contains(out, want) {
+		t.Errorf("output:\n%s\nwant a line saying %q", out, want)
+	}
+	if tp.c.warnings != 0 {
+		t.Errorf("%d warnings, want none: the music plays in a browser", tp.c.warnings)
 	}
 }
 
