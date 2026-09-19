@@ -88,3 +88,32 @@ func TestWindowScale(t *testing.T) {
 		}
 	}
 }
+
+// A game in fullscreen stays there. The web backend reports a player leaving
+// fullscreen, which a browser lets them do, and the game's own idea of it
+// follows; on the desktop nothing but the game takes it away, so a frame must
+// never drop it by itself.
+func TestFullscreenIsKeptFrameAfterFrame(t *testing.T) {
+	openTestWindow(t, 64, 64)
+	t.Cleanup(func() { SetFullscreen(false) })
+
+	var display window
+	SetFullscreen(true)
+	display.apply()
+	if !IsFullscreen() {
+		t.Fatal("the frame that switched to fullscreen left the game windowed")
+	}
+	for frame := range 3 {
+		display.apply()
+		if !IsFullscreen() {
+			t.Fatalf("frame %d dropped the fullscreen the game asked for", frame+2)
+		}
+	}
+
+	// And the game can leave it again.
+	SetFullscreen(false)
+	display.apply()
+	if IsFullscreen() {
+		t.Error("the game asked to leave fullscreen and stayed in it")
+	}
+}

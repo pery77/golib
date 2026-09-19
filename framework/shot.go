@@ -128,11 +128,19 @@ type wheelTurn struct {
 	amount float32
 }
 
+// touchHold is a finger on the touch screen at x, y, from update first to
+// update last.
+type touchHold struct {
+	first, last int
+	x, y        float32
+}
+
 // inputScript is the input golib shot plays. The script
 // "Enter@1 Right@30-90 Mouse@100:640,360 MouseLeft@101 GamepadA@120" holds
 // Enter down in update 1, which is one press, holds Right from update 30 to
 // update 90, moves the mouse pointer to 640, 360 in update 100, clicks the left
-// mouse button in update 101 and presses A on gamepad 0 in update 120.
+// mouse button in update 101 and presses A on gamepad 0 in update 120. Fingers
+// come as "Touch@40:200,600", one tap, or "Touch@40-90:200,600", a finger held.
 type inputScript struct {
 	keys           []hold[Key]
 	buttons        []hold[MouseButton]
@@ -140,15 +148,19 @@ type inputScript struct {
 	moves          []mouseMove // in update order
 	sticks         []stickMove // in update order
 	wheel          []wheelTurn
+	touches        []touchHold // one finger each, in the script's order
 }
 
 // parseInputScript parses an input script: items separated by spaces. Each is
 // Name@update or Name@first-last to hold a key or a button down,
 // Mouse@update:x,y to move the mouse pointer, MouseWheel@update:notches to
-// turn the wheel, or GamepadLeftStick@update:x,y or GamepadRightStick@update:x,y
-// to tilt a stick. Names are those of the Key constants without the Key
+// turn the wheel, GamepadLeftStick@update:x,y or GamepadRightStick@update:x,y
+// to tilt a stick, or Touch@update:x,y or Touch@first-last:x,y to put a finger
+// on the touch screen. Names are those of the Key constants without the Key
 // prefix, and of the MouseButton and GamepadButton constants, in any letter
-// case. Gamepad items act on gamepad 0. An empty script plays no input.
+// case. Gamepad items act on gamepad 0, and each Touch item is a finger of its
+// own, so two that overlap are two fingers at once. An empty script plays no
+// input.
 func parseInputScript(script string) (inputScript, error) {
 	var s inputScript
 	for _, item := range strings.Fields(script) {
@@ -163,6 +175,13 @@ func parseInputScript(script string) (inputScript, error) {
 				return inputScript{}, inputScriptError(item, "Mouse@update:x,y moves the mouse pointer to pixel x, y, such as Mouse@100:640,360")
 			}
 			s.moves = append(s.moves, mouseMove{update: update, x: x, y: y})
+			continue
+		case strings.EqualFold(name, "Touch"):
+			first, last, x, y, ok := parseTouchAt(when)
+			if !ok {
+				return inputScript{}, inputScriptError(item, "Touch@update:x,y puts a finger on pixel x, y, and Touch@first-last:x,y holds it there, such as Touch@40-90:200,600")
+			}
+			s.touches = append(s.touches, touchHold{first: first, last: last, x: x, y: y})
 			continue
 		case strings.EqualFold(name, "MouseWheel"):
 			update, amount, ok := parseAmountAt(when)
@@ -234,6 +253,20 @@ func parsePointAt(text string) (update int, x, y float32, ok bool) {
 	return update, float32(parsedX), float32(parsedY), true
 }
 
+// parseTouchAt parses "update:x,y", one update, or "first-last:x,y", a range
+// of them.
+func parseTouchAt(text string) (first, last int, x, y float32, ok bool) {
+	updates, point, hasColon := strings.Cut(text, ":")
+	xText, yText, hasComma := strings.Cut(point, ",")
+	first, last, okUpdates := parseUpdates(updates)
+	parsedX, xErr := strconv.ParseFloat(xText, 32)
+	parsedY, yErr := strconv.ParseFloat(yText, 32)
+	if !hasColon || !hasComma || !okUpdates || xErr != nil || yErr != nil {
+		return 0, 0, 0, 0, false
+	}
+	return first, last, float32(parsedX), float32(parsedY), true
+}
+
 // parseAmountAt parses "update:amount".
 func parseAmountAt(text string) (update int, amount float32, ok bool) {
 	updateText, amountText, hasColon := strings.Cut(text, ":")
@@ -246,12 +279,18 @@ func parseAmountAt(text string) (update int, amount float32, ok bool) {
 }
 
 func inputScriptError(item, reason string) error {
-	return fmt.Errorf("golib.Run: invalid input %q for golib shot --input: %s. Example: --input \"Enter@1 Right@30-90 Mouse@100:640,360 MouseLeft@101\"", item, reason)
+	return fmt.Errorf("golib.Run: invalid input %q for golib shot --input: %s. Example: --input \"Enter@1 Right@30-90 Mouse@100:640,360 MouseLeft@101 Touch@120-180:200,600\"", item, reason)
 }
 
-// pointerAt returns where the latest moves up to update number update put the
-// mouse pointer: 0, 0 before any.
+// pointerAt returns where the mouse pointer is in update number update: on the
+// oldest finger on the screen, as a finger moves the pointer in a window, or
+// else where the latest Mouse move put it, and 0, 0 before any.
 func (s inputScript) pointerAt(update int) (x, y float32) {
+	for _, touch := range s.touches {
+		if update >= touch.first && update <= touch.last {
+			return touch.x, touch.y
+		}
+	}
 	for _, move := range s.moves {
 		if move.update > update {
 			break
@@ -278,6 +317,25 @@ func (s inputScript) at(update int) Input {
 		if heldAt(s.buttons, h.of, update) {
 			in.mouseDown[h.of] = true
 			in.mousePressed[h.of] = !heldAt(s.buttons, h.of, update-1)
+		}
+	}
+	for i, touch := range s.touches {
+		if update < touch.first || update > touch.last || in.touchCount >= maxTouches {
+			continue
+		}
+		in.touches[in.touchCount] = Touch{
+			ID:       i + 1,
+			Position: Vector2{X: touch.x, Y: touch.y},
+			Pressed:  update == touch.first,
+		}
+		in.touchCount++
+	}
+	// A finger holds the left mouse button down and clicks it as it lands, as
+	// it does in a window, so a menu written for a mouse is tapped in a shot.
+	for _, touch := range in.Touches() {
+		in.mouseDown[MouseLeft] = true
+		if touch.Pressed {
+			in.mousePressed[MouseLeft] = true
 		}
 	}
 	in.mouseX, in.mouseY = s.pointerAt(update)
@@ -327,6 +385,11 @@ func shotFileName(frame int) string {
 // Every frame runs exactly one update, so frame N always shows the game after N
 // updates, on any machine. The planned frames are saved as PNG files.
 func runShots(game Game, config Config, plan *shotPlan) error {
+	// A script with fingers in it is played with fingers, as a script with
+	// gamepad items has that gamepad connected: a game that draws its on-screen
+	// controls only for a player using them draws them in these shots, in every
+	// frame and not only in the ones a finger is down in.
+	playingWithTouch.Store(len(plan.input.touches) > 0)
 	if device.WritesFiles {
 		if err := os.MkdirAll(plan.dir, 0o755); err != nil {
 			return fmt.Errorf("golib.Run: cannot create the screenshot folder: %w", err)

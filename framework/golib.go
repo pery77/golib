@@ -243,8 +243,17 @@ func runWindow(game Game, config Config) error {
 		queue     inputQueue
 		input     Input
 		display   window
-		updates   int // run so far, for the time uniform of shaders
+		updates   int     // run so far, for the time uniform of shaders
+		touches   []Touch // this frame's fingers, kept between frames to reuse
+
+		// The mouse pointer as the frame before saw it, for whether it moved.
+		pointerKnown               bool
+		lastPointerX, lastPointerY float32
 	)
+	// A phone or a tablet is played with fingers from the first frame; anywhere
+	// else the game waits for one, so a computer with a touch screen and a
+	// mouse doesn't start with on-screen controls over the game.
+	playingWithTouch.Store(device.TouchScreen())
 	scene := game
 	last := device.Time()
 	for !device.WindowShouldClose() {
@@ -258,8 +267,26 @@ func runWindow(game Game, config Config) error {
 		queue.readKeyboard(deviceKeyDown, deviceKeyPressed)
 		pointerX, pointerY := device.MousePosition()
 		mouseX, mouseY := toScreen(pointerX, pointerY, fit, screenWidth, screenHeight)
-		queue.readMouse(mouseX, mouseY, device.MouseWheel(), deviceMouseDown, deviceMousePressed)
+		// The oldest finger on a touch screen moves the mouse pointer and holds
+		// its left button, so a tap works a game written for a mouse.
+		touches = deviceTouches(touches, fit, screenWidth, screenHeight)
+		if len(touches) > 0 {
+			mouseX, mouseY = touches[0].Position.X, touches[0].Position.Y
+		}
+		mouseDown, mousePressed := mouseWithTouch(touches, deviceMouseDown, deviceMousePressed)
+		wheel := device.MouseWheel()
+		queue.readMouse(mouseX, mouseY, wheel, mouseDown, mousePressed)
+		queue.readTouches(touches)
 		queue.readGamepads(deviceGamepadFrame)
+		// Whether the game shows on-screen controls follows what the player
+		// last used, so one web build is played with fingers on a phone and
+		// with the keyboard and the mouse on a computer. The mouse is read from
+		// the machine, not from queue: a finger holds its left button too.
+		mouseUsed := pointerKnown && (pointerX != lastPointerX || pointerY != lastPointerY)
+		lastPointerX, lastPointerY, pointerKnown = pointerX, pointerY, true
+		mouseUsed = mouseUsed || wheel != 0 ||
+			deviceMouseDown(MouseLeft) || deviceMouseDown(MouseRight) || deviceMouseDown(MouseMiddle)
+		followTouchPlaying(len(touches) > 0, queue.keyboardUsed, mouseUsed, queue.gamepadUsed)
 		frameUpdates := gameClock.advanceUnlessPaused(now-last, !focused && config.PauseUnfocused)
 		var (
 			quit bool

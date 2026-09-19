@@ -1,9 +1,13 @@
 package golib
 
-import "golib/internal/device"
+import (
+	"slices"
 
-// Input is the keyboard, the mouse and the gamepads as one update sees them.
-// Run passes it to Game.Update; use it only there.
+	"golib/internal/device"
+)
+
+// Input is the keyboard, the mouse, the touch screen and the gamepads as one
+// update sees them. Run passes it to Game.Update; use it only there.
 type Input struct {
 	down    [keyCount]bool
 	pressed [keyCount]bool
@@ -13,6 +17,9 @@ type Input struct {
 	mouseDown      [mouseButtonCount]bool
 	mousePressed   [mouseButtonCount]bool
 	mouseWheel     float32
+
+	touches    [maxTouches]Touch
+	touchCount int
 
 	gamepads [maxGamepads]gamepadState
 }
@@ -174,14 +181,27 @@ type inputQueue struct {
 	deliveredAny   bool    // an update has seen the pointer
 	mouseWheel     float32 // turned, not yet delivered to an update
 
+	touches     [maxTouches]Touch // the fingers on the screen now
+	touchCount  int
+	landed      [maxTouches]Touch // fingers that landed, not yet delivered to an update
+	landedCount int
+
+	// What the player used in the frame just read, for PlayingWithTouch.
+	keyboardUsed bool
+	gamepadUsed  bool
+
 	gamepads [maxGamepads]gamepadState // pressed holds presses not yet delivered to an update
 }
 
 // readKeyboard records the keyboard for the current frame. isDown and
 // wasPressed read the machine's keys; tests pass their own.
 func (q *inputQueue) readKeyboard(isDown, wasPressed func(Key) bool) {
+	q.keyboardUsed = false
 	for _, key := range polledKeys {
 		q.down[key] = isDown(key)
+		if q.down[key] || wasPressed(key) {
+			q.keyboardUsed = true
+		}
 		if wasPressed(key) {
 			q.pending[key] = true
 		}
@@ -202,9 +222,63 @@ func (q *inputQueue) readMouse(x, y, wheel float32, isDown, wasPressed func(Mous
 	}
 }
 
+// readTouches records the fingers on the screen for the current frame, in the
+// coordinates the game draws with. A finger that landed waits here until an
+// update has seen it, even if it has lifted by then, so that a tap between two
+// updates reaches the game as a mouse click does.
+func (q *inputQueue) readTouches(touches []Touch) {
+	q.touchCount = 0
+	for _, touch := range touches {
+		if q.touchCount >= maxTouches {
+			break
+		}
+		q.touches[q.touchCount] = touch
+		q.touchCount++
+		if touch.Pressed {
+			q.rememberLanded(touch)
+		}
+	}
+}
+
+// rememberLanded keeps a finger that landed until an update has seen it.
+func (q *inputQueue) rememberLanded(touch Touch) {
+	for i := range q.landedCount {
+		if q.landed[i].ID == touch.ID {
+			q.landed[i] = touch
+			return
+		}
+	}
+	if q.landedCount < maxTouches {
+		q.landed[q.landedCount] = touch
+		q.landedCount++
+	}
+}
+
+// onScreen reports whether the finger with this id is on the screen now.
+func (q *inputQueue) onScreen(id int) bool {
+	for i := range q.touchCount {
+		if q.touches[i].ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+// landedNow reports whether the finger with this id landed since the previous
+// update.
+func (q *inputQueue) landedNow(id int) bool {
+	for i := range q.landedCount {
+		if q.landed[i].ID == id {
+			return true
+		}
+	}
+	return false
+}
+
 // readGamepads records every gamepad for the current frame. frame is
 // deviceGamepadFrame; tests pass their own.
 func (q *inputQueue) readGamepads(frame func(pad int) gamepadFrame) {
+	q.gamepadUsed = false
 	for pad := range q.gamepads {
 		read := frame(pad)
 		gamepad := &q.gamepads[pad]
@@ -218,6 +292,12 @@ func (q *inputQueue) readGamepads(frame func(pad int) gamepadFrame) {
 		}
 		gamepad.leftX, gamepad.leftY = applyDeadZone(read.leftX, read.leftY)
 		gamepad.rightX, gamepad.rightY = applyDeadZone(read.rightX, read.rightY)
+		if !gamepad.connected {
+			continue
+		}
+		if slices.Contains(gamepad.down[:], true) || gamepad.leftX != 0 || gamepad.leftY != 0 || gamepad.rightX != 0 || gamepad.rightY != 0 {
+			q.gamepadUsed = true
+		}
 	}
 }
 
@@ -232,10 +312,29 @@ func (q *inputQueue) next(input *Input) {
 	input.mouseDown = q.mouseDown
 	input.mousePressed = q.mousePending
 	input.mouseWheel = q.mouseWheel
+	input.touchCount = 0
+	for i := range q.touchCount {
+		touch := q.touches[i]
+		touch.Pressed = q.landedNow(touch.ID)
+		input.touches[input.touchCount] = touch
+		input.touchCount++
+	}
+	// A finger that landed and lifted before this update still reaches it,
+	// where it last was, as a mouse click does.
+	for i := range q.landedCount {
+		if q.onScreen(q.landed[i].ID) || input.touchCount >= maxTouches {
+			continue
+		}
+		touch := q.landed[i]
+		touch.Pressed = true
+		input.touches[input.touchCount] = touch
+		input.touchCount++
+	}
 	input.gamepads = q.gamepads
 	q.pending = [keyCount]bool{}
 	q.mousePending = [mouseButtonCount]bool{}
 	q.mouseWheel = 0
+	q.landedCount = 0
 	for pad := range q.gamepads {
 		q.gamepads[pad].pressed = [gamepadButtonCount]bool{}
 	}
@@ -255,4 +354,29 @@ func deviceMouseDown(button MouseButton) bool {
 
 func deviceMousePressed(button MouseButton) bool {
 	return device.IsMousePressed(int32(button))
+}
+
+// mouseWithTouch returns the mouse buttons with the fingers counted in: the
+// oldest finger on the screen holds MouseLeft down, and a finger landing is a
+// click of it, so a menu written for a mouse is worked by tapping it. The
+// pointer follows that finger in runWindow, which knows where it is.
+func mouseWithTouch(touches []Touch, isDown, wasPressed func(MouseButton) bool) (down, pressed func(MouseButton) bool) {
+	down = func(button MouseButton) bool {
+		return isDown(button) || (button == MouseLeft && len(touches) > 0)
+	}
+	pressed = func(button MouseButton) bool {
+		if wasPressed(button) {
+			return true
+		}
+		if button != MouseLeft {
+			return false
+		}
+		for _, touch := range touches {
+			if touch.Pressed {
+				return true
+			}
+		}
+		return false
+	}
+	return down, pressed
 }

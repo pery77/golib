@@ -34,12 +34,14 @@ const (
 func (c *cli) web(options []string) int {
 	var names []string
 	port := defaultWebPort
-	open := true
+	open, lan := true, false
 	for i := 0; i < len(options); i++ {
 		option := options[i]
 		switch {
 		case option == "--no-open":
 			open = false
+		case option == "--lan":
+			lan = true
 		case option == "--port":
 			i++
 			if i >= len(options) {
@@ -64,7 +66,7 @@ func (c *cli) web(options []string) int {
 	if folder == "" {
 		return c.summary("web")
 	}
-	return c.serveWeb(game, folder, port, open)
+	return c.serveWeb(game, folder, port, open, lan)
 }
 
 // webTags is what a web build is built with: its assets go inside it, as a
@@ -328,9 +330,16 @@ func (c *cli) writePage(game string, info gameInfo, folder string) error {
 }
 
 // serveWeb serves folder on this machine until the terminal stops it, and
-// opens the game in a browser unless open is false.
-func (c *cli) serveWeb(game, folder string, port int, open bool) int {
-	listener, err := net.Listen("tcp", "127.0.0.1:"+strconv.Itoa(port))
+// opens the game in a browser unless open is false. With lan, it serves to the
+// whole network the machine is on, and says at which address, so that a phone
+// or a tablet on the same Wi-Fi can play the game: a touch screen is the one
+// thing this machine cannot try for itself.
+func (c *cli) serveWeb(game, folder string, port int, open, lan bool) int {
+	host := "127.0.0.1"
+	if lan {
+		host = "0.0.0.0"
+	}
+	listener, err := net.Listen("tcp", host+":"+strconv.Itoa(port))
 	if err != nil {
 		c.check("fail", fmt.Sprintf("cannot serve on port %d: %v", port, err))
 		if port != 0 {
@@ -338,8 +347,17 @@ func (c *cli) serveWeb(game, folder string, port int, open bool) int {
 		}
 		return c.summary("web")
 	}
-	address := fmt.Sprintf("http://localhost:%d/", listener.Addr().(*net.TCPAddr).Port)
+	served := listener.Addr().(*net.TCPAddr).Port
+	address := fmt.Sprintf("http://localhost:%d/", served)
 	c.check("info", fmt.Sprintf("serving %s at %s (press Ctrl+C to stop)", c.shown(folder), address))
+	if lan {
+		if onNetwork := networkAddress(); onNetwork != "" {
+			c.check("info", fmt.Sprintf("open http://%s:%d/ on a phone or tablet on the same network, to play the game with a touch screen", onNetwork, served))
+		} else {
+			c.check("warn", "this machine has no network address to give: it may not be on a network, and only this machine can open the game")
+		}
+		c.check("info", "anyone on this network can open the game while --lan serves it")
+	}
 	if open {
 		c.openBrowser(address)
 	}
@@ -350,6 +368,29 @@ func (c *cli) serveWeb(game, folder string, port int, open bool) int {
 		return 1
 	}
 	return 0
+}
+
+// networkAddress returns the address this machine has on the network it is on,
+// for another device to open, or "" when it has none. A machine can have
+// several, one per adapter, and the first one that is neither a loopback nor a
+// link-local address is the one a phone on the same Wi-Fi reaches.
+func networkAddress() string {
+	addresses, err := net.InterfaceAddrs()
+	if err != nil {
+		return ""
+	}
+	for _, address := range addresses {
+		network, ok := address.(*net.IPNet)
+		if !ok {
+			continue
+		}
+		ip := network.IP.To4()
+		if ip == nil || ip.IsLoopback() || ip.IsLinkLocalUnicast() {
+			continue
+		}
+		return ip.String()
+	}
+	return ""
 }
 
 // webFiles serves the web build. Browsers only run WebAssembly served as
@@ -404,11 +445,19 @@ const webPageTemplate = `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>{{title}}</title>
 <style>
-	html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
-	#game { display: block; width: 100%; height: 100%; outline: none; }
+	/* The game fills the page, and nothing on a phone treats it as a page:
+	   a tap is the game's, not a zoom, a text selection or a scroll, and
+	   100dvh is the screen a phone really leaves, without the part its
+	   address bar covers. */
+	html, body { margin: 0; height: 100%; height: 100dvh; background: #000; overflow: hidden; }
+	body {
+		touch-action: none; overscroll-behavior: none;
+		-webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent;
+	}
+	#game { display: block; width: 100%; height: 100%; outline: none; touch-action: none; }
 	#message {
 		position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
 		color: #eee; font: 16px system-ui, sans-serif; text-align: center; padding: 1em;

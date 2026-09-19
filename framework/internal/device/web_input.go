@@ -8,35 +8,8 @@ import (
 	"syscall/js"
 )
 
-// The keyboard, the mouse and the gamepads come over in one buffer of bytes,
-// once a frame, instead of a call for each key: package golib asks about
-// every key it knows every frame, and a call each would cost more than the
-// game. web.js writes the buffer and readInput copies it here.
-//
-// The buffer starts with the numbers, as little-endian float32, and then the
-// keys and buttons, one byte each: 0 for up, 1 for down.
-const (
-	inMouseX = 0 // in floats from the start
-	inMouseY = 1
-	inWheel  = 2
-	inSticks = 3 // 4 pads of leftX, leftY, rightX, rightY
-	inFloats = inSticks + 4*maxPads
-	inBytes  = inFloats * 4 // where the bytes start
-
-	padButtons = GamepadRightStickButton + 1 // buttons a pad can report
-	maxPads    = 4
-
-	inKeysDown      = inBytes
-	inKeysPressed   = inKeysDown + KeyCount
-	inMouseDown     = inKeysPressed + KeyCount
-	inMousePressed  = inMouseDown + mouseButtons
-	inPadsConnected = inMousePressed + mouseButtons
-	inPadsDown      = inPadsConnected + maxPads
-	inPadsPressed   = inPadsDown + maxPads*padButtons
-	inSize          = inPadsPressed + maxPads*padButtons
-
-	mouseButtons = MouseMiddle + 1
-)
+// The layout of the buffer the page fills is in weblayout.go, which the checks
+// in webtouch_test.go read as well.
 
 // input is this frame's keyboard, mouse and gamepads, copied from the page.
 var input struct {
@@ -99,6 +72,38 @@ func MousePosition() (x, y float32) {
 // notches.
 func MouseWheel() float32 {
 	return number(inWheel)
+}
+
+// TouchPoints returns the fingers on the screen now, oldest first, in canvas
+// pixels. A finger that landed and lifted between two frames is in the list
+// once, so a quick tap is never lost.
+func TouchPoints() []TouchPoint {
+	count := int(number(inTouchCount))
+	if count <= 0 {
+		return nil
+	}
+	count = min(count, MaxTouches)
+	points := make([]TouchPoint, count)
+	for i := range points {
+		at := inTouches + i*3
+		points[i] = TouchPoint{
+			ID:  int(number(at)),
+			X:   number(at + 1),
+			Y:   number(at + 2),
+			New: flag(inTouchesNew + i),
+		}
+	}
+	return points
+}
+
+// TouchScreen reports whether a finger is how the machine the page is open on
+// is pointed at: a phone or a tablet. A computer with a touch screen and a
+// mouse is false, and package golib notices a finger there when one lands.
+func TouchScreen() bool {
+	if !js_().Truthy() {
+		return false
+	}
+	return js_().Call("touchScreen").Bool()
 }
 
 // GamepadConnected reports whether gamepad number pad is plugged in. A

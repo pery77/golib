@@ -2,6 +2,7 @@ package main
 
 import (
 	"archive/zip"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -75,6 +76,31 @@ func TestWebBuild(t *testing.T) {
 	}
 }
 
+// The page a web build is played in has to hold up on a phone: a tap is the
+// game's, not a zoom or a scroll, and the game fills the screen the phone
+// really leaves, not the one its address bar sits on top of.
+func TestThePageIsReadyForAPhone(t *testing.T) {
+	tp := webProject(t, "rocks")
+	folder := tp.c.buildWeb("rocks")
+	if folder == "" {
+		t.Fatalf("no web build, output:\n%s%s", tp.stdout.String(), tp.stderr.String())
+	}
+	page, err := os.ReadFile(filepath.Join(folder, webPageFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"user-scalable=no",   // a double tap plays the game instead of zooming it
+		"viewport-fit=cover", // the notch's edges are the game's too
+		"touch-action: none", // a finger on the game doesn't scroll the page
+		"height: 100dvh",     // the screen a phone leaves, address bar aside
+	} {
+		if !strings.Contains(string(page), want) {
+			t.Errorf("%s doesn't hold %q:\n%s", webPageFile, want, page)
+		}
+	}
+}
+
 // A game with an assets folder needs assets.go: a web build carries its
 // assets inside, as a dist build does, and a page has no folder to read.
 func TestWebBuildNeedsEmbeddedAssets(t *testing.T) {
@@ -104,6 +130,22 @@ func TestWebBuildFailureIsReported(t *testing.T) {
 	}
 	if want := "web build failed for games/rocks"; !strings.Contains(tp.stdout.String(), want) {
 		t.Errorf("output:\n%s\nwant it to hold %q", tp.stdout.String(), want)
+	}
+}
+
+// --lan serves the game to the network so that a phone can open it, which
+// means the address it prints has to be one another device can reach.
+func TestTheNetworkAddressIsOneAnotherDeviceCanReach(t *testing.T) {
+	address := networkAddress()
+	if address == "" {
+		t.Skip("this machine is on no network, so there is no address to check")
+	}
+	ip := net.ParseIP(address)
+	if ip == nil || ip.To4() == nil {
+		t.Fatalf("networkAddress() = %q, want an IPv4 address a phone can open", address)
+	}
+	if ip.IsLoopback() || ip.IsLinkLocalUnicast() {
+		t.Errorf("networkAddress() = %q, which reaches this machine only", address)
 	}
 }
 

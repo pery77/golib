@@ -150,8 +150,9 @@ The framework puts those values in memory before `main` runs, so a scene built i
 | `Mouse@N:X,Y` | Moves the mouse pointer to pixel X, Y in update N; it stays there until the next move. Before the first move it is at 0, 0. |
 | `MouseWheel@N:A` | Turns the mouse wheel by A notches in update N: up when positive, down when negative |
 | `GamepadLeftStick@N:X,Y`, `GamepadRightStick@N:X,Y` | Tilts a stick of gamepad 0 to X, Y, each from -1 to 1, in update N; it stays there until the next tilt |
+| `Touch@N:X,Y`, `Touch@A-B:X,Y` | Puts a finger on the touch screen at pixel X, Y, for update N or from update A to update B. Each item is a finger of its own, so two whose updates overlap are two fingers at once |
 
-Names are the `golib.Key` constants without `Key` (`Enter`, `Escape`, `Space`, `Left`, `A`, `Zero`), the `golib.MouseButton` constants (`MouseLeft`, `MouseRight`, `MouseMiddle`) and the `golib.GamepadButton` constants (`GamepadA`, `GamepadStart`, `GamepadUp`), in any letter case. The game sees a press in the first update of each hold, exactly as `Input.KeyPressed`, `Input.MousePressed` and `Input.GamepadPressed` report real ones. Gamepad items act on gamepad 0, which is connected, with the name `golib shot`, whenever the script has a gamepad item; real devices are ignored. Frame N is drawn right after update N, so `golib shot 90 --input "Enter@1 Escape@60"` shows the game 30 updates after Escape went down, and `--input "Mouse@10:640,500 MouseLeft@11"` clicks at 640, 500. An invalid item makes the game exit with an error that lists the names. Quote the script in every shell.
+Names are the `golib.Key` constants without `Key` (`Enter`, `Escape`, `Space`, `Left`, `A`, `Zero`), the `golib.MouseButton` constants (`MouseLeft`, `MouseRight`, `MouseMiddle`) and the `golib.GamepadButton` constants (`GamepadA`, `GamepadStart`, `GamepadUp`), in any letter case. The game sees a press in the first update of each hold, exactly as `Input.KeyPressed`, `Input.MousePressed` and `Input.GamepadPressed` report real ones. Gamepad items act on gamepad 0, which is connected, with the name `golib shot`, whenever the script has a gamepad item; real devices are ignored. A script with a `Touch` item in it is played with fingers, so `golib.PlayingWithTouch` is true in every frame of those shots, not only in the ones a finger is down in, and a game draws its on-screen controls in them; the oldest finger moves the mouse pointer and holds its left button, as it does in a browser. Frame N is drawn right after update N, so `golib shot 90 --input "Enter@1 Escape@60"` shows the game 30 updates after Escape went down, and `--input "Mouse@10:640,500 MouseLeft@11"` clicks at 640, 500. An invalid item makes the game exit with an error that lists the names. Quote the script in every shell.
 
 Random numbers from `golib.RandomInt` and `golib.RandomFloat` start from the same seed in every shot, so the same command gives the same pictures. The framework picks that seed when the program starts, before `main`, by checking `GOLIB_SHOT_FRAMES`.
 
@@ -326,6 +327,17 @@ build/<game>/web/
 ```
 
 `--port <n>` chooses the port (8080 by default, and 0 picks a free one), and `--no-open` leaves the browser closed, for a machine with none. The server sends `.wasm` files as `application/wasm`, which browsers insist on, and asks for nothing to be cached, so a rebuild shows on the next reload.
+
+`--lan` serves the game to the whole network this machine is on, instead of to this machine alone, and prints the address to type on a phone or a tablet on the same Wi-Fi: a touch screen is the one thing this machine cannot try for itself. Anyone on that network can open the game while it runs, which is why it takes a flag.
+
+### Phones
+
+A phone plays a web build, and two things in it are the phone's alone:
+
+- **Fullscreen.** A browser grants it only while it handles a key, a click or a touch, so `golib.SetFullscreen` is remembered and asked for at the next one of those; on a phone that is a tap. The **page** goes fullscreen, not the canvas: a fullscreen canvas keeps the shape its box had when the phone turns from portrait to landscape, which left the game drawn into a corner of the screen on the first build uploaded to itch.io, and a message over the game would sit behind the canvas as well. While the game is the one that asked for fullscreen, the backend also measures the canvas against the screen rather than against its own box, and gives it that size in CSS pixels, so the game fills the screen from the first frame after the phone turns. `framework/internal/device/webscreen_test.go` checks both in a browser with no window: it plays the browser's part, since fullscreen needs a real tap, turns a page from portrait to landscape with the canvas's box left as it was, and asks how large the game is drawn.
+- **Fingers.** Touch events become the fingers `Input.Touches` reports, and package golib moves the mouse pointer with the oldest of them and holds its left button, so a tap works a game written for a mouse. `framework/internal/device/webtouch_test.go` touches a page in a browser with no window and reads the input buffer the backend fills.
+
+The page `golib web` and `golib dist --web` write is made for a phone too: the game fills the screen the phone really leaves (`100dvh`, without the part the address bar covers), a tap is the game's rather than a zoom, a scroll or a text selection (`touch-action: none`, `user-scalable=no`), and the edges under a notch are the game's as well (`viewport-fit=cover`).
 
 A web build carries its assets inside, as a dist build does, so a game needs `assets.go` (see `golib.EmbedAssets`) and `ReadAsset` works unchanged, with no loading screen. It is built with the `golib_dist` tag for that reason.
 

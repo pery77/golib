@@ -24,12 +24,19 @@ var fullscreenWanted atomic.Bool
 //
 // No key switches by itself. To start in fullscreen, set Config.Fullscreen.
 // Screenshots from golib shot ignore fullscreen.
+//
+// In a browser it happens at the next key, click or touch, which is when a
+// browser allows it, and the player can leave it themselves with Esc or a
+// phone's gesture; IsFullscreen follows them when they do, so this call switches
+// it back on. On a phone, that key, click or touch is a tap, so a game meant for
+// one needs something to tap.
 func SetFullscreen(on bool) {
 	fullscreenWanted.Store(on)
 }
 
 // IsFullscreen reports whether the game is in fullscreen, or will be from the
-// next frame.
+// next frame. In a browser it turns false by itself when the player leaves
+// fullscreen with Esc or a phone's gesture.
 func IsFullscreen() bool {
 	return fullscreenWanted.Load()
 }
@@ -91,6 +98,14 @@ func (w *window) apply() {
 	if hide := mouseHiddenWanted.Load(); hide != w.mouseHidden {
 		device.SetCursorVisible(!hide)
 		w.mouseHidden = hide
+	}
+	// A player who leaves fullscreen themselves, which a browser lets them do
+	// with Esc or a phone's gesture, is not put back into it: the game's idea
+	// of fullscreen follows the machine's, so the next SetFullscreen is a real
+	// change again and IsFullscreen keeps telling the truth.
+	if w.fullscreen && device.FullscreenLost() {
+		w.fullscreen = false
+		fullscreenWanted.Store(false)
 	}
 	want := fullscreenWanted.Load()
 	if want == w.fullscreen {

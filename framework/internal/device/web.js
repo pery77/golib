@@ -46,6 +46,10 @@ window.golib = (function () {
 
 	let frameTime = 0, wake = null, closed = false;
 	let wantFullscreen = false, fullscreenAsked = false;
+	let fullscreenTarget = null; // the element the game asked to show fullscreen
+	let fullscreenHeld = false;  // the browser granted that ask
+	let fullscreenLeft = false;  // and the player has left it since
+	let sizedBox = false;        // the canvas is the size this file gave it
 	let cursorShown = true;
 
 	let commandBytes = null, commandFloats = null;
@@ -204,15 +208,49 @@ void main() {
 
 	// resize keeps the drawing buffer the size of the canvas on the screen,
 	// counting the pixels the display really has.
+	//
+	// While the game itself asked for fullscreen, the canvas is measured
+	// against the screen and given that size in CSS pixels, instead of being
+	// measured against its own box: a phone turned from portrait to landscape
+	// leaves a fullscreen element the shape it had until the browser lays the
+	// page out again, and the game would sit in a corner of the screen meanwhile
+	// instead of filling it. A page that put the game fullscreen by itself, as
+	// itch.io's own button does, is left alone: the canvas's box there is the
+	// page's to decide, and it already follows the screen.
 	function resize() {
 		const scale = window.devicePixelRatio || 1;
-		const width = Math.max(1, Math.round(canvas.clientWidth * scale));
-		const height = Math.max(1, Math.round(canvas.clientHeight * scale));
+		let boxWidth = canvas.clientWidth, boxHeight = canvas.clientHeight;
+		if (ownFullscreen()) {
+			boxWidth = window.innerWidth || boxWidth;
+			boxHeight = window.innerHeight || boxHeight;
+			sizeCanvasBox(boxWidth, boxHeight);
+		} else if (sizedBox) {
+			sizeCanvasBox(0, 0); // back out of the page, which sizes it again
+			boxWidth = canvas.clientWidth;
+			boxHeight = canvas.clientHeight;
+		}
+		const width = Math.max(1, Math.round(boxWidth * scale));
+		const height = Math.max(1, Math.round(boxHeight * scale));
 		if (canvas.width !== width || canvas.height !== height) {
 			canvas.width = width;
 			canvas.height = height;
 			if (boundTarget === 0) bindCanvas();
 		}
+	}
+
+	// sizeCanvasBox says how large the canvas is on the page, in CSS pixels. A
+	// width or height of 0 takes that back, so the page's own stylesheet sizes
+	// it again.
+	function sizeCanvasBox(width, height) {
+		if (width > 0 && height > 0) {
+			canvas.style.width = width + 'px';
+			canvas.style.height = height + 'px';
+			sizedBox = true;
+			return;
+		}
+		canvas.style.width = '';
+		canvas.style.height = '';
+		sizedBox = false;
 	}
 
 	// ------------------------------------------------------------- drawing
@@ -671,17 +709,49 @@ void main() {
 	const PAD_BUTTONS = [7, 6, 8, 5, 9, 11, 10, 12, 13, 15, 16, 17, 1, 3, 4, 2, 14];
 	const PAD_BUTTON_COUNT = 18, MAX_PADS = 4;
 
+	// Where each part of the input buffer is, the same list as in web_input.go:
+	// change one and change the other. The floats come first, counted in
+	// floats, and the keys and buttons after them, counted in bytes.
+	const MAX_TOUCHES = 8;
+	const IN_MOUSE_X = 0, IN_MOUSE_Y = 1, IN_WHEEL = 2, IN_STICKS = 3;
+	const IN_TOUCH_COUNT = IN_STICKS + 4 * MAX_PADS;
+	const IN_TOUCHES = IN_TOUCH_COUNT + 1; // MAX_TOUCHES fingers of id, x, y
+	const IN_FLOATS = IN_TOUCHES + 3 * MAX_TOUCHES;
+	const KEYS_AT = IN_FLOATS * 4;
+
 	const keysDown = new Uint8Array(349), keysPressed = new Uint8Array(349);
 	const mouseDown = new Uint8Array(3), mousePressed = new Uint8Array(3);
 	let mouseX = 0, mouseY = 0, wheel = 0;
 	const padWas = []; // what each pad's buttons were last frame, for presses
 
+	// The fingers on the screen, oldest first, each with an id of GoLib's own
+	// that lasts as long as the finger is down: { id, pointer, x, y, fresh,
+	// gone }. A game reads them through Input.Touches.
+	let touches = [];
+	let nextTouch = 1;
+
 	let inputBytes = null, inputFloats = null;
 
 	function inputBuffer(size) {
 		inputBytes = new Uint8Array(size);
-		inputFloats = new Float32Array(inputBytes.buffer, 0, 19);
+		inputFloats = new Float32Array(inputBytes.buffer, 0, IN_FLOATS);
 		return inputBytes;
+	}
+
+	// touchScreen reports whether a finger is how this machine is pointed at: a
+	// phone or a tablet. A computer with a touch screen and a mouse says no,
+	// because its player has a keyboard and a pointer and the game should not
+	// cover itself with on-screen controls; package golib turns them on there
+	// as soon as a finger really lands on the game.
+	//
+	// "pointer: coarse" is the browser's own answer to that question: it is the
+	// main pointer being a finger rather than a mouse.
+	function touchScreen() {
+		const fingers = navigator && navigator.maxTouchPoints !== undefined
+			? navigator.maxTouchPoints > 0
+			: 'ontouchstart' in window;
+		if (!fingers || !window.matchMedia) return fingers;
+		return window.matchMedia('(pointer: coarse)').matches;
 	}
 
 	// takeFocus brings the keyboard to the game. A site that puts the game in
@@ -700,8 +770,22 @@ void main() {
 
 	function listen() {
 		// Every click and touch, wherever it lands, brings the keyboard with
-		// it: the game opens without the focus when a page embeds it.
-		window.addEventListener('pointerdown', takeFocus);
+		// it: the game opens without the focus when a page embeds it. It is
+		// also all a phone has, so it is what fullscreen and the sound device
+		// wait for there, where there is no key to press.
+		window.addEventListener('pointerdown', function () {
+			takeFocus();
+			takeFullscreen();
+			wakeAudio();
+		});
+		// A phone turned on its side, a window resized and fullscreen coming
+		// or going all change the size the game is drawn at. Every frame
+		// measures it anyway; these arrive first, so the frame being drawn
+		// already has the new size.
+		window.addEventListener('resize', resize);
+		window.addEventListener('orientationchange', resize);
+		document.addEventListener('fullscreenchange', onFullscreenChange);
+		document.addEventListener('webkitfullscreenchange', onFullscreenChange);
 		window.addEventListener('keydown', function (e) {
 			const key = KEYS[e.code];
 			if (key !== undefined) {
@@ -722,6 +806,7 @@ void main() {
 			// A game that never sees the key go up would walk on for ever.
 			keysDown.fill(0);
 			mouseDown.fill(0);
+			touches = [];
 		});
 		canvas.addEventListener('mousemove', function (e) {
 			const box = canvas.getBoundingClientRect();
@@ -743,11 +828,85 @@ void main() {
 			const button = domButton(e.button);
 			if (button >= 0) mouseDown[button] = 0;
 		});
+		// A touch screen. Every finger is followed by an id of its own, so a
+		// game can tell one from another, and the default action of a touch is
+		// cancelled: a finger on the game is the game's, not a scroll, a zoom
+		// or a mouse event the browser makes up afterwards. Package golib
+		// moves the mouse pointer with the first finger itself, so that a tap
+		// works a menu written for a mouse.
+		canvas.addEventListener('pointerdown', function (e) {
+			if (e.pointerType === 'mouse') return;
+			addTouch(e);
+			e.preventDefault();
+		}, { passive: false });
+		canvas.addEventListener('pointermove', function (e) {
+			if (e.pointerType === 'mouse') return;
+			moveTouch(e);
+			e.preventDefault();
+		}, { passive: false });
+		window.addEventListener('pointerup', function (e) {
+			if (e.pointerType !== 'mouse') dropTouch(e);
+		});
+		window.addEventListener('pointercancel', function (e) {
+			if (e.pointerType !== 'mouse') dropTouch(e);
+		});
 		canvas.addEventListener('wheel', function (e) {
 			wheel += e.deltaY > 0 ? -1 : (e.deltaY < 0 ? 1 : 0);
 			e.preventDefault();
 		}, { passive: false });
 		canvas.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+	}
+
+	function onFullscreenChange() {
+		followFullscreen();
+		resize();
+	}
+
+	// pointAt returns where a touch or a click is, in canvas pixels, as the
+	// mouse pointer's position is.
+	function pointAt(event) {
+		const box = canvas.getBoundingClientRect();
+		return {
+			x: (event.clientX - box.left) * (canvas.width / Math.max(1, box.width)),
+			y: (event.clientY - box.top) * (canvas.height / Math.max(1, box.height)),
+		};
+	}
+
+	// foundTouch returns where in touches the browser's pointer is, or -1.
+	function foundTouch(pointer) {
+		for (let i = 0; i < touches.length; i++) {
+			if (touches[i].pointer === pointer) return i;
+		}
+		return -1;
+	}
+
+	function addTouch(event) {
+		if (touches.length >= MAX_TOUCHES || foundTouch(event.pointerId) >= 0) return;
+		const at = pointAt(event);
+		touches.push({ id: nextTouch++, pointer: event.pointerId, x: at.x, y: at.y, fresh: true, gone: false });
+	}
+
+	function moveTouch(event) {
+		const found = foundTouch(event.pointerId);
+		if (found < 0) return;
+		const at = pointAt(event);
+		touches[found].x = at.x;
+		touches[found].y = at.y;
+	}
+
+	function dropTouch(event) {
+		const found = foundTouch(event.pointerId);
+		if (found < 0) return;
+		// A finger that lands and lifts between two frames is still one the
+		// game sees: it stays until the frame that saw it land has passed. Its
+		// pointer is forgotten, because the next finger may be given the same
+		// one before then.
+		if (touches[found].fresh) {
+			touches[found].gone = true;
+			touches[found].pointer = -1;
+			return;
+		}
+		touches.splice(found, 1);
 	}
 
 	// domButton turns the browser's button number into GoLib's.
@@ -762,12 +921,12 @@ void main() {
 	// presses, so each press reaches exactly one frame.
 	function snapshotInput() {
 		if (!inputBytes) return;
-		inputFloats[0] = mouseX;
-		inputFloats[1] = mouseY;
-		inputFloats[2] = wheel;
+		inputFloats[IN_MOUSE_X] = mouseX;
+		inputFloats[IN_MOUSE_Y] = mouseY;
+		inputFloats[IN_WHEEL] = wheel;
 		wheel = 0;
 
-		const keysAt = 76; // where the bytes start, as web_input.go says
+		const keysAt = KEYS_AT;
 		inputBytes.set(keysDown, keysAt);
 		inputBytes.set(keysPressed, keysAt + 349);
 		inputBytes.set(mouseDown, keysAt + 698);
@@ -797,11 +956,30 @@ void main() {
 				if (down && !was[button]) inputBytes[pressedAt + pad * PAD_BUTTON_COUNT + button] = 1;
 				was[button] = down;
 			}
-			const sticks = 3 + pad * 4;
+			const sticks = IN_STICKS + pad * 4;
 			inputFloats[sticks] = found.axes[0] || 0;
 			inputFloats[sticks + 1] = found.axes[1] || 0;
 			inputFloats[sticks + 2] = found.axes[2] || 0;
 			inputFloats[sticks + 3] = found.axes[3] || 0;
+		}
+
+		// The fingers on the screen, oldest first, and which of them landed
+		// since the last frame. A finger that lifted before any frame saw it
+		// is reported this once and then let go.
+		const touchesNewAt = pressedAt + MAX_PADS * PAD_BUTTON_COUNT;
+		const count = Math.min(touches.length, MAX_TOUCHES);
+		inputFloats[IN_TOUCH_COUNT] = count;
+		for (let i = 0; i < MAX_TOUCHES; i++) {
+			const touch = i < count ? touches[i] : null;
+			const at = IN_TOUCHES + i * 3;
+			inputFloats[at] = touch ? touch.id : 0;
+			inputFloats[at + 1] = touch ? touch.x : 0;
+			inputFloats[at + 2] = touch ? touch.y : 0;
+			inputBytes[touchesNewAt + i] = touch && touch.fresh ? 1 : 0;
+		}
+		for (let i = touches.length - 1; i >= 0; i--) {
+			if (touches[i].gone) touches.splice(i, 1);
+			else touches[i].fresh = false;
 		}
 	}
 
@@ -1198,6 +1376,7 @@ void main() {
 	function askForFrame() {
 		requestAnimationFrame(function (stamp) {
 			frameTime = stamp / 1000;
+			followFullscreen();
 			resize();
 			if (wake) wake();
 		});
@@ -1207,20 +1386,84 @@ void main() {
 		return [frameTime, canvas ? canvas.width : 0, canvas ? canvas.height : 0, document.hasFocus(), closed];
 	}
 
-	// takeFullscreen makes the request golib.SetFullscreen asked for. A
-	// browser only allows it while it is handling a key or a click, which is
-	// why it waits here for one.
-	function takeFullscreen() {
-		if (wantFullscreen === fullscreenAsked) return;
-		fullscreenAsked = wantFullscreen;
-		if (wantFullscreen) {
-			if (canvas.requestFullscreen) canvas.requestFullscreen().catch(function () { });
-		} else if (document.exitFullscreen && document.fullscreenElement) {
-			document.exitFullscreen().catch(function () { });
+	// fullscreenNow returns the element the browser is showing fullscreen, or
+	// null. The webkit name is Safari's, which has no other.
+	function fullscreenNow() {
+		return document.fullscreenElement || document.webkitFullscreenElement || null;
+	}
+
+	// ownFullscreen reports whether the game is fullscreen because it asked
+	// for it, rather than because the page around it did.
+	function ownFullscreen() {
+		return fullscreenTarget !== null && fullscreenNow() === fullscreenTarget;
+	}
+
+	// followFullscreen follows what the browser does with the fullscreen the game
+	// asked for, so that a player who leaves it with Esc or a phone's gesture is
+	// not put back into it, and the game's own idea of fullscreen can follow
+	// theirs. Every frame asks, as well as every fullscreenchange: a browser that
+	// grants fullscreen without telling the page is then no reason to miss it.
+	function followFullscreen() {
+		if (ownFullscreen()) {
+			fullscreenHeld = true;
+			return;
+		}
+		if (fullscreenHeld) {
+			fullscreenHeld = false;
+			fullscreenLeft = true;
 		}
 	}
 
-	function setFullscreen(on) { wantFullscreen = !!on; }
+	// fullscreenLost is what package golib asks once a frame. It stays true
+	// until the game asks for fullscreen again.
+	function fullscreenLost() {
+		return fullscreenLeft;
+	}
+
+	// takeFullscreen makes the request golib.SetFullscreen asked for. A
+	// browser only allows it while it is handling a key, a click or a touch,
+	// which is why it waits here for one.
+	//
+	// The whole page goes fullscreen, not the canvas. A fullscreen canvas on a
+	// phone keeps the shape its box had when the phone turns, so the game ends
+	// up in a corner of the screen; the page's own root element follows the
+	// screen, and a message over the game stays visible instead of being left
+	// behind the canvas. The canvas fills the page, so the game covers the
+	// screen either way.
+	function takeFullscreen() {
+		if (wantFullscreen === fullscreenAsked) return;
+		fullscreenAsked = wantFullscreen;
+		if (!wantFullscreen) {
+			fullscreenTarget = null;
+			const leave = document.exitFullscreen || document.webkitExitFullscreen;
+			if (leave && fullscreenNow()) call(leave, document);
+			return;
+		}
+		const whole = document.documentElement || canvas;
+		const ask = whole.requestFullscreen || whole.webkitRequestFullscreen;
+		// An iPhone shows nothing but video fullscreen: the game plays on in
+		// the page, which is the whole screen there anyway.
+		if (!ask) return;
+		// A browser that says no leaves fullscreenNow as it was, so it is not
+		// the element asked for, and nothing here thinks the game is fullscreen.
+		fullscreenTarget = whole;
+		call(ask, whole);
+	}
+
+	// call runs a method a browser may not have and may refuse, and swallows
+	// both: a browser that says no to fullscreen is no reason to stop the game.
+	function call(method, on) {
+		try {
+			const answer = method.call(on);
+			if (answer && answer.catch) answer.catch(function () { });
+		} catch (e) { /* nothing to do about it */ }
+	}
+
+	function setFullscreen(on) {
+		wantFullscreen = !!on;
+		// Asked again, whatever the player did before is past.
+		if (wantFullscreen) fullscreenLeft = false;
+	}
 
 	function setCursorVisible(visible) {
 		cursorShown = !!visible;
@@ -1257,8 +1500,10 @@ void main() {
 		newTexture: newTexture, unloadTexture: unloadTexture,
 		newTarget: newTarget, unloadTarget: unloadTarget, readTarget: readTarget,
 		inputBuffer: inputBuffer, snapshotInput: snapshotInput, gamepadName: gamepadName,
+		touchScreen: touchScreen,
 		onFrame: onFrame, askForFrame: askForFrame,
-		setFullscreen: setFullscreen, setCursorVisible: setCursorVisible, cursorVisible: cursorVisible,
+		setFullscreen: setFullscreen, fullscreenLost: fullscreenLost,
+		setCursorVisible: setCursorVisible, cursorVisible: cursorVisible,
 		showError: showError,
 		postPicture: postPicture,
 		newShader: newShader, unloadShader: unloadShader, shaderLocation: shaderLocation,

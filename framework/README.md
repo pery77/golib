@@ -157,7 +157,7 @@ A paused game stops counting because its scene stops getting updates.
 
 ## Input
 
-`Input` is the keyboard, the mouse and up to four gamepads, as one update sees them. Read the keyboard and gamepad 0 together, so every game works with both:
+`Input` is the keyboard, the mouse, the touch screen and up to four gamepads, as one update sees them. Read the keyboard and gamepad 0 together, so every game works with both:
 
 ```go
 var moveX float32
@@ -216,6 +216,65 @@ if input.MousePressed(golib.MouseLeft) && s.playButton.Contains(x, y) {
 	return
 }
 ```
+
+### Touch screen
+
+A game played in a browser on a phone or a tablet is played with fingers. The oldest finger on the screen moves the mouse pointer and holds `MouseLeft` down, so a menu or a button written for the mouse is worked by tapping it, with no touch code at all. Read the fingers themselves for controls a player holds, such as a steering pad or a thrust button, and for two of them at once.
+
+**One build plays both ways.** The same web build is opened on a phone and on a computer, so don't ask what the machine can do: ask `PlayingWithTouch` how the player is playing, and draw on-screen controls only then. It starts true on a phone or a tablet and false everywhere else, a computer with a touch screen included, and from then on it follows the player: a finger turns it on, and the keyboard, the mouse or a gamepad turns it off.
+
+| Name | What it does |
+| --- | --- |
+| `PlayingWithTouch` | `PlayingWithTouch() bool`: the player is playing with fingers, which is what decides whether to draw on-screen controls. True from the start on a phone or a tablet in a browser; false on a computer, even one with a touch screen, until a finger lands on the game; false again at the next key, mouse move or gamepad button. Between the two it holds its answer, so the controls don't blink between taps. Always false on the desktop, where GoLib reads no touch screen: a touch screen on Windows moves the mouse pointer instead, so the game is played with the mouse there. True under `golib shot` when the `--input` script has `Touch` in it. |
+| `Input.Touches` | `Touches() []Touch`: the fingers on the screen now, oldest first. Empty where there is no touch screen, so it can be read in every update. The slice belongs to that update: read it, don't keep it. |
+| `Input.TouchDownIn` | `TouchDownIn(area Rectangle) bool`: a finger is inside area, which is what an on-screen button held down asks. |
+| `Input.TouchPressedIn` | `TouchPressedIn(area Rectangle) bool`: a finger landed inside area since the previous update; true in one update per landing, which is what a tapped button asks. |
+| `Touch` | One finger on the screen. |
+| `Touch.ID` | `ID int`: the same number while that finger stays down, so a game can follow one finger. A finger that lifts and lands again is a new one. |
+| `Touch.Position` | `Position Vector2`: where the finger is, in screen pixels, as `Input.MousePosition` is. |
+| `Touch.Pressed` | `Pressed bool`: the finger landed since the previous update. A finger that lands and lifts between two updates is reported to one update, so a quick tap is never lost. |
+
+```go
+// The controls, in screen pixels, laid out in the corners the thumbs reach.
+var (
+	turnLeft  = golib.Rectangle{X: 40, Y: 520, Width: 140, Height: 160}
+	turnRight = golib.Rectangle{X: 200, Y: 520, Width: 140, Height: 160}
+	fire      = golib.Rectangle{X: 1100, Y: 520, Width: 140, Height: 160}
+)
+
+func (s *playScene) Update(input *golib.Input, dt float32) {
+	if input.KeyDown(golib.KeyLeft) || input.TouchDownIn(turnLeft) {
+		s.ship.turn(-1, dt)
+	}
+	if input.KeyDown(golib.KeyRight) || input.TouchDownIn(turnRight) {
+		s.ship.turn(1, dt)
+	}
+	if input.KeyPressed(golib.KeySpace) || input.TouchPressedIn(fire) {
+		s.ship.fire()
+	}
+}
+
+func (s *playScene) Draw(screen *golib.Screen) {
+	s.drawWorld(screen)
+	if golib.PlayingWithTouch() {
+		for _, pad := range []golib.Rectangle{turnLeft, turnRight, fire} {
+			screen.DrawRectangle(pad.X, pad.Y, pad.Width, pad.Height, golib.WithOpacity(golib.White, 0.15))
+		}
+	}
+}
+```
+
+A finger anywhere else, for a game where the whole screen is the control, comes from `Input.Touches`:
+
+```go
+for _, touch := range input.Touches() {
+	if touch.Pressed {
+		s.ship.moveTo(touch.Position) // tap to send the ship there
+	}
+}
+```
+
+`golib shot --input "Touch@40-90:200,600"` puts a finger on the screen from update 40 to update 90, so a shot can check the controls; each `Touch` item is a finger of its own, so two that overlap are two fingers at once.
 
 ### Gamepads
 
@@ -1127,13 +1186,22 @@ A web build does less than a desktop build for now, and a game that wants to run
 | Sound effects and music, from code, `.jfxr`, `.wav`, `.ogg` and `.mp3` | |
 | Post-processing shaders, compiled for OpenGL ES | A shader that mixes whole numbers into float arithmetic, such as `uv * 2`: ES refuses it, where the desktop allows it. Write `uv * 2.0` |
 | Text in the built-in font, in the same places as on the desktop | Text from a `.ttf` or `.otf` file lands within a few pixels of where the desktop puts it, not on it: a browser's font metrics are not raylib's |
-| Keyboard, mouse and gamepads | |
+| Keyboard, mouse, gamepads and the touch screen of a phone or a tablet (see [Touch screen](#touch-screen)) | |
 | `SaveData` and `LoadData`, kept by the browser for the address the game is served from | Data kept for a player who clears their browsing data, plays in a private window, or opens the game at another address |
 | `golib shot <game> --web` takes the same screenshots in a browser, into `build/<game>/shots-web/` | `golib shot --web --save`: a page cannot read a file from the machine |
 
 A game that calls raylib directly (see above) doesn't build for the browser at all.
 
 `golib dist <game> --web` makes the zip to upload to itch.io, with `index.html` at the top of it. See [docs/roadmap.md](../docs/roadmap.md#web-build-started-2026-09-18) for what is left.
+
+### On a phone
+
+A web build is what a phone plays, so a game meant for one is a game meant for the browser:
+
+- **Fingers, not keys.** A phone has no keyboard: everything the player does has to be reachable by tapping. A tap already works the mouse (see [Touch screen](#touch-screen)); a game whose only way into play is "press Enter" can't be started on a phone at all.
+- **Fullscreen comes from a tap.** A browser only grants fullscreen while it handles a key, a click or a touch, so `SetFullscreen(true)` takes effect at the next one of those. The whole page goes fullscreen and the game fills the screen, however the phone is turned.
+- **The screen is landscape or portrait, and the player chooses.** The screen the game draws on keeps its size and is scaled to fit, with black bars where the shapes differ, so a game designed for 1280 by 720 played in portrait gets thick bars. Put the controls inside the screen, not against the window's edges, and they stay where the thumbs are either way.
+- **`golib web <game> --lan`** serves the game to the network, so a phone on the same Wi-Fi can open it and play while the game is still being written; the terminal prints the address to type.
 
 ## What GoLib doesn't have yet
 

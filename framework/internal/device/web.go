@@ -233,6 +233,13 @@ func SetWindowBorder(on bool) {
 	js_().Call("setFullscreen", !on)
 }
 
+// FullscreenLost reports whether the player left the fullscreen the game asked
+// for, with Esc or a phone's own gesture, so that golib.IsFullscreen tells the
+// truth and the next ask is heard. It stays true until the game asks again.
+func FullscreenLost() bool {
+	return js_().Call("fullscreenLost").Bool()
+}
+
 // MonitorBounds returns the canvas as the monitor: a page has no desktop
 // around it to measure.
 func MonitorBounds() (x, y, width, height int) {

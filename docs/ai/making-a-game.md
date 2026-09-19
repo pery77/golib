@@ -206,6 +206,16 @@ Keep `id`, `nextlayerid` and `nextobjectid` unique and increasing, as Tiled does
 
 `golib web <name>` builds the game for the browser and serves it on this machine, to be played in a tab; `golib shot <name> --web [frame...]` takes the same screenshots there as on the desktop, into `build/<name>/shots-web/`, so a web build can be checked the same way; and `golib dist <name> --web` makes the zip to upload to itch.io. The game's code doesn't change: shapes, sprites, maps, input, sound, shaders, font files and saved data all work there. What doesn't: `.qoa` sounds and `.xm` or `.mod` music, which browsers cannot decode, and a game that calls raylib directly, which doesn't build for the browser at all (see "Playing in a browser" in the API guide). A game meant to be played in a browser should keep its music as `.ogg` or `.mp3`; say that to the user rather than working around it.
 
+### On a phone
+
+A game published on itch.io is opened on phones, so ask the user whether theirs is meant to be played on one, and build for it from the start if it is: controls bolted on afterwards never fit. What it takes:
+
+- **Everything reachable by tapping.** A phone has no keyboard, so "press Enter to start" is a dead end there. A tap already moves the mouse pointer and holds `MouseLeft`, so menus written for a mouse work; anything held, such as steering or thrust, needs on-screen pads read with `Input.TouchDownIn` and `Input.TouchPressedIn` (see "Touch screen" in the API guide).
+- **Pads drawn only while the player is using them**, behind `golib.PlayingWithTouch`, so the one web build shows them on a phone and not on a computer, where they would be in the way. It follows the player: a finger turns it on, a key or the mouse turns it off. `games/asteroids` is the reference: its pads and buttons are in `touch.go`, the scenes read them alongside the keys, and F4 chooses instead of the automatic answer.
+- **Room for the thumbs.** Put the pads inside the screen, not against its edges, in the bottom corners, and keep the middle clear of anything the player has to see while a thumb is on it. A pad smaller than about 120 by 120 screen pixels is hard to hit.
+- **A way into fullscreen.** A browser only grants fullscreen while it handles a tap, so a game for a phone offers a button for it; `golib.IsFullscreen` follows the player when they leave it with a gesture.
+- **Check it with shots and then on a real phone.** `golib shot <name> --input "Touch@40-90:200,600"` puts fingers on the screen and draws the pads, and `golib web <name> --lan` serves the game to the network so the user can open it on their own phone.
+
 `golib dist <name>` builds the game for players into `build/<name>/dist/`: a folder, `<name>/`, with the executable (its assets inside), the raylib libraries it loads and `THIRD-PARTY-LICENSES.txt`, and a zip of that folder, such as `<name>-1.0.0-windows-amd64.zip`, ready to share, for example on itch.io. Players unzip it and start the executable, which needs the files next to it. Debug builds from `golib run` and `golib build` aren't meant for players, so don't hand those out. Play the dist build once before sharing it, with `golib run <name> --dist`: it carries its assets inside the executable, where a debug build reads them from the game's folder, so a file the game forgot to embed only goes missing there. When the user wants to share the game, run `golib dist` and tell them where the zip is.
 
 `THIRD-PARTY-LICENSES.txt` holds the licenses that ask to go with the game, and copies the game's `assets/ATTRIBUTION.md`, so write down the source and license of every file in `assets/` that wasn't made for the game there. If the user is going to publish the game, point them to the License section of [README.md](../../README.md#license): the file is a best effort, not legal advice.
@@ -228,6 +238,7 @@ Before calling a game done:
 - [ ] Pause and resume work; restart after game over works without relaunching.
 - [ ] Closing the window exits cleanly.
 - [ ] Fullscreen switches on and off, and the game looks right in a resized window.
+- [ ] If the game is meant for phones: every scene can be worked with fingers alone, the pads are only drawn where there is a touch screen, and shots with `Touch@` items show them.
 - [ ] `golib dist <name>` succeeds, and `game.json` has the game's title and current version.
 - [ ] Game speed is the same at 30, 60 and 144 FPS.
 - [ ] Visual style is consistent and text is readable.

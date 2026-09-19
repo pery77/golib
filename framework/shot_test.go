@@ -160,6 +160,17 @@ func TestParseInputScript(t *testing.T) {
 				wheel:          []wheelTurn{{update: 3, amount: -1}},
 			},
 		},
+		{
+			name:   "fingers, one update and a range",
+			script: "Touch@40:200,600 touch@50-90:1100,600.5",
+			want: inputScript{touches: []touchHold{
+				{first: 40, last: 40, x: 200, y: 600},
+				{first: 50, last: 90, x: 1100, y: 600.5},
+			}},
+		},
+		{name: "finger without a position", script: "Touch@40", wantErr: "Touch@update:x,y"},
+		{name: "finger with one coordinate", script: "Touch@40:200", wantErr: "Touch@update:x,y"},
+		{name: "finger in update zero", script: "Touch@0:200,600", wantErr: "Touch@update:x,y"},
 		{name: "stick tilted too far", script: "GamepadLeftStick@10:2,0", wantErr: "from -1 to 1"},
 		{name: "wheel without an amount", script: "MouseWheel@3", wantErr: "MouseWheel@update:notches"},
 	}
@@ -246,6 +257,63 @@ func TestInputScriptMouse(t *testing.T) {
 		if update > 0 && in.MouseMoved() != want {
 			t.Errorf("update %d: MouseMoved() = %v, want %v", update, !want, want)
 		}
+	}
+}
+
+// A script puts fingers on the screen, so that shots can check a game's
+// on-screen controls: each Touch item is a finger of its own, two that overlap
+// are two fingers at once, and a finger works the mouse as it does in a window.
+func TestInputScriptTouches(t *testing.T) {
+	script, err := parseInputScript("Touch@10-30:200,600 Touch@20:1100,650")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		update  int
+		fingers int
+		pressed int // how many of them landed in this update
+		x, y    float32
+	}{
+		{update: 1, fingers: 0},
+		{update: 10, fingers: 1, pressed: 1, x: 200, y: 600},
+		{update: 11, fingers: 1, x: 200, y: 600},
+		{update: 20, fingers: 2, pressed: 1, x: 200, y: 600},
+		{update: 31, fingers: 0},
+	}
+	for _, tt := range tests {
+		in := script.at(tt.update)
+		touches := in.Touches()
+		pressed := 0
+		for _, touch := range touches {
+			if touch.Pressed {
+				pressed++
+			}
+		}
+		if len(touches) != tt.fingers || pressed != tt.pressed {
+			t.Errorf("update %d: %d fingers, %d of them landing; want %d and %d",
+				tt.update, len(touches), pressed, tt.fingers, tt.pressed)
+		}
+		if tt.fingers == 0 {
+			continue
+		}
+		// The oldest finger moves the pointer and holds the left button.
+		x, y := in.MousePosition()
+		if x != tt.x || y != tt.y {
+			t.Errorf("update %d: the pointer is at %v, %v, want the oldest finger at %v, %v", tt.update, x, y, tt.x, tt.y)
+		}
+		if !in.MouseDown(MouseLeft) {
+			t.Errorf("update %d: a finger on the screen doesn't hold the left mouse button", tt.update)
+		}
+		if in.MousePressed(MouseLeft) != (tt.pressed > 0) {
+			t.Errorf("update %d: the left button clicked = %v, want %v", tt.update, in.MousePressed(MouseLeft), tt.pressed > 0)
+		}
+	}
+
+	// Fingers have ids of their own, in the script's order, so a game can
+	// follow one of them.
+	in := script.at(20)
+	if touches := in.Touches(); touches[0].ID == touches[1].ID {
+		t.Errorf("both fingers have id %d, want one each", touches[0].ID)
 	}
 }
 

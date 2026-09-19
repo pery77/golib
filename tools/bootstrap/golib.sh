@@ -60,7 +60,8 @@ Commands:
   shot [game] [frame...]  Run games/<game> in a hidden window and save screenshots of the given
                           frames into build/<game>/shots/ (default: frame 60, one second in).
                           --input "Enter@1 Right@30-90 Mouse@100:640,360 MouseLeft@101" plays keyboard,
-                          mouse and gamepad input in those updates.
+                          mouse and gamepad input in those updates; Touch@40-90:200,600 puts a
+                          finger on the touch screen, for a game's on-screen controls.
                           --save <file.json> starts the game with that data saved, such as a
                           finished level; --scale <1-8> enlarges the pictures (see docs/tooling.md)
                           --web takes the same shots of the web build, in a browser with no
@@ -68,8 +69,8 @@ Commands:
   test [game]             Vet and test the framework, every game and GoLib's Go tools,
                           or only games/<game>
   web [game] [--port n]   Build games/<game> for the browser into build/<game>/web/ and serve it
-                          on this machine. --no-open keeps the browser closed. No sound or
-                          post-processing shaders yet (see docs/roadmap.md)
+                          on this machine. --no-open keeps the browser closed; --lan also
+                          serves it to this network, to play on a phone or a tablet
   go <args>               Run the project's Go toolchain, with GoLib's settings
   clean                   Delete build outputs (build/)
   clean --all             Also delete downloaded tools (.tools/); run setup again afterwards

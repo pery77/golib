@@ -35,6 +35,24 @@ func MouseWheel() float32 {
 	return rl.GetMouseWheelMove()
 }
 
+// TouchPoints is always empty on the desktop, and TouchScreen always false.
+// raylib reads the desktop through GLFW, which reports no touch, and raylib
+// fills its own touch point 0 from the mouse instead: passing that on would
+// make every click a finger, and a game that draws its on-screen controls only
+// where there is a touch screen would draw them on every computer. A touch
+// screen on Windows moves the mouse pointer anyway, so those games are played
+// with the mouse there. Games in a browser get the real thing from the web
+// backend.
+func TouchPoints() []TouchPoint {
+	return nil
+}
+
+// TouchScreen reports whether a finger is how this machine is pointed at,
+// which on the desktop it never is: see TouchPoints above.
+func TouchScreen() bool {
+	return false
+}
+
 // GamepadConnected reports whether gamepad number pad is plugged in.
 func GamepadConnected(pad int) bool {
 	return rl.IsGamepadAvailable(int32(pad))

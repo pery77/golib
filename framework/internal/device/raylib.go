@@ -150,6 +150,14 @@ func SetWindowBorder(on bool) {
 	}
 }
 
+// FullscreenLost is always false on the desktop: fullscreen there is a window
+// GoLib sizes itself, and nothing but the game takes it away again. A browser
+// is where a player leaves fullscreen on their own, with Esc or a phone's
+// gesture.
+func FullscreenLost() bool {
+	return false
+}
+
 // MonitorBounds returns the position and size of the monitor the window is on.
 func MonitorBounds() (x, y, width, height int) {
 	monitor := rl.GetCurrentMonitor()

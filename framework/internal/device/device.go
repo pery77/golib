@@ -120,6 +120,18 @@ const (
 	MouseMiddle = 2
 )
 
+// TouchPoint is one finger on a touch screen, as a backend reports it.
+type TouchPoint struct {
+	ID   int     // the same number while that finger stays down
+	X, Y float32 // where the finger is, in window pixels, as the mouse is
+	New  bool    // the finger landed since the last frame
+}
+
+// MaxTouches is how many fingers at once a backend reports, so touches can
+// travel in an array. More fingers than that are ignored, in the order they
+// landed: no game needs a ninth.
+const MaxTouches = 8
+
 // The gamepad buttons, named after an Xbox controller.
 const (
 	GamepadUp    = 1 // the d-pad
