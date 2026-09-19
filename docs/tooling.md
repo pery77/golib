@@ -311,6 +311,8 @@ Windows PowerShell 5.1 splits arguments that start with `-` and contain a dot be
 
 `golib web [game]` builds a game for the browser and serves it on this machine, so it can be played at a `http://localhost` address. A web build draws, sounds, reads input, runs post-processing shaders, reads fonts from files and saves in the browser's store. It cannot play `.xm`, `.mod` or `.qoa`, which browsers do not decode, and text from a font file lands within a few pixels of where the desktop puts it, not on it (see [roadmap.md](roadmap.md#web-build-started-2026-09-18)).
 
+A site that shows the game inside an `<iframe>`, as itch.io does, sends key events to whichever document holds the keyboard focus. The web backend takes it when the game opens and at every click or touch, so a player only has to click the game once if the page around it takes the focus back. Nothing is needed in the page itself.
+
 Music is the one of those a game doesn't have to give up. Where `golib.NewMusic` is given a `.xm` or `.mod` file, a web build plays a file of the same name in `.ogg`, `.mp3` or `.wav` beside it, in that order, and runs without the music when there is none, saying so in the browser's console. `golib web` and `golib dist --web` say which file each module will be played from while they build: an `[info]` line when there is one, a `[warn]` line when the game will be quiet. A `.qoa` sound has no such way out and still stops the game in a browser.
 
 ```text

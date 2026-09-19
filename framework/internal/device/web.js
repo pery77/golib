@@ -56,6 +56,10 @@ window.golib = (function () {
 		if (title) document.title = title;
 		canvas = document.getElementById('game');
 		if (!canvas) throw new Error('golib: the page has no <canvas id="game">');
+		// A canvas holds the keyboard focus only once it can be focused at
+		// all; -1 keeps it out of the page's tab order, where Tab is the
+		// game's key. A page that sets tabindex itself is left alone.
+		if (!canvas.hasAttribute('tabindex')) canvas.tabIndex = -1;
 		gl = canvas.getContext('webgl2', {
 			alpha: false,
 			antialias: false,
@@ -80,6 +84,7 @@ window.golib = (function () {
 		setBlend(BLEND_NORMAL);
 		bindCanvas();
 		listen();
+		takeFocus();
 		frameTime = performance.now() / 1000;
 	}
 
@@ -679,7 +684,24 @@ void main() {
 		return inputBytes;
 	}
 
+	// takeFocus brings the keyboard to the game. A site that puts the game in
+	// an <iframe>, as itch.io does, sends key events to whichever document
+	// has the focus, and a click on the game doesn't move it by itself: the
+	// handlers below cancel the click's default action, which is what would
+	// have moved it. Without this, a game on itch.io draws and plays its
+	// sounds but never sees a key, and document.hasFocus stays false, so
+	// Config.PauseUnfocused holds it as well.
+	function takeFocus() {
+		try {
+			window.focus();
+			if (canvas && canvas.focus) canvas.focus({ preventScroll: true });
+		} catch (e) { /* a browser that refuses is no reason to stop the game */ }
+	}
+
 	function listen() {
+		// Every click and touch, wherever it lands, brings the keyboard with
+		// it: the game opens without the focus when a page embeds it.
+		window.addEventListener('pointerdown', takeFocus);
 		window.addEventListener('keydown', function (e) {
 			const key = KEYS[e.code];
 			if (key !== undefined) {

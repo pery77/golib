@@ -408,7 +408,7 @@ const webPageTemplate = `<!DOCTYPE html>
 <title>{{title}}</title>
 <style>
 	html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
-	#game { display: block; width: 100%; height: 100%; }
+	#game { display: block; width: 100%; height: 100%; outline: none; }
 	#message {
 		position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
 		color: #eee; font: 16px system-ui, sans-serif; text-align: center; padding: 1em;
