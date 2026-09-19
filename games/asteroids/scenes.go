@@ -19,12 +19,24 @@ import (
 // In every scene, F11 or Alt+Enter switches fullscreen, F2 or the Y button
 // turns the screen effects on and off, and F3 or the X button turns the music
 // on and off.
+//
+// On a phone or a tablet there is neither keyboard nor gamepad, so every scene
+// is worked with fingers as well: the pads in touch.go turn, thrust, fire and
+// pause, and the screens between plays have buttons to tap. The same build
+// plays both ways, and the pads show while the game is played with fingers,
+// which golib.PlayingWithTouch follows; F4 chooses instead of it.
 
 // options are the player's settings, shared by every scene.
 type options struct {
 	effects   bool
 	music     bool
+	touch     touchChoice
 	glow, crt *golib.Shader
+}
+
+// pads reports whether the on-screen pads show and are read in this frame.
+func (o *options) pads() bool {
+	return o.touch.shows()
 }
 
 // newOptions makes the screen effects and turns them, and the music, on.
@@ -59,6 +71,9 @@ func (o *options) handleKeys(input *golib.Input) {
 	}
 	if input.KeyPressed(golib.KeyF3) || input.GamepadPressed(0, golib.GamepadX) {
 		o.music = !o.music
+	}
+	if input.KeyPressed(golib.KeyF4) {
+		o.touch = o.touch.next()
 	}
 	// Both calls are safe in every update: the first Play starts the music,
 	// once golib.Run has opened the sound device.
@@ -96,7 +111,10 @@ func newTitleScene(o *options) *titleScene {
 func (s *titleScene) Update(input *golib.Input, dt float32) {
 	s.options.handleKeys(input)
 	s.world.step(controls{}, dt)
-	if confirmed(input) {
+	if s.options.pads() && fullscreenPad.tapped(input) {
+		golib.SetFullscreen(!golib.IsFullscreen())
+	}
+	if confirmed(input) || (s.options.pads() && playPad.tapped(input)) {
 		golib.SwitchScene(newPlayScene(s.options))
 	}
 	// No key quits by itself, not even Esc: the game calls golib.Quit when it
@@ -110,12 +128,20 @@ func (s *titleScene) Draw(screen *golib.Screen) {
 	drawWorld(screen, &s.world)
 	drawCentered(screen, "ASTEROIDS", 140, 96, titleColor)
 	drawCentered(screen, "Shoot the rocks. Big ones split in two.", 260, 28, textColor)
+	if s.options.pads() {
+		// A phone has no keys to list: the pads are the controls, and the game
+		// wants the long side of the screen, so it says so before a play starts.
+		drawCentered(screen, "Turn with the pads on the left, thrust and fire on the right.", 330, 24, textColor)
+		drawCentered(screen, "Hold the phone on its side.", 366, 24, textColor)
+		drawTouchButtons(screen, playPad, fullscreenPad)
+		return
+	}
 	drawCentered(screen, "Turn: arrows, A/D, d-pad or left stick", 340, 24, textColor)
 	drawCentered(screen, "Thrust: Up, W or B     Fire: Space or A", 376, 24, textColor)
 	drawCentered(screen, "Pause: Esc or Start", 412, 24, textColor)
 	drawCentered(screen, "Press Enter or A to start", 510, 36, titleColor)
 	settings := "Esc: quit     F11 or Alt+Enter: fullscreen     F2 or Y: effects " + onOff(s.options.effects) +
-		"     F3 or X: music " + onOff(s.options.music)
+		"     F3 or X: music " + onOff(s.options.music) + "     F4: touch controls " + s.options.touch.word()
 	drawCentered(screen, settings, 640, 20, textColor)
 }
 
@@ -142,20 +168,21 @@ func newPlayScene(o *options) *playScene {
 // per second, always with dt = 1/60.
 func (s *playScene) Update(input *golib.Input, dt float32) {
 	s.options.handleKeys(input)
-	if input.KeyPressed(golib.KeyEscape) || input.GamepadPressed(0, golib.GamepadStart) {
+	if input.KeyPressed(golib.KeyEscape) || input.GamepadPressed(0, golib.GamepadStart) || (s.options.pads() && pausePad.tapped(input)) {
 		thrustSound.Stop() // the world stops, and so does its rumble
 		golib.SwitchScene(&pauseScene{paused: s})
 		return
 	}
-	s.world.step(readControls(input), dt)
+	s.world.step(readControls(input, s.options.pads()), dt)
 	if s.world.over {
 		thrustSound.Stop()
 		golib.SwitchScene(&gameOverScene{finished: s})
 	}
 }
 
-// readControls turns the keyboard and gamepad 0 into controls.
-func readControls(input *golib.Input) controls {
+// readControls turns the keyboard, gamepad 0 and, with pads, the on-screen
+// pads into controls.
+func readControls(input *golib.Input, pads bool) controls {
 	var c controls
 	if input.KeyDown(golib.KeyLeft) || input.KeyDown(golib.KeyA) || input.GamepadDown(0, golib.GamepadLeft) {
 		c.turn--
@@ -167,16 +194,28 @@ func readControls(input *golib.Input) controls {
 		// The stick is analog: tilted halfway, the ship turns at half speed.
 		c.turn, _ = input.GamepadLeftStick(0)
 	}
+	// The on-screen pads, for a game played with fingers. Fingers on both turn
+	// pads at once cancel out, as holding both keys does.
+	if pads && turnLeftPad.held(input) {
+		c.turn--
+	}
+	if pads && turnRightPad.held(input) {
+		c.turn++
+	}
 	c.thrust = input.KeyDown(golib.KeyUp) || input.KeyDown(golib.KeyW) ||
-		input.GamepadDown(0, golib.GamepadB) || input.GamepadDown(0, golib.GamepadUp) || input.GamepadDown(0, golib.GamepadRightTrigger)
+		input.GamepadDown(0, golib.GamepadB) || input.GamepadDown(0, golib.GamepadUp) || input.GamepadDown(0, golib.GamepadRightTrigger) ||
+		(pads && thrustPad.held(input))
 	// Holding fire keeps shooting, as fast as fireCooldown allows.
-	c.fire = input.KeyDown(golib.KeySpace) || input.GamepadDown(0, golib.GamepadA)
+	c.fire = input.KeyDown(golib.KeySpace) || input.GamepadDown(0, golib.GamepadA) || (pads && firePad.held(input))
 	return c
 }
 
 func (s *playScene) Draw(screen *golib.Screen) {
 	drawWorld(screen, &s.world)
 	drawHUD(screen, &s.world)
+	if s.options.pads() {
+		drawTouchPads(screen)
+	}
 }
 
 // pauseScene freezes a play scene under a message. Resuming switches back to
@@ -187,16 +226,22 @@ type pauseScene struct {
 
 func (s *pauseScene) Update(input *golib.Input, dt float32) {
 	s.paused.options.handleKeys(input)
-	if input.KeyPressed(golib.KeyEscape) || input.GamepadPressed(0, golib.GamepadStart) {
+	pads := s.paused.options.pads()
+	if input.KeyPressed(golib.KeyEscape) || input.GamepadPressed(0, golib.GamepadStart) || (pads && resumePad.tapped(input)) {
 		golib.SwitchScene(s.paused)
 	}
-	if input.KeyPressed(golib.KeyQ) || input.GamepadPressed(0, golib.GamepadB) {
+	if input.KeyPressed(golib.KeyQ) || input.GamepadPressed(0, golib.GamepadB) || (pads && titlePad.tapped(input)) {
 		golib.SwitchScene(newTitleScene(s.paused.options))
 	}
 }
 
 func (s *pauseScene) Draw(screen *golib.Screen) {
 	s.paused.Draw(screen)
+	if s.paused.options.pads() {
+		drawMessage(screen, "PAUSED", "")
+		drawTouchButtons(screen, resumePad, titlePad)
+		return
+	}
 	drawMessage(screen, "PAUSED", "Esc or Start to resume, Q or B to quit to the title")
 }
 
@@ -208,16 +253,22 @@ type gameOverScene struct {
 func (s *gameOverScene) Update(input *golib.Input, dt float32) {
 	s.finished.options.handleKeys(input)
 	s.finished.world.step(controls{}, dt)
-	if confirmed(input) {
+	pads := s.finished.options.pads()
+	if confirmed(input) || (pads && againPad.tapped(input)) {
 		golib.SwitchScene(newPlayScene(s.finished.options))
 	}
-	if input.KeyPressed(golib.KeyEscape) || input.GamepadPressed(0, golib.GamepadB) {
+	if input.KeyPressed(golib.KeyEscape) || input.GamepadPressed(0, golib.GamepadB) || (pads && titlePad.tapped(input)) {
 		golib.SwitchScene(newTitleScene(s.finished.options))
 	}
 }
 
 func (s *gameOverScene) Draw(screen *golib.Screen) {
 	s.finished.Draw(screen)
+	if s.finished.options.pads() {
+		drawMessage(screen, "GAME OVER", fmt.Sprintf("Score %d", s.finished.world.score))
+		drawTouchButtons(screen, againPad, titlePad)
+		return
+	}
 	drawMessage(screen, "GAME OVER", fmt.Sprintf("Score %d. Enter or A to play again, Esc or B for the title", s.finished.world.score))
 }
 

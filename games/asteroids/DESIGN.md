@@ -19,6 +19,18 @@ Turn towards a rock, shoot it, dodge the two smaller pieces, and keep moving: th
 | F11 or Alt+Enter | Fullscreen on and off, in every scene |
 | F2 or Y | Screen effects (glow and CRT) on and off, in every scene |
 | F3 or X | Music on and off, in every scene |
+| F4 | Touch controls: auto (follow the player), on, off; in every scene |
+
+The same build is played with fingers on a phone or a tablet. The pads show while `golib.PlayingWithTouch` says the player is using them, which is from the start on a phone and from the first finger anywhere else, and F4 chooses instead: auto, on, off (`touch.go`):
+
+| Pad | Action |
+| --- | --- |
+| The two arrows at the bottom left | Turn |
+| The arrow at the bottom right | Thrust |
+| FIRE, next to it | Fire; hold to keep firing |
+| PAUSE, at the bottom middle | Pause and resume |
+| PLAY, RESUME, TITLE, PLAY AGAIN | The screens between plays |
+| FULLSCREEN, on the title | Fullscreen, which a browser grants at that tap |
 
 Gamepad controls read gamepad 0, the first one connected.
 
