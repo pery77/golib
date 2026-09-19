@@ -279,11 +279,17 @@ Dist builds on Linux and macOS don't use the two files yet.
 
 `golib new <name>` creates `games/<name>/` from the files in `tools/template/game/`:
 
-1. It checks the name: 1 to 32 lowercase letters, digits, `-` and `_`, starting with a letter. It refuses `golib`, which would clash with the framework's import path, names Windows reserves for devices, such as `con`, and folders that already exist in `games/`.
+1. It checks the name: 1 to 32 lowercase letters, digits, `-` and `_`, starting with a letter, or with a single `_` before it for a private game (see below). It refuses `golib`, which would clash with the framework's import path, names Windows reserves for devices, such as `con`, and folders that already exist in `games/`.
 2. It copies every `*.tmpl` file without its `.tmpl` suffix, replacing `{{name}}` with the name, `{{go}}` with the pinned Go version and `{{date}}` with today's date. The suffix stops Go and gopls from treating the templates as a module of their own.
 3. It copies `framework/go.sum`, so `go mod tidy` finds the checksums it needs, then runs `go mod tidy` in the new folder.
 
 If `go mod tidy` fails, `new` deletes the folder again, so it can simply run again. To change what new games start with, edit the templates, then try them with `golib new` on a throwaway name and `golib test`.
+
+### Private games
+
+`golib new _moonshot` creates a private game: `.gitignore` has `/games/_*/`, so the folder never enters the GoLib repository and can hold a git repository of its own. `new` says so in an `[info]` line; nothing else in the tooling changes. `games()` finds a private game like any other, so `build`, `run`, `shot`, `test`, `dist`, `web` and `doctor` all work on it, and `test` with no game name tests it along with the rest.
+
+Go is fine with the name: it ignores folders starting with `_` while it walks a `./...` pattern, but every go command golib runs starts inside the game's own folder, so the game is never on the walked path. The rules for private games are in [architecture.md](architecture.md#private-games).
 
 ## PowerShell argument splitting
 

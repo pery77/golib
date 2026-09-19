@@ -44,6 +44,7 @@ Last updated: 2026-09-19 (milestones M5, Shipping, and M6, 2D essentials, done; 
 | Scenes: `golib.SwitchScene` moves between title, play, pause and other screens | Done (M2) |
 | Reading files from the game's `assets/` folder (`golib.ReadAsset`), embedded in dist builds | Done (M2) |
 | `golib new <name>`: a new game, ready to run, from `tools/template/game/` | Done (M2) |
+| Private games: `games/_<name>/`, which `.gitignore` keeps out of this repository, so a game can live in one of its own | Done (2026-09-19); every command treats it as any other game |
 | API guide for agents, `framework/README.md`: every exported name by task, checked against the code by `golib test` | Done (M2) |
 | Sprites from PNG images, PNG sprite sheets and Aseprite files, with animations: `golib.NewSprite`, `golib.NewSpriteSheet`, `Screen.DrawSprite`, `golib.Animation` | Done (M4) |
 | Tiled maps: `golib.NewMap`, `Screen.DrawMap`, `Screen.DrawMapLayer`, tiles and objects by layer, custom properties | Done (M4) |
@@ -90,7 +91,7 @@ Run from the project root. The command name is the same everywhere; only the pre
 | --- | --- |
 | `setup` | Checks the environment, then installs Go, the Go modules and the raylib libraries into `.tools/`. Safe to run repeatedly. |
 | `doctor` | Read-only diagnosis of the environment and the project. |
-| `new <name>` | Creates `games/<name>/` from `tools/template/game/`: a small game that runs straight away, laid out like `games/platformer`. Names are lowercase letters, digits, `-` and `_`. |
+| `new <name>` | Creates `games/<name>/` from `tools/template/game/`: a small game that runs straight away, laid out like `games/platformer`. Names are lowercase letters, digits, `-` and `_`. A name starting with `_`, such as `_moonshot`, makes a private game, which git ignores here (see [docs/architecture.md](docs/architecture.md#private-games)). |
 | `build [game]` | Debug build: builds `games/<game>` into `build/<game>/`, next to copies of the raylib libraries, with a console window for errors. On Windows it carries the game's icon and details from `icon.png` and `game.json`, as a dist build does. `run`, `shot`, `test` and F5 build the same way, and read `assets/` from disk. Started from Explorer, the executable still reads `games/<game>/assets/` and shows errors in a message box, because its console window closes when the game ends. |
 | `dist [game] [--web]` | Dist build, to share. With `--web`, builds for the browser instead into `build/<game>/dist/web/` and zips what is in it, with `index.html` at the top, ready for itch.io; its `THIRD-PARTY-LICENSES.txt` names Go and jfxr only, since a web build carries no raylib. Without it: builds `build/<game>/dist/<game>/`, with `<game>.exe` (no `.exe` on Linux and macOS, and no console window on Windows), the raylib libraries it loads and `THIRD-PARTY-LICENSES.txt`, and zips that folder into `build/<game>/dist/<game>-<version>-<os>-<arch>.zip`, the file to share. The executable carries the game's `assets/` folder, and players need the files next to it. `THIRD-PARTY-LICENSES.txt` includes the game's `assets/ATTRIBUTION.md`. A game with an `assets/` folder needs an `assets.go` file: see `golib.EmbedAssets`. On Windows the executable also carries the game's icon, from `icon.png`, and its title, version and author, from `game.json`, which also gives the zip its version (see [docs/tooling.md](docs/tooling.md#icon-and-version-information-windows)). The game writes nothing on the player's machine but what it saves with `golib.SaveData`, in `GoLib games/<game>` in their settings folder. |
 | `run [game] [--dist]` | Builds the game, then runs it with `games/<game>/` as the working directory. With `--dist`, makes the dist build instead and runs it from its own folder, with the player's environment: the way to see what players get, assets and all. |
@@ -124,6 +125,7 @@ tools/template/game/ The files golib new copies into games/<name>/
 framework/           The framework: Go module and package "golib"; README.md is its API guide
   internal/device/   The line to the machine: the contract, the raylib backend and the web one (web.js included)
 games/               One folder per game, each its own Go module
+  _<name>/           A private game: git ignores games/_*/, so it stays out of this repository
   platformer/        The example game: tests each framework feature and shows how to use it
   asteroids/         A second example: post-processing shaders, fullscreen, sound and music
 docs/                Vision, roadmap, architecture, tooling, contributing, AI playbooks
@@ -134,6 +136,8 @@ build/               Git-ignored. Build outputs, created by build, run, shot and
 ```
 
 A game imports the framework as `"golib"`, and its `go.mod` points that name at `../../framework` with a `replace` directive. How to create a game and the rules between framework and games are in [docs/ai/making-a-game.md](docs/ai/making-a-game.md) and [docs/architecture.md](docs/architecture.md).
+
+A game whose folder name starts with `_` is **private**: `.gitignore` has `/games/_*/`, so it never enters this repository and can have a git repository of its own. It is an ordinary game everywhere else, and the same rules apply to it: it uses the framework's exported API, and anything it needs from GoLib is a separate, public framework change. Never commit a private game's files here, and never move its code into `framework/`. See [docs/architecture.md](docs/architecture.md#private-games).
 
 ## Two kinds of work
 

@@ -33,6 +33,7 @@ framework/          The framework: Go module "golib"
   internal/startup/ Checks, before raylib starts, that its libraries load (Windows); games can't import it
 games/
   <name>/           One game; the folder name is the game's short name
+  _<name>/          A private game: git ignores it here (see "Private games" below)
     go.mod          Go module <name>, which uses the framework through a replace directive
     main.go         Entry point (package main)
     DESIGN.md       Design brief: the game's memory across sessions
@@ -45,6 +46,25 @@ games/
 ```
 
 The framework folder can't be called `golib/`: that name is taken by the CLI entry point in the project root.
+
+### Private games
+
+A game whose folder name starts with `_`, such as `games/_moonshot/`, is **private**: `.gitignore` has `/games/_*/`, so it never enters the GoLib repository. Everything else about it is normal. It is a game like any other for the tooling, the framework and these rules; only git looks away.
+
+```text
+golib new _moonshot     # says the folder is private
+golib run _moonshot     # build, run, shot, test, dist and web: the same as any game
+```
+
+Use it for a game that isn't meant to be published with the framework: a commercial project, a client's game, a jam entry you want to keep to yourself, or anything with content you can't redistribute.
+
+- **Its own git repository.** Put one inside the folder: `cd games/_moonshot && git init`. GoLib's repository ignores the folder, nested `.git` and all, so the two never see each other. Without one, the game is simply untracked, and nothing but your disk holds it — back it up.
+- **The framework stays public.** A private game may not change the framework, the CLI or the docs, exactly like the games in this repository: what it needs from GoLib becomes a GoLib change, which is public. Keep private code inside the game's folder.
+- **It joins the checks.** `golib test`, run with no game name, tests every game, private ones included, which is how a framework change shows that it broke your game. `golib test <name>` narrows it to one, and `golib doctor` lists private games with the rest: that output is local, not committed.
+- **Only the top folder counts.** The mark is the game folder's name. A folder inside a public game, such as `games/platformer/_notes/`, is committed as usual.
+- **Renaming makes it public or private.** Rename `games/_moonshot/` to `games/moonshot/` and git sees it, with no other change needed; `golib new` also writes the name as the module path in `go.mod`, which is only a name, so change that line as well to keep the two in step.
+
+Why `_`: it is already a valid character in game names, it works as a folder name on Windows, Linux and macOS, and `#` would be worse in every place the name appears, starting with `.gitignore`, where `#` opens a comment.
 
 ### Framework and machine
 

@@ -287,6 +287,14 @@ func (p *project) games() []string {
 	return names
 }
 
+// isPrivateGame reports whether a game is private: one whose folder name
+// starts with _, which .gitignore keeps out of the GoLib repository, so it
+// can have a git repository of its own (see docs/architecture.md). Every
+// command treats it like any other game.
+func isPrivateGame(name string) bool {
+	return strings.HasPrefix(name, "_")
+}
+
 // resolveGame returns the game that a command's options name, or the only
 // game when they name none. When they don't pick one game, it explains why
 // and returns "" and exit code 2.

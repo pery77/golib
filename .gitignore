@@ -8,6 +8,11 @@
 *.out
 __debug_bin*
 
+# Private games: a game folder whose name starts with "_" never enters this
+# repository, so it can be kept elsewhere, in a git repository of its own.
+# See docs/architecture.md#private-games.
+/games/_*/
+
 # Personal Claude Code settings
 .claude/settings.local.json
 

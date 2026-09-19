@@ -85,6 +85,8 @@ Commands:
   help                    Show this help
 
 [game] is a folder name in games/. Leave it out when there is only one game.
+A game whose folder starts with _ is private: git ignores it, so it stays out
+of the GoLib repository and can have a repository of its own.
 
 Invoke from the project root:
   Windows (PowerShell, cmd)    .\golib <command>

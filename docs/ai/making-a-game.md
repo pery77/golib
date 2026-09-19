@@ -29,6 +29,8 @@ golib run asteroids
 | `game.json` | The title, version and author that `golib dist` writes into the executable |
 | `go.mod`, `go.sum` | The Go module; `replace golib => ../../framework` points it at the framework |
 
+When the user wants the game kept out of the GoLib repository — a commercial project, a client's game, content they can't redistribute — start the name with `_`: `golib new _moonshot`. `.gitignore` has `/games/_*/`, so that folder never enters this repository and can hold a git repository of its own, and everything else works exactly the same. Choose it only when the user asks for it; a game is public otherwise. The rules are in [architecture.md](../architecture.md#private-games), and they don't change what you may do: a private game still uses the framework's exported API, and anything it needs from GoLib is a separate framework change, which is public.
+
 [games/platformer](../../games/platformer) is the reference game. Read it before writing one, and follow its shape:
 
 | File | Shows |

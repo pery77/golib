@@ -80,7 +80,7 @@ Type `.\golib` on Windows (PowerShell or cmd) and `./golib` in bash or zsh. `[ga
 | `golib-ui.cmd`, `tools/ui/` | The GoLib window: a button for each command (Windows) |
 | `tools/bootstrap/`, `tools/cli/` | The CLI itself: short scripts that install Go and start a Go program, which has most of the commands |
 | `framework/` | The GoLib framework (Go package `golib`), with its API guide, `README.md` |
-| `games/` | Games, one folder each; `platformer` is the example to learn from |
+| `games/` | Games, one folder each; `platformer` is the example to learn from. A folder starting with `_` is a [private game](docs/architecture.md#private-games), which git ignores here |
 | `AGENTS.md`, `CLAUDE.md` | Instructions for AI agents |
 | `docs/` | Vision, roadmap, internals and AI playbooks |
 | `.vscode/`, `.claude/` | Editor and Claude Code configuration |

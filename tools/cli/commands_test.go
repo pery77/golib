@@ -550,6 +550,25 @@ new: 0 failed, 0 warning(s)
 		t.Errorf("go calls = %+v, want go mod tidy in the new folder", tp.calls)
 	}
 
+	// A private game says so, and is created like any other.
+	tp = newTestProject(t, "windows")
+	newTemplates(t, tp)
+	if code := tp.c.newGame([]string{"_secret"}); code != 0 {
+		t.Fatalf("a private game: exit code %d, output:\n%s%s", code, tp.stdout.String(), tp.stderr.String())
+	}
+	want = `[ok]   created games/_secret/ from tools/template/game/
+[info] games/_secret/ is a private game: .gitignore keeps games/_*/ out of this repository, so it can have a repository of its own
+[info] next: golib run _secret, and describe the game in games/_secret/DESIGN.md
+
+new: 0 failed, 0 warning(s)
+`
+	if tp.stdout.String() != want {
+		t.Errorf("a private game, output:\n%s\nwant:\n%s", tp.stdout.String(), want)
+	}
+	if !isFile(tp.c.path("games", "_secret", "go.mod")) {
+		t.Error("a private game left no games/_secret/go.mod behind")
+	}
+
 	tp = newTestProject(t, "windows")
 	newTemplates(t, tp)
 	tp.failing = "mod"
@@ -574,7 +593,7 @@ new: 0 failed, 0 warning(s)
 
 func TestNewGameUsage(t *testing.T) {
 	invalid := func(name string) string {
-		return `invalid game name "` + name + `": use 1 to 32 lowercase letters, digits, - and _, starting with a letter`
+		return `invalid game name "` + name + `": use 1 to 32 lowercase letters, digits, - and _, starting with a letter, or with _ for a private game`
 	}
 	tests := []struct {
 		options []string
@@ -587,6 +606,9 @@ func TestNewGameUsage(t *testing.T) {
 		{[]string{"space rocks"}, invalid("space rocks")},
 		{[]string{""}, invalid("")},
 		{[]string{strings.Repeat("a", 33)}, invalid(strings.Repeat("a", 33))},
+		{[]string{"_"}, invalid("_")},
+		{[]string{"_1up"}, invalid("_1up")},
+		{[]string{"__rocks"}, invalid("__rocks")},
 		{[]string{"golib"}, `the game name "golib" is reserved: pick another one`},
 		{[]string{"com1"}, `the game name "com1" is reserved: pick another one`},
 		{[]string{"rocks"}, "games/rocks already exists: pick another name, or delete that folder first"},

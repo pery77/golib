@@ -11,8 +11,9 @@ import (
 
 var (
 	// gameNamePattern is what game names look like: they are folder names,
-	// module paths and executable names.
-	gameNamePattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}$`)
+	// module paths and executable names. A leading _ marks a private game,
+	// which .gitignore keeps out of this repository (see isPrivateGame).
+	gameNamePattern = regexp.MustCompile(`^_?[a-z][a-z0-9_-]{0,31}$`)
 	// reservedGameName matches golib, which would clash with the
 	// framework's import path and build/golib/, and the names Windows keeps
 	// for devices.
@@ -27,7 +28,7 @@ func (c *cli) newGame(options []string) int {
 	}
 	name := options[0]
 	if !gameNamePattern.MatchString(name) {
-		return c.usage(fmt.Sprintf("invalid game name %q: use 1 to 32 lowercase letters, digits, - and _, starting with a letter", name))
+		return c.usage(fmt.Sprintf("invalid game name %q: use 1 to 32 lowercase letters, digits, - and _, starting with a letter, or with _ for a private game", name))
 	}
 	if reservedGameName.MatchString(name) {
 		return c.usage(fmt.Sprintf("the game name %q is reserved: pick another one", name))
@@ -48,6 +49,9 @@ func (c *cli) newGame(options []string) int {
 		return c.summary("new")
 	}
 	c.check("ok", fmt.Sprintf("created games/%s/ from tools/template/game/", name))
+	if isPrivateGame(name) {
+		c.check("info", fmt.Sprintf("games/%s/ is a private game: .gitignore keeps games/_*/ out of this repository, so it can have a repository of its own", name))
+	}
 	c.check("info", fmt.Sprintf("next: golib run %s, and describe the game in games/%s/DESIGN.md", name, name))
 	return c.summary("new")
 }
