@@ -109,6 +109,7 @@ func main() {
 | `Config.OnScreenResize` | nil | With `WindowScale`, called with the screen's width and height before the first `Update` and `Draw`, and again whenever its size changes. Lay the game out again there, and make its camera again with the new size, keeping its target and zoom. Not called by `golib shot`. |
 | `Config.FixedWindowSize` | `false` | The player can't resize the window by its edges or maximize it, for a game that offers window sizes in its settings with `SetWindowSize`, which still changes it, as `SetFullscreen` does. Ignored in a browser, where the canvas follows the page. |
 | `Config.FillWindow` | `false` | The screen takes the window's shape, in a window and in fullscreen, so there are no black bars: `Width` by `Height` is the smallest it gets, and it grows wider or taller at the same scale, 1280 by 800 on a 1920 by 1200 monitor and 1720 by 720 on an ultrawide one. For tools, editors and games whose layout can stretch. Lay the game out from `screen.Width()` and `screen.Height()` in each `Draw`, and keep them for `Update`, which runs first; a camera passed to `screen.SetCamera` takes the screen's size. With `PixelArt` the scale stays whole, and less than one screen pixel is cut at the edges. Ignored when `WindowScale` is positive. `golib shot` takes `Width` by `Height` pictures. |
+| `Config.Antialias` | `false` | Smooth edges on what the game draws: circles, lines, polygons and turned shapes get soft edges instead of steps. GoLib draws the screen at twice its width and height and shrinks it back, blending every four pixels into one, before the post-processing shaders and the window get it, so sizes, cameras, text and shaders work as they do without it, and `golib shot` pictures show it. Text in a font from a file is drawn twice as large too, so it stays sharp in a window larger than the screen. It costs four times the pixels to draw, which a 2D game hardly notices. For games drawn with shapes; ignored with `PixelArt`, whose steps are its look. |
 
 ## Time
 
@@ -388,6 +389,7 @@ func buildPrompt(input *golib.Input) string {
 - To scroll a world larger than the screen, draw it through a `Camera`: see [Camera](#camera).
 - The built-in font is raylib's pixel font, which is 10 pixels high: sizes that are multiples of 10 keep its pixels even. Other fonts come from files: see [Fonts](#fonts).
 - Text is drawn at whole pixels: x and y are rounded, so letters stay sharp.
+- Shapes have stepped edges: each pixel is in a shape or out of it. Set `Config.Antialias` for soft edges, as a game drawn with shapes, cards and icons wants.
 
 ```go
 // A panel with a border, a centered heading, and a score on the right.

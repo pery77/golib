@@ -171,15 +171,19 @@ func TestFontsInAWindow(t *testing.T) {
 	useAssets(t, map[string][]byte{"test.ttf": testFont(), "nocmap.ttf": testFont("cmap")})
 	screen, capture := openTestWindow(t, 64, 32)
 
+	// Measuring text in a font from a file makes the font's textures, so it
+	// runs on the main thread, as drawing does (see onMainThread).
 	font := NewFont("test.ttf")
 	options := TextOptions{Font: font}
 	// A is 6 pixels wide with the space after it, B is 7.
-	if got := screen.TextWidth("AB", 10, options); got != 13 {
-		t.Errorf("TextWidth(AB, 10) = %v, want 13", got)
-	}
-	if got := screen.TextWidth("AB\nBBB", 20, options); got != 42 {
-		t.Errorf("TextWidth of two lines at 20 = %v, want 42, the longest", got)
-	}
+	onMainThread(func() {
+		if got := screen.TextWidth("AB", 10, options); got != 13 {
+			t.Errorf("TextWidth(AB, 10) = %v, want 13", got)
+		}
+		if got := screen.TextWidth("AB\nBBB", 20, options); got != 42 {
+			t.Errorf("TextWidth of two lines at 20 = %v, want 42, the longest", got)
+		}
+	})
 	sized := font.sizes[10]
 	if sized == nil || sized.font.CharsCount != 4 || len(sized.runes) != 95 {
 		t.Fatalf("size 10: %+v, want 4 glyphs from 95 letters asked", sized)
@@ -188,13 +192,16 @@ func TestFontsInAWindow(t *testing.T) {
 
 	// A letter beyond ASCII is added once; one the font doesn't have is
 	// asked for once too.
-	screen.TextWidth("ñ", 10, options)
+	onMainThread(func() { screen.TextWidth("ñ", 10, options) })
 	if sized.font.CharsCount != 5 || sized.font.Texture.ID == first {
 		t.Errorf("after ñ: %d glyphs, texture %d (was %d)", sized.font.CharsCount, sized.font.Texture.ID, first)
 	}
-	screen.TextWidth("日", 10, options)
-	second := sized.font.Texture.ID
-	screen.TextWidth("日ñAB", 10, options)
+	var second uint32
+	onMainThread(func() {
+		screen.TextWidth("日", 10, options)
+		second = sized.font.Texture.ID
+		screen.TextWidth("日ñAB", 10, options)
+	})
 	if sized.font.Texture.ID != second || len(sized.runes) != 97 {
 		t.Errorf("letters asked again: texture %d (was %d), %d letters", sized.font.Texture.ID, second, len(sized.runes))
 	}
@@ -225,9 +232,11 @@ func TestFontsInAWindow(t *testing.T) {
 	}
 
 	// Only the sizes used last stay.
-	for size := float32(11); size <= 19; size++ {
-		screen.TextWidth("A", size, options)
-	}
+	onMainThread(func() {
+		for size := float32(11); size <= 19; size++ {
+			screen.TextWidth("A", size, options)
+		}
+	})
 	if len(font.sizes) != maxFontSizes || font.sizes[10] != nil || font.sizes[11] != nil || font.sizes[19] == nil {
 		var sizes []int
 		for size := range font.sizes {
@@ -237,7 +246,7 @@ func TestFontsInAWindow(t *testing.T) {
 		t.Errorf("sizes kept: %v", sizes)
 	}
 	// Sizes are rounded.
-	screen.TextWidth("A", 18.6, options)
+	onMainThread(func() { screen.TextWidth("A", 18.6, options) })
 	if len(font.sizes) != maxFontSizes || font.sizes[12] == nil {
 		t.Errorf("18.6 wasn't drawn at 19: %d sizes", len(font.sizes))
 	}
@@ -246,14 +255,16 @@ func TestFontsInAWindow(t *testing.T) {
 	}
 
 	broken := NewFont("nocmap.ttf")
-	if got, want := screen.TextWidth("AB", 10, TextOptions{Font: broken}), screen.TextWidth("AB", 10); got != want {
+	var got, want float32
+	onMainThread(func() { got, want = screen.TextWidth("AB", 10, TextOptions{Font: broken}), screen.TextWidth("AB", 10) })
+	if got != want {
 		t.Errorf("a broken font measured %v, want %v, as the built-in font", got, want)
 	}
 	wantError(t, `golib.NewFont("nocmap.ttf"): raylib could not read it`)
-	screen.TextWidth("AB", 10, options, options)
+	onMainThread(func() { screen.TextWidth("AB", 10, options, options) })
 	wantError(t, "golib: Screen.TextWidth got 2 TextOptions: pass at most one")
 
-	loadedFonts.unloadAll()
+	onMainThread(loadedFonts.unloadAll)
 	if font.read || font.sizes != nil || font.tracked || len(loadedFonts.fonts) != 0 {
 		t.Errorf("after unloadAll: read %v, %d sizes, tracked %v", font.read, len(font.sizes), font.tracked)
 	}

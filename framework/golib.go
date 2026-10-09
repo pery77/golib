@@ -202,6 +202,17 @@ type Config struct {
 	// Ignored in a browser, where the canvas follows the page. Default: the
 	// player resizes the window freely.
 	FixedWindowSize bool
+
+	// Antialias smooths the edges of what the game draws: circles, lines,
+	// polygons and turned shapes get soft edges instead of steps. GoLib draws
+	// the screen at twice its width and height and shrinks it back, blending
+	// every four pixels into one, before the post-processing shaders and the
+	// window get it, so sizes, cameras, text and shaders work as they do
+	// without it. Text in a font from a file is drawn twice as large too, so it
+	// stays sharp in a window larger than the screen. It costs four times the
+	// pixels to draw, which a 2D game hardly notices. Ignored with PixelArt,
+	// whose steps are its look. Default: off.
+	Antialias bool
 }
 
 // Game is the interface every GoLib game implements.
@@ -462,6 +473,9 @@ func (c Config) resolve() (Config, error) {
 	}
 	if c.Width < 0 || c.Height < 0 {
 		return c, fmt.Errorf("golib.Run: invalid window size %dx%d: use positive sizes, or 0 for the default", c.Width, c.Height)
+	}
+	if c.PixelArt {
+		c.Antialias = false // pixel art keeps its steps
 	}
 	if c.WindowScale < 0 {
 		return c, fmt.Errorf("golib.Run: invalid window scale %d: use a positive scale, or 0 for a fixed screen", c.WindowScale)

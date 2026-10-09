@@ -112,13 +112,13 @@ func textSpacing(size float32) float32 {
 	return float32(math.Floor(float64(max(size, 10)) / 10))
 }
 
-// atlas returns the font drawn at size, the nearest whole number of pixels,
-// with every letter of text in it. The window must be open.
+// atlas returns the font drawn at size times textScale, the nearest whole
+// number of pixels, with every letter of text in it. The window must be open.
 func (f *Font) atlas(size float32, text string) (device.Font, error) {
 	if err := f.prepare(); err != nil {
 		return device.Font{}, err
 	}
-	pixels := max(1, int(math.Round(float64(size))))
+	pixels := max(1, int(math.Round(float64(size*textScale))))
 	f.clock++
 	sized := f.sizes[pixels]
 	if sized == nil {

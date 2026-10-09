@@ -166,8 +166,10 @@ func TestBlendModeInAWindow(t *testing.T) {
 	}
 
 	// Every Draw starts over: Run resets the mode when a Draw leaves it set.
-	screen.SetBlendMode(BlendAdd)
-	screen.endDraw()
+	onMainThread(func() {
+		screen.SetBlendMode(BlendAdd)
+		screen.endDraw()
+	})
 	covered := capture(func() {
 		screen.DrawRectangle(left, glow)
 		screen.DrawRectangle(right, glow)

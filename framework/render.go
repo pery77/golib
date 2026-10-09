@@ -11,10 +11,16 @@ import (
 // another texture for screenshots, with what goes over it at the window's
 // resolution: the frames drawn with DrawOptions.FullResolution and the mouse
 // sprite.
+//
+// With Config.Antialias the game draws into a texture samples times as wide
+// and high, in screen pixels still, and present first shrinks it to the
+// screen's size, so every later step sees the screen as it would without it.
 type renderer struct {
 	width, height float32
 	pixelArt      bool
+	samples       float32          // texture pixels a screen pixel, each way: 1, or 2 with Antialias
 	scene         device.Target    // what the game's Draw draws
+	resolved      device.Target    // the scene shrunk to the screen's size, loaded when samples > 1
 	passes        []device.Target  // results between shaders, loaded when a chain needs them
 	shaders       map[*Shader]bool // shaders compiled while this renderer ran
 	over          []overDraw       // what the last Draw drew at the window's resolution
@@ -32,14 +38,27 @@ type overDraw struct {
 	tint         Color
 }
 
+// textScale is how many texture pixels a screen pixel gets while a Draw runs:
+// fonts draw their letters that many times larger, so text stays as sharp as
+// the shapes around it with Config.Antialias. It is 1 outside Draw.
+var textScale float32 = 1
+
+// antialiasSamples is how many texture pixels a screen pixel gets, each way,
+// with Config.Antialias: four in all, blended into one.
+const antialiasSamples = 2
+
 func newRenderer(config Config) *renderer {
 	r := &renderer{
 		width:    float32(config.Width),
 		height:   float32(config.Height),
 		pixelArt: config.PixelArt,
+		samples:  1,
 		shaders:  map[*Shader]bool{},
 	}
-	r.scene = r.loadTarget()
+	if config.Antialias && !config.PixelArt {
+		r.samples = antialiasSamples
+	}
+	r.loadScene()
 	return r
 }
 
@@ -49,6 +68,25 @@ func (r *renderer) loadTarget() device.Target {
 	return device.NewTarget(int(r.width), int(r.height), !r.pixelArt)
 }
 
+// loadScene loads the texture the game draws into: the screen's size, or
+// samples times larger with its shrunk copy beside it.
+func (r *renderer) loadScene() {
+	if r.samples == 1 {
+		r.scene = r.loadTarget()
+		return
+	}
+	r.scene = device.NewTarget(int(r.width*r.samples), int(r.height*r.samples), true)
+	r.resolved = r.loadTarget()
+}
+
+// unloadScene frees what loadScene loaded.
+func (r *renderer) unloadScene() {
+	device.UnloadTarget(r.scene)
+	if r.samples > 1 {
+		device.UnloadTarget(r.resolved)
+	}
+}
+
 // resize makes the screen's textures width by height pixels, for a game with
 // Config.FillWindow or Config.WindowScale whose window changed size. Nothing
 // happens at the size they have.
@@ -56,20 +94,25 @@ func (r *renderer) resize(width, height float32) {
 	if width == r.width && height == r.height {
 		return
 	}
-	device.UnloadTarget(r.scene)
+	r.unloadScene()
 	for _, pass := range r.passes {
 		device.UnloadTarget(pass)
 	}
 	r.width, r.height, r.passes = width, height, nil
-	r.scene = r.loadTarget()
+	r.loadScene()
 }
 
 // drawScene draws scene into the scene texture, and returns the first mistake
 // found while it drew, or while it updated before.
 func (r *renderer) drawScene(scene Game, screen *Screen) error {
 	device.BeginTarget(r.scene)
+	if r.samples > 1 {
+		device.SetDrawSize(r.width, r.height)
+	}
+	textScale = r.samples
 	scene.Draw(screen)
 	screen.endDraw()
+	textScale = 1
 	device.EndTarget()
 	// What goes at the window's resolution waits for present.
 	r.over, screen.over = screen.over, r.over[:0]
@@ -95,6 +138,16 @@ func (r *renderer) present(picture *device.Target, fit device.Rectangle, time fl
 	// and the next shader reads that texture.
 	source := device.TargetTexture(r.scene)
 	whole := device.Rectangle{Width: r.width, Height: r.height}
+	if r.samples > 1 {
+		// Shrink the scene to the screen's size first. Drawn at half its size
+		// with smoothing, every screen pixel lands between four of its pixels
+		// and gets their average.
+		device.BeginTarget(r.resolved)
+		device.Clear(device.Blank)
+		r.drawThrough(nil, source, whole, time)
+		device.EndTarget()
+		source = device.TargetTexture(r.resolved)
+	}
 	for i := 0; i < len(shaders)-1; i++ {
 		target := r.pass(i % 2)
 		device.BeginTarget(target)
@@ -224,7 +277,7 @@ func (r *renderer) close() {
 	loadedSprites.unloadAll()
 	loadedImages.unloadAll()
 	loadedFonts.unloadAll()
-	device.UnloadTarget(r.scene)
+	r.unloadScene()
 	for _, pass := range r.passes {
 		device.UnloadTarget(pass)
 	}

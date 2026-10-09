@@ -33,6 +33,7 @@ const (
 	opShaderValues
 	opBeginFrame
 	opEndFrame
+	opDrawSize
 )
 
 // The blend modes, for opBlend.
@@ -131,6 +132,15 @@ func BeginTarget(target Target) {
 // EndTarget ends the drawing BeginTarget sent into a target.
 func EndTarget() {
 	push(opEndTarget)
+}
+
+// SetDrawSize makes the drawing that follows, until EndTarget, measure in a
+// width by height area stretched over the whole target instead of in the
+// target's own pixels: a target twice the screen's size, drawn in screen
+// pixels, as Config.Antialias does. Call it right after BeginTarget. A camera
+// begun after it works within that area.
+func SetDrawSize(width, height float32) {
+	push(opDrawSize, width, height)
 }
 
 // Clear fills everything being drawn on with color.

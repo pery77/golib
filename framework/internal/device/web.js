@@ -14,7 +14,8 @@ window.golib = (function () {
 	const CLEAR = 1, RECTANGLE = 2, RECTANGLE_OUTLINE = 3, CIRCLE = 4, RING = 5,
 		LINE = 6, TRIANGLE = 7, TEXTURE = 8, BEGIN_TARGET = 9, END_TARGET = 10,
 		BEGIN_CAMERA = 11, END_CAMERA = 12, BLEND = 13, BEGIN_SHADER = 14,
-		END_SHADER = 15, SHADER_VALUES = 16, BEGIN_FRAME = 17, END_FRAME = 18;
+		END_SHADER = 15, SHADER_VALUES = 16, BEGIN_FRAME = 17, END_FRAME = 18,
+		DRAW_SIZE = 19;
 
 	const BLEND_NORMAL = 0, BLEND_ADD = 1, BLEND_COPY = 2, BLEND_PREMULTIPLIED = 3;
 
@@ -35,6 +36,9 @@ window.golib = (function () {
 	// boxes until something changed the mode.
 	let boundTarget = 0, boundTexture = 0, boundBlend = -1;
 	let viewWidth = 0, viewHeight = 0;
+	// The area drawing measures in: the view's own pixels, unless DRAW_SIZE
+	// stretches a smaller one over it, as Config.Antialias does.
+	let drawWidth = 0, drawHeight = 0;
 
 	// The camera, as an offset and a zoom: BeginCamera sets it, and every
 	// point is moved by it as it is added to the batch.
@@ -324,6 +328,13 @@ void main() {
 					camera = { offsetX: c[i], offsetY: c[i + 1], targetX: c[i + 2], targetY: c[i + 3], zoom: c[i + 4] };
 					i += 5;
 					break;
+				case DRAW_SIZE:
+					flush();
+					drawWidth = c[i];
+					drawHeight = c[i + 1];
+					useCurrentProgram();
+					i += 2;
+					break;
 				case END_CAMERA:
 					flush();
 					camera = null;
@@ -535,6 +546,8 @@ void main() {
 	function setView(width, height) {
 		viewWidth = width;
 		viewHeight = height;
+		drawWidth = width;
+		drawHeight = height;
 		gl.viewport(0, 0, width, height);
 		useCurrentProgram();
 	}
@@ -590,11 +603,11 @@ void main() {
 		const shader = shaders.get(boundShader);
 		if (shader) {
 			gl.useProgram(shader.program);
-			if (shader.screen) gl.uniform2f(shader.screen, viewWidth, viewHeight);
+			if (shader.screen) gl.uniform2f(shader.screen, drawWidth, drawHeight);
 			return;
 		}
 		gl.useProgram(program);
-		gl.uniform2f(screenLocation, viewWidth, viewHeight);
+		gl.uniform2f(screenLocation, drawWidth, drawHeight);
 	}
 
 	// shaderLocation returns where a uniform sits in a shader, as a number

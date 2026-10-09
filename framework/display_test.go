@@ -242,22 +242,25 @@ func TestFullscreenIsKeptFrameAfterFrame(t *testing.T) {
 	openTestWindow(t, 64, 64)
 	t.Cleanup(func() { SetFullscreen(false) })
 
+	// A frame changes the window, so it runs on the main thread (see
+	// onMainThread).
 	var display window
+	frame := func() { onMainThread(func() { display.apply(false) }) }
 	SetFullscreen(true)
-	display.apply(false)
+	frame()
 	if !IsFullscreen() {
 		t.Fatal("the frame that switched to fullscreen left the game windowed")
 	}
-	for frame := range 3 {
-		display.apply(false)
+	for i := range 3 {
+		frame()
 		if !IsFullscreen() {
-			t.Fatalf("frame %d dropped the fullscreen the game asked for", frame+2)
+			t.Fatalf("frame %d dropped the fullscreen the game asked for", i+2)
 		}
 	}
 
 	// And the game can leave it again.
 	SetFullscreen(false)
-	display.apply(false)
+	frame()
 	if IsFullscreen() {
 		t.Error("the game asked to leave fullscreen and stayed in it")
 	}

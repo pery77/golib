@@ -13,32 +13,43 @@ import (
 // openTestWindow opens a hidden window of width by height pixels for the rest
 // of the test, and returns a screen to draw on and a function that returns
 // what was drawn. It skips the test when no window can be opened.
+//
+// The window is opened, drawn in and closed on the main thread (see
+// onMainThread), which macOS requires and OpenGL, drawing from the thread
+// that opened the window, needs anyway.
 func openTestWindow(t *testing.T, width, height int) (*Screen, func(draw func()) *image.NRGBA) {
 	t.Helper()
 	if runtime.GOOS == "linux" && os.Getenv("DISPLAY") == "" && os.Getenv("WAYLAND_DISPLAY") == "" {
 		t.Skip("no display to open a window on")
 	}
-	// OpenGL draws from the thread that opened the window, and tests run on
-	// any thread: keep this one until the test ends.
-	runtime.LockOSThread()
 	config := Config{Title: t.Name(), Width: width, Height: height}
-	if err := openWindow(config, true); err != nil {
-		runtime.UnlockOSThread()
+	var render *renderer
+	var err error
+	onMainThread(func() {
+		if err = openWindow(config, true); err == nil {
+			render = newRenderer(config)
+		}
+	})
+	if err != nil {
 		t.Skip(err)
 	}
-	render := newRenderer(config)
 	t.Cleanup(func() {
-		render.close()
-		device.CloseWindow()
-		runtime.UnlockOSThread()
+		onMainThread(func() {
+			render.close()
+			device.CloseWindow()
+		})
 	})
 	screen := &Screen{width: float32(width), height: float32(height)}
 	capture := func(draw func()) *image.NRGBA {
-		device.BeginTarget(render.scene)
-		screen.Clear(Blank)
-		draw()
-		device.EndTarget()
-		return device.ReadTarget(render.scene)
+		var picture *image.NRGBA
+		onMainThread(func() {
+			device.BeginTarget(render.scene)
+			screen.Clear(Blank)
+			draw()
+			device.EndTarget()
+			picture = device.ReadTarget(render.scene)
+		})
+		return picture
 	}
 	return screen, capture
 }

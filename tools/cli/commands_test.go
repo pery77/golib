@@ -523,6 +523,58 @@ test: 0 failed, 0 warning(s)
 	}
 }
 
+// On macOS the go command loses DYLD_LIBRARY_PATH (see testExec), so go test
+// starts the test binaries of the framework and the games through
+// /usr/bin/env, which gives it back to them. GoLib's own programs load no
+// libraries and run as they are.
+func TestTestOnMacOSGivesTestBinariesTheLibraries(t *testing.T) {
+	tp := newTestProject(t, "darwin", "rocks")
+	writeFile(t, tp.c.path("framework", "go.mod"), "module golib\n")
+	writeFile(t, tp.c.path("tools", "cli", "go.mod"), "module cli\n")
+	t.Setenv("DYLD_LIBRARY_PATH", "/opt/lib")
+	if code := tp.c.test([]string{"--tags", "demo"}); code != 0 {
+		t.Fatalf("exit code %d, output:\n%s%s", code, tp.stdout.String(), tp.stderr.String())
+	}
+	libraryPath := "DYLD_LIBRARY_PATH=" + tp.c.path(".tools", "raylib") + ":/opt/lib"
+	want := map[string][]string{
+		"framework":   {"test", "-tags=raylib_no_embed,ffi_no_embed,demo", "-exec", "/usr/bin/env " + libraryPath, "./..."},
+		"games/rocks": {"test", "-tags=raylib_no_embed,ffi_no_embed,demo", "-exec", "/usr/bin/env " + libraryPath, "./..."},
+		"tools/cli":   {"test", "-tags=raylib_no_embed,ffi_no_embed,demo", "./..."},
+	}
+	tested := 0
+	for _, call := range tp.calls {
+		if call.args[0] != "test" {
+			continue
+		}
+		tested++
+		module, _ := filepath.Rel(tp.c.path(), call.dir)
+		if args := want[filepath.ToSlash(module)]; !slices.Equal(call.args, args) {
+			t.Errorf("%s: go %q, want go %q", module, call.args, args)
+		}
+	}
+	if tested != len(want) {
+		t.Errorf("go test ran %d times, want %d", tested, len(want))
+	}
+}
+
+func TestTestExecQuotesAPathWithSpaces(t *testing.T) {
+	for _, tt := range []struct{ libraryPath, want string }{
+		{"DYLD_LIBRARY_PATH=/Users/ana/golib/.tools/raylib", "/usr/bin/env DYLD_LIBRARY_PATH=/Users/ana/golib/.tools/raylib"},
+		{"DYLD_LIBRARY_PATH=/Users/ana/my games/.tools/raylib", "/usr/bin/env 'DYLD_LIBRARY_PATH=/Users/ana/my games/.tools/raylib'"},
+		{"DYLD_LIBRARY_PATH=/Users/ana/ana's games/.tools/raylib", `/usr/bin/env "DYLD_LIBRARY_PATH=/Users/ana/ana's games/.tools/raylib"`},
+		// A quote inside a part without spaces isn't one to go test.
+		{"DYLD_LIBRARY_PATH=/Users/ana/ana's/.tools/raylib", "/usr/bin/env DYLD_LIBRARY_PATH=/Users/ana/ana's/.tools/raylib"},
+	} {
+		got, err := testExec(tt.libraryPath)
+		if err != nil || got != tt.want {
+			t.Errorf("testExec(%q) = %q, %v, want %q", tt.libraryPath, got, err, tt.want)
+		}
+	}
+	if _, err := testExec(`DYLD_LIBRARY_PATH=/Users/ana/"ana's" games/.tools/raylib`); err == nil {
+		t.Error("a path with spaces and both kinds of quotes gave no error")
+	}
+}
+
 // newTemplates gives tp's project a game template and a framework go.sum.
 func newTemplates(t *testing.T, tp *testProject) {
 	t.Helper()

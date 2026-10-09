@@ -48,6 +48,26 @@ func EndTarget() {
 	rl.EndTextureMode()
 }
 
+// rlgl's matrix modes, for rl.MatrixMode.
+const (
+	rlModelview  = 0x1700
+	rlProjection = 0x1701
+)
+
+// SetDrawSize makes the drawing that follows, until EndTarget, measure in a
+// width by height area stretched over the whole target instead of in the
+// target's own pixels: a target twice the screen's size, drawn in screen
+// pixels, as Config.Antialias does. Call it right after BeginTarget. A camera
+// begun after it works within that area.
+func SetDrawSize(width, height float32) {
+	rl.DrawRenderBatchActive()
+	rl.MatrixMode(rlProjection)
+	rl.LoadIdentity()
+	rl.Ortho(0, float64(width), float64(height), 0, 0, 1)
+	rl.MatrixMode(rlModelview)
+	rl.LoadIdentity()
+}
+
 // Clear fills everything being drawn on with color.
 func Clear(color Color) {
 	rl.ClearBackground(color)

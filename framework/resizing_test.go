@@ -38,8 +38,6 @@ func TestScreenFollowsWindowResize(t *testing.T) {
 		os.Getenv("WAYLAND_DISPLAY") == "" {
 		t.Skip("no display to open a window on")
 	}
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
 	defer quitRequested.Store(false)
 	game := &resizingGame{}
 	config := Config{
@@ -49,7 +47,10 @@ func TestScreenFollowsWindowResize(t *testing.T) {
 			game.width, game.height = width, height
 		},
 	}
-	if err := Run(game, config); err != nil {
+	// Run opens the window, so it runs on the main thread (see onMainThread).
+	var err error
+	onMainThread(func() { err = Run(game, config) })
+	if err != nil {
 		t.Fatal(err)
 	}
 	if !game.resized {
