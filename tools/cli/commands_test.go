@@ -535,7 +535,7 @@ func TestTestOnMacOSGivesTestBinariesTheLibraries(t *testing.T) {
 	if code := tp.c.test([]string{"--tags", "demo"}); code != 0 {
 		t.Fatalf("exit code %d, output:\n%s%s", code, tp.stdout.String(), tp.stderr.String())
 	}
-	libraryPath := "DYLD_LIBRARY_PATH=" + tp.c.path(".tools", "raylib") + ":/opt/lib"
+	libraryPath := "DYLD_LIBRARY_PATH=" + tp.c.path(".tools", "raylib") + string(os.PathListSeparator) + "/opt/lib"
 	want := map[string][]string{
 		"framework":   {"test", "-tags=raylib_no_embed,ffi_no_embed,demo", "-exec", "/usr/bin/env " + libraryPath, "./..."},
 		"games/rocks": {"test", "-tags=raylib_no_embed,ffi_no_embed,demo", "-exec", "/usr/bin/env " + libraryPath, "./..."},
