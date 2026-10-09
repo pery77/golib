@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode"
@@ -31,9 +33,21 @@ type gameInfo struct {
 	// the executable, where players see them, such as "assets/locale" for
 	// translations to read and change; default: none.
 	BesideExecutable []string `json:"besideExecutable"`
+	// Build tags the game is made with (see docs/tooling.md#build-tags),
+	// each with the builds it may go in: "any", or "dist" for dist and web
+	// builds only, such as a demo that never goes out as a debug build,
+	// which build and run without --dist then refuse. The GoLib window
+	// shows a checkbox for each; default: none.
+	BuildTags map[string]string `json:"buildTags"`
 
 	version version // Version, parsed
 }
+
+// The builds a tag of "buildTags" may go in.
+const (
+	tagAnyBuild = "any"
+	tagDistOnly = "dist"
+)
 
 // Longest title, author and copyright game.json may hold, in characters.
 const maxInfoText = 200
@@ -78,6 +92,9 @@ func readGameInfo(dir string) (info gameInfo, found bool, err error) {
 	if err := checkBeside(info.BesideExecutable); err != nil {
 		return info, true, err
 	}
+	if err := checkBuildTags(info.BuildTags); err != nil {
+		return info, true, err
+	}
 	info.version, err = parseVersion(info.Version)
 	return info, true, err
 }
@@ -114,6 +131,22 @@ func checkBeside(paths []string) error {
 	return nil
 }
 
+// checkBuildTags reports whether each of "buildTags" is a build tag --tags
+// takes, kept to "any" build or to "dist" ones.
+func checkBuildTags(tags map[string]string) error {
+	for _, tag := range slices.Sorted(maps.Keys(tags)) {
+		switch {
+		case !validTag(tag):
+			return fmt.Errorf(`"buildTags" has %q: a build tag is letters, digits, _ and ., such as "demo"`, tag)
+		case slices.Contains(golibTags, tag):
+			return fmt.Errorf(`"buildTags" has %s, which GoLib sets itself: take it out (see docs/tooling.md#build-tags)`, tag)
+		case tags[tag] != tagAnyBuild && tags[tag] != tagDistOnly:
+			return fmt.Errorf(`"buildTags" gives %s %q: write "dist" for dist and web builds only, or "any"`, tag, tags[tag])
+		}
+	}
+	return nil
+}
+
 // explainJSONError turns an error from decoding game.json into a message that
 // says where the mistake is and how to fix it.
 func explainJSONError(data []byte, err error) error {
@@ -122,6 +155,8 @@ func explainJSONError(data []byte, err error) error {
 	switch {
 	case errors.As(err, &syntaxErr):
 		return fmt.Errorf("line %d: %v: game.json must be valid JSON, such as {\"title\": \"Rocks\", \"version\": \"1.0.0\"}", lineAt(data, syntaxErr.Offset), syntaxErr)
+	case errors.As(err, &typeErr) && strings.HasPrefix(typeErr.Field, "buildTags"):
+		return fmt.Errorf(`line %d: "buildTags" must give each build tag "dist" or "any", such as {"demo": "dist"}`, lineAt(data, typeErr.Offset))
 	case errors.As(err, &typeErr) && typeErr.Field == "besideExecutable":
 		return fmt.Errorf(`line %d: "besideExecutable" must be a list of paths, such as ["assets/locale"]`, lineAt(data, typeErr.Offset))
 	case errors.As(err, &typeErr):
@@ -130,7 +165,7 @@ func explainJSONError(data []byte, err error) error {
 		return errors.New(`the file is empty or cut short: game.json must be valid JSON, such as {"title": "Rocks", "version": "1.0.0"}`)
 	case strings.HasPrefix(err.Error(), "json: unknown field "):
 		field := strings.TrimPrefix(err.Error(), "json: unknown field ")
-		return fmt.Errorf(`unknown field %s: game.json takes "title", "version", "author", "copyright" and "besideExecutable"`, field)
+		return fmt.Errorf(`unknown field %s: game.json takes "title", "version", "author", "copyright", "besideExecutable" and "buildTags"`, field)
 	}
 	return err
 }

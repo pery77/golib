@@ -122,3 +122,40 @@ func TestTagsUsage(t *testing.T) {
 		}
 	}
 }
+
+// A tag game.json keeps to dist builds stops build and run without --dist,
+// before anything is built, saying how to make that build instead; dist,
+// run --dist, shot and test still take it.
+func TestDistOnlyTags(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		command func(c *cli, options []string) int
+		options []string
+		refused bool
+	}{
+		{"build", (*cli).build, []string{"--tags", "steam,demo"}, true},
+		{"run", (*cli).run, []string{"--tags", "demo"}, true},
+		{"run --dist", (*cli).run, []string{"--dist", "--tags", "demo"}, false},
+		{"dist", (*cli).dist, []string{"--tags", "demo"}, false},
+		{"shot", (*cli).shot, []string{"--tags", "demo"}, false},
+		{"test", (*cli).test, []string{"rocks", "--tags", "demo"}, false},
+		{"build, another tag", (*cli).build, []string{"--tags", "steam"}, false},
+	} {
+		tp := newTestProject(t, "windows", "rocks")
+		writeFile(t, tp.c.path("games", "rocks", gameInfoFile), `{"title": "Rocks", "buildTags": {"demo": "dist", "steam": "any"}}`)
+		code := tt.command(tp.c, tt.options)
+		refusal := "[fail] games/rocks/game.json keeps the build tag demo to dist builds"
+		if !tt.refused {
+			if code != 0 || strings.Contains(tp.stdout.String(), refusal) {
+				t.Errorf("%s: exit code %d, output:\n%s%s", tt.name, code, tp.stdout.String(), tp.stderr.String())
+			}
+			continue
+		}
+		if code != 1 || !strings.Contains(tp.stdout.String(), refusal) || !strings.Contains(tp.stdout.String(), "golib dist rocks --tags") {
+			t.Errorf("%s: exit code %d, output:\n%s", tt.name, code, tp.stdout.String())
+		}
+		if len(tp.builds()) > 0 || len(tp.games) > 0 {
+			t.Errorf("%s: built %q or ran the game after refusing", tt.name, tp.builds())
+		}
+	}
+}

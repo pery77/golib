@@ -19,17 +19,19 @@ $PowerShellExe = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powe
 
 # The buttons, one row per group, in this order. Command is golib's arguments: {game} becomes the
 # game picked in the list, {frames} the frame numbers typed in the box, {input} the input
-# typed in the other box, as --input, and {name} the answer to Prompt, asked in a small dialog.
-# Folder opens a folder in Explorer instead. Confirm asks before running.
+# typed in the other box, as --input, {tags} the build tags ticked, as --tags, and {name} the
+# answer to Prompt, asked in a small dialog. Folder opens a folder in Explorer instead. Confirm
+# asks before running. Debug marks a debug build, which a tag game.json keeps to dist builds
+# turns off while it is ticked, as golib refuses it.
 $Actions = @(
-    @{ Group = 'Play'; Label = 'Run debug'; Command = 'run {game}'; Tip = 'Build the game and play it. A debug build reads assets\ from the game''s folder, so a changed picture, sound, shader or map shows on the next run, and it opens a console window for errors' }
-    @{ Group = 'Play'; Label = 'Run dist'; Command = 'run {game} --dist'; Tip = 'Build the game to share, then play it from build\<game>\dist\<game>\ the way a player would: the assets inside the executable, no console window, nothing of GoLib''s around it. Check the build this way before sharing the zip' }
-    @{ Group = 'Play'; Label = 'Screenshots'; Command = 'shot {game} {frames} {input}'; Tip = 'Run the game in a hidden window, playing the input in the box, and save screenshots of the frames in the box (60 frames are one second)' }
-    @{ Group = 'Build'; Label = 'Debug build'; Command = 'build {game}'; Tip = 'Build into build\<game>\, next to the raylib libraries. Started from Explorer, it reads games\<game>\assets\, and shows errors in a message box because its console window closes when the game ends' }
-    @{ Group = 'Play'; Label = 'Play in browser'; Command = 'web {game}'; Tip = 'Build the game for the browser and serve it on this machine, then open it in a tab. No sound, screen effects, font files or saved data that lasts yet; close the window to stop the server' }
-    @{ Group = 'Build'; Label = 'Dist build'; Command = 'dist {game}'; Tip = 'Build the game to share into build\<game>\dist\: a folder with the executable, the libraries it loads and THIRD-PARTY-LICENSES.txt, and a zip of it. It takes its icon from icon.png and its title, version and author from game.json, in the game''s folder' }
-    @{ Group = 'Play'; Label = 'Web screenshots'; Command = 'shot {game} {frames} {input} --web'; Tip = 'Run the game in a browser with no window and save screenshots of the frames in the box into build\<game>\shots-web\, to check the web build against the desktop one' }
-    @{ Group = 'Build'; Label = 'Web build'; Command = 'dist {game} --web'; Tip = 'Build the game for the browser into build\<game>\dist\web\ and zip it, ready to upload to itch.io as a web game' }
+    @{ Group = 'Play'; Label = 'Run debug'; Command = 'run {game} {tags}'; Debug = $true; Tip = 'Build the game and play it. A debug build reads assets\ from the game''s folder, so a changed picture, sound, shader or map shows on the next run, and it opens a console window for errors' }
+    @{ Group = 'Play'; Label = 'Run dist'; Command = 'run {game} --dist {tags}'; Tip = 'Build the game to share, then play it from build\<game>\dist\<game>\ the way a player would: the assets inside the executable, no console window, nothing of GoLib''s around it. Check the build this way before sharing the zip' }
+    @{ Group = 'Play'; Label = 'Screenshots'; Command = 'shot {game} {frames} {input} {tags}'; Tip = 'Run the game in a hidden window, playing the input in the box, and save screenshots of the frames in the box (60 frames are one second)' }
+    @{ Group = 'Build'; Label = 'Debug build'; Command = 'build {game} {tags}'; Debug = $true; Tip = 'Build into build\<game>\, next to the raylib libraries. Started from Explorer, it reads games\<game>\assets\, and shows errors in a message box because its console window closes when the game ends' }
+    @{ Group = 'Play'; Label = 'Play in browser'; Command = 'web {game} {tags}'; Tip = 'Build the game for the browser and serve it on this machine, then open it in a tab. No sound, screen effects, font files or saved data that lasts yet; close the window to stop the server' }
+    @{ Group = 'Build'; Label = 'Dist build'; Command = 'dist {game} {tags}'; Tip = 'Build the game to share into build\<game>\dist\: a folder with the executable, the libraries it loads and THIRD-PARTY-LICENSES.txt, and a zip of it. It takes its icon from icon.png and its title, version and author from game.json, in the game''s folder' }
+    @{ Group = 'Play'; Label = 'Web screenshots'; Command = 'shot {game} {frames} {input} --web {tags}'; Tip = 'Run the game in a browser with no window and save screenshots of the frames in the box into build\<game>\shots-web\, to check the web build against the desktop one' }
+    @{ Group = 'Build'; Label = 'Web build'; Command = 'dist {game} --web {tags}'; Tip = 'Build the game for the browser into build\<game>\dist\web\ and zip it, ready to upload to itch.io as a web game' }
     @{ Group = 'Check'; Label = 'Test'; Command = 'test'; Tip = 'Vet and test the framework, every game and GoLib''s own Go program' }
     @{ Group = 'Check'; Label = 'Doctor'; Command = 'doctor'; Tip = 'Diagnose the environment without changing anything' }
     @{ Group = 'Open'; Label = 'Game folder'; Folder = 'games\{game}'; Tip = 'Open the game''s folder: its code, DESIGN.md and assets' }
@@ -59,6 +61,11 @@ $Actions = @(
       <TextBox x:Name="InputBox" Width="260" VerticalContentAlignment="Center"
                ToolTip="Input to play in Screenshots, such as: Enter@1 Right@30-90 Mouse@100:640,360 MouseLeft@101 GamepadA@120 (Name@update holds a key or button for one update, Name@first-last for a range, Mouse@update:x,y moves the pointer; see docs/tooling.md for the wheel and sticks)"/>
     </WrapPanel>
+    <WrapPanel x:Name="TagsRow" DockPanel.Dock="Top" Margin="0,0,0,12" Visibility="Collapsed">
+      <TextBlock Text="Tags" Width="60" VerticalAlignment="Center"
+                 ToolTip="The build tags in the game's game.json (&quot;buildTags&quot;): ticked, the builds and screenshots are made with them, such as a demo"/>
+      <WrapPanel x:Name="TagBoxes" VerticalAlignment="Center"/>
+    </WrapPanel>
     <StackPanel x:Name="ActionRows" DockPanel.Dock="Top"/>
     <DockPanel DockPanel.Dock="Top" Margin="0,6,0,8">
       <Button x:Name="StopButton" DockPanel.Dock="Right" Content="Stop" Padding="16,4" IsEnabled="False"
@@ -76,6 +83,8 @@ $GameList = $Window.FindName('GameList')
 $RefreshButton = $Window.FindName('RefreshButton')
 $FramesBox = $Window.FindName('FramesBox')
 $InputBox = $Window.FindName('InputBox')
+$TagsRow = $Window.FindName('TagsRow')
+$TagBoxes = $Window.FindName('TagBoxes')
 $ActionRows = $Window.FindName('ActionRows')
 $StopButton = $Window.FindName('StopButton')
 $StatusText = $Window.FindName('StatusText')
@@ -91,6 +100,8 @@ $script:Streams = @()
 $script:CommandName = ''
 $script:Stopped = $false
 $script:SelectAfter = $null    # a game to pick in the list once the command succeeds, such as a new one
+$script:Busy = $false
+$script:TickedByGame = @{}    # the tags ticked, by game, kept while the list of games is read again
 
 # Runs a script block from an event handler. Errors show in a message box instead of closing the
 # window.
@@ -159,9 +170,79 @@ function Update-GameList {
     }
 }
 
+# The build tags game.json gives the game picked ("buildTags"), as a checkbox each, ticked as
+# they were left for that game: its Tag is the tag's name and whether it is kept to dist builds. A game.json that can't be
+# read gives none; golib says what is wrong with it when it builds.
+function Update-TagBoxes {
+    $TagBoxes.Children.Clear()
+    $game = [string]$GameList.SelectedItem
+    $tags = $null
+    # While the list is read again, no game is picked for a moment.
+    $file = if ($game) { Join-Path (Join-Path $GamesDir $game) 'game.json' } else { '' }
+    if ($file -and (Test-Path -LiteralPath $file -PathType Leaf)) {
+        try {
+            $info = Get-Content -LiteralPath $file -Raw -Encoding UTF8 | ConvertFrom-Json
+            if ($info.PSObject.Properties.Name -contains 'buildTags') { $tags = $info.buildTags }
+        } catch {
+            $tags = $null
+        }
+    }
+    if ($null -ne $tags) {
+        foreach ($property in $tags.PSObject.Properties) {
+            $distOnly = [string]$property.Value -eq 'dist'
+            $box = New-Object System.Windows.Controls.CheckBox
+            $box.Content = $property.Name
+            $box.Tag = @{ Name = $property.Name; DistOnly = $distOnly }
+            $box.Margin = '0,0,16,0'
+            $box.VerticalContentAlignment = 'Center'
+            $box.IsChecked = $script:TickedByGame.ContainsKey($game) -and $script:TickedByGame[$game] -contains $property.Name
+            $box.ToolTip = if ($distOnly) {
+                "Build with the tag $($property.Name). game.json keeps it to dist builds, so Run debug and Debug build are off while it is ticked"
+            } else {
+                "Build with the tag $($property.Name)"
+            }
+            $box.Add_Click({ Invoke-Safely { Save-TickedTags; Update-ActionButtons; Show-TagsStatus } })
+            $null = $TagBoxes.Children.Add($box)
+        }
+    }
+    $TagsRow.Visibility = if ($TagBoxes.Children.Count -gt 0) { 'Visible' } else { 'Collapsed' }
+    Update-ActionButtons
+}
+
+# The checkboxes ticked.
+function Get-TickedTags {
+    return @($TagBoxes.Children | Where-Object { $_.IsChecked } | ForEach-Object { $_.Tag })
+}
+
+# Keeps the tags ticked for the game picked.
+function Save-TickedTags {
+    $script:TickedByGame[[string]$GameList.SelectedItem] = @(Get-TickedTags | ForEach-Object { $_.Name })
+}
+
+# Says which buttons a ticked tag kept to dist builds turns off.
+function Show-TagsStatus {
+    $distOnly = @(Get-TickedTags | Where-Object { $_.DistOnly } | ForEach-Object { $_.Name })
+    if ($distOnly.Count -gt 0) {
+        Set-Status "$($distOnly -join ', '): for dist builds only, so Run debug and Debug build are off." 'Idle'
+    } else {
+        Set-Status 'Pick a game and press a button. Hover over a button to see what it does.' 'Idle'
+    }
+}
+
+# A command button works unless a command is running, or it makes a debug build and a tag kept
+# to dist builds is ticked.
+function Update-ActionButtons {
+    $distOnly = @(Get-TickedTags | Where-Object { $_.DistOnly }).Count -gt 0
+    foreach ($button in $ActionButtons) {
+        $button.IsEnabled = -not $script:Busy -and -not ($distOnly -and $button.Tag.ContainsKey('Debug'))
+    }
+}
+
 # While a command runs, only Stop and the folder buttons work, so two commands never overlap.
 function Set-Busy([bool]$Busy) {
-    foreach ($button in $ActionButtons) { $button.IsEnabled = -not $Busy }
+    $script:Busy = $Busy
+    Update-ActionButtons
+    foreach ($box in $TagBoxes.Children) { $box.IsEnabled = -not $Busy }
     $GameList.IsEnabled = -not $Busy
     $RefreshButton.IsEnabled = -not $Busy
     $FramesBox.IsEnabled = -not $Busy
@@ -208,6 +289,9 @@ function Invoke-Action($Action) {
             $arguments += @($FramesBox.Text -split '[\s,]+' | Where-Object { $_ })
         } elseif ($token -eq '{input}') {
             if ($InputBox.Text.Trim()) { $arguments += @('--input', $InputBox.Text.Trim()) }
+        } elseif ($token -eq '{tags}') {
+            $ticked = @(Get-TickedTags | ForEach-Object { $_.Name })
+            if ($ticked.Count -gt 0) { $arguments += @('--tags', ($ticked -join ',')) }
         } else {
             $arguments += $token
         }
@@ -217,7 +301,7 @@ function Invoke-Action($Action) {
 
 # Starts golib.ps1 with Arguments, reading its output as it comes.
 function Start-Command([string[]]$Arguments) {
-    $quoted = @($Arguments | ForEach-Object { if ($_ -match '[\s"]') { '"' + ($_ -replace '"', '\"') + '"' } else { $_ } })
+    $quoted = @($Arguments | ForEach-Object { if ($_ -match '[\s",]') { '"' + ($_ -replace '"', '\"') + '"' } else { $_ } })
     $info = New-Object System.Diagnostics.ProcessStartInfo
     $info.FileName = $PowerShellExe
     $info.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$Cli`" " + ($quoted -join ' ')
@@ -315,6 +399,7 @@ foreach ($group in $groups) {
 }
 
 $RefreshButton.Add_Click({ Invoke-Safely { Update-GameList } })
+$GameList.Add_SelectionChanged({ Invoke-Safely { Update-TagBoxes } })
 $StopButton.Add_Click({ Invoke-Safely { Stop-Command } })
 $Timer.Add_Tick({ Invoke-Safely { Update-Command } })
 $Window.Add_Closing({ Invoke-Safely { Stop-Command } })

@@ -65,6 +65,11 @@ func TestReadGameInfo(t *testing.T) {
 		t.Errorf("version.String() = %q", got)
 	}
 
+	info, _, err = readGameInfo(gameDir(t, `{"buildTags": {"demo": "dist", "steam": "any"}}`))
+	if err != nil || info.BuildTags["demo"] != tagDistOnly || info.BuildTags["steam"] != tagAnyBuild {
+		t.Errorf("buildTags: %v, error %v", info.BuildTags, err)
+	}
+
 	// Set-Content -Encoding UTF8 in Windows PowerShell 5.1 writes a byte order mark.
 	info, _, err = readGameInfo(gameDir(t, "\xef\xbb\xbf{\"title\": \"Pequeño\"}"))
 	if err != nil || info.Title != "Pequeño" {
@@ -76,7 +81,7 @@ func TestReadGameInfoMistakes(t *testing.T) {
 	tests := []struct {
 		name, content, want string
 	}{
-		{"unknown field", `{"verison": "1.0.0"}`, `unknown field "verison": game.json takes "title", "version", "author", "copyright" and "besideExecutable"`},
+		{"unknown field", `{"verison": "1.0.0"}`, `unknown field "verison": game.json takes "title", "version", "author", "copyright", "besideExecutable" and "buildTags"`},
 		{"syntax error", "{\n  \"title\": \"Rocks\",\n}", "line 3: "},
 		{"number instead of text", "{\n  \"version\": 1.0\n}", `line 2: "version" must be text`},
 		{"empty file", " ", "the file is empty or cut short"},
@@ -93,6 +98,10 @@ func TestReadGameInfoMistakes(t *testing.T) {
 		{"beside absolute", `{"besideExecutable": ["/etc"]}`, "a path inside the game's folder"},
 		{"beside the folder", `{"besideExecutable": ["."]}`, "a path inside the game's folder"},
 		{"beside twice", `{"besideExecutable": ["assets/locale", "docs/locale"]}`, `"assets/locale" and "docs/locale", which would both be copied as locale`},
+		{"tags a list", "{\n  \"buildTags\": [\"demo\"]\n}", `line 2: "buildTags" must give each build tag "dist" or "any"`},
+		{"tag's build", `{"buildTags": {"demo": "release"}}`, `"buildTags" gives demo "release": write "dist" for dist and web builds only, or "any"`},
+		{"tag's name", `{"buildTags": {"!demo": "dist"}}`, `"buildTags" has "!demo": a build tag is letters, digits, _ and .`},
+		{"GoLib's tag", `{"buildTags": {"golib_dist": "any"}}`, `"buildTags" has golib_dist, which GoLib sets itself`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

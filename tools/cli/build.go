@@ -19,7 +19,9 @@ func (c *cli) build(options []string) int {
 		return exitCode
 	}
 	c.reportTags()
-	c.buildGame(game)
+	if !c.refuseDistOnly("build", game) {
+		c.buildGame(game)
+	}
 	return c.summary("build")
 }
 
@@ -49,6 +51,9 @@ func (c *cli) run(options []string) int {
 	c.reportTags()
 	if dist {
 		return c.runDist(game)
+	}
+	if c.refuseDistOnly("run", game) {
+		return c.summary("run")
 	}
 	exe := c.buildGame(game)
 	if exe == "" {
