@@ -430,6 +430,7 @@ A font is a `.ttf` or `.otf` file in the assets folder. Pass it to `DrawText` an
 | `TextOptions` | Changes how `DrawText` draws and `TextWidth` measures: `golib.TextOptions{Font: title}`. Pass at most one. |
 | `TextOptions.Font` | The font. Default: the built-in pixel font. |
 | `TextOptions.Align` | Which part of each line goes at x: `AlignLeft`, the default, `AlignCenter` or `AlignRight`. |
+| `TextOptions.FullResolution` | Draws the text at the window's own resolution, its letters that many times larger, instead of in the screen's pixels: for a font from a file meant to be read smoothly, such as a book's serif, in a game whose small screen the window enlarges, as one with `Config.PixelArt`. x, y and size stay in screen pixels, and `TextWidth` with the same options measures in them. It goes over everything else the frame draws, after the post-processing shaders, which don't reach it, in the order it and frames drawn with `DrawOptions.FullResolution` are drawn. |
 | `TextAlign` | The type of `AlignLeft`, `AlignCenter` and `AlignRight`. |
 
 ```go
@@ -451,6 +452,7 @@ func (s *titleScene) Draw(screen *golib.Screen) {
 - Any letter the font has can be drawn, in any language: letters beyond English, such as ñ, é or ü, are added the first time they are drawn. A letter the font doesn't have shows as a question mark.
 - The file is read the first time text is drawn with the font, so a missing or broken file stops `Run` under `golib shot` too. Measuring and drawing need the window, so they work only in `Draw`.
 - Font collections (`.ttc`), web fonts (`.woff`) and bitmap fonts (`.fnt`) aren't read. Pixel fonts in `.ttf` look best at the sizes they were made for, or whole multiples of them.
+- **A pixel-art game with smooth text.** In the screen's pixels, a font made for print, at 10 or 12 pixels, comes out blurred and cramped. Draw it with `TextOptions{Font: book, FullResolution: true}` and it is drawn at the window's resolution instead, as sharp as the window allows, over the pixel art, as many games do with their dialogue. The night, the CRT look and other post-processing don't touch it, so dialogue drawn this way stays readable over a dark scene.
 - Only use fonts the user provides, whose license allows shipping them with a game, such as the SIL Open Font License, and write where each came from, and its license, in `assets/ATTRIBUTION.md`. The fonts that come with the computer usually can't be shipped.
 
 ## Sprites and animations
