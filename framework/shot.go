@@ -436,9 +436,18 @@ func runShots(game Game, config Config, plan *shotPlan) error {
 	// covered window has no reliable pixels to read back.
 	render := newRenderer(config)
 	defer render.close()
-	picture := render.loadTarget()
+	// A pixel-art game's enlarged pictures are drawn at their size, as the
+	// window draws the game: its pixels enlarged whole, and what is drawn at
+	// the window's resolution, such as text with TextOptions.FullResolution,
+	// as sharp as in a window that size. Other games' are enlarged after.
+	drawScale, saveScale := 1, plan.scale
+	if config.PixelArt {
+		drawScale, saveScale = plan.scale, 1
+	}
+	picture := device.NewTarget(config.Width*drawScale, config.Height*drawScale, !config.PixelArt)
 	defer device.UnloadTarget(picture)
-	whole := device.Rectangle{Width: float32(config.Width), Height: float32(config.Height)}
+	whole := device.Rectangle{Width: float32(config.Width * drawScale), Height: float32(config.Height * drawScale)}
+	overScale = float32(drawScale) // TextWidth measures full-resolution text at the size it is drawn
 
 	screen := &Screen{width: float32(config.Width), height: float32(config.Height), fills: config.FillWindow}
 	scene := game
@@ -475,7 +484,7 @@ func runShots(game Game, config Config, plan *shotPlan) error {
 			if err := render.present(&picture, whole, float32(frame)*updateStep); err != nil {
 				return err
 			}
-			if err := savePicture(picture, filepath.Join(plan.dir, shotFileName(frame)), plan.scale); err != nil {
+			if err := savePicture(picture, filepath.Join(plan.dir, shotFileName(frame)), saveScale); err != nil {
 				return err
 			}
 			next++
