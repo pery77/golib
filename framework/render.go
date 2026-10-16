@@ -31,6 +31,7 @@ type renderer struct {
 // over the screen once the screen is in the window. Its rectangles and origin
 // are in screen pixels.
 type overDraw struct {
+	text         *overText // text drawn with TextOptions.FullResolution; nil for a frame
 	texture      device.Texture
 	source, dest device.Rectangle
 	origin       device.Vector2
@@ -198,16 +199,20 @@ func (r *renderer) drawThrough(shader *Shader, texture device.Texture, dest devi
 }
 
 // drawOver draws over the screen, now in fit, what goes there at the
-// window's resolution: the frames the last Draw drew with
-// DrawOptions.FullResolution, in their order, and then the mouse sprite.
+// window's resolution: the frames and the text the last Draw drew with
+// DrawOptions.FullResolution and TextOptions.FullResolution, in their order,
+// and then the mouse sprite.
 func (r *renderer) drawOver(fit device.Rectangle) {
 	scale := fit.Width / r.width // window pixels a screen pixel
-	if len(r.over) > 0 {
-		device.BeginBlendPremultiplied()
-		for _, d := range r.over {
-			dest := device.Rectangle{X: fit.X + d.dest.X*scale, Y: fit.Y + d.dest.Y*scale, Width: d.dest.Width * scale, Height: d.dest.Height * scale}
-			device.DrawTexture(d.texture, d.source, dest, device.Vector2{X: d.origin.X * scale, Y: d.origin.Y * scale}, d.rotation, d.tint)
+	overScale = scale
+	for _, d := range r.over {
+		if d.text != nil {
+			d.text.draw(fit, scale) // blended normally, as text always is
+			continue
 		}
+		device.BeginBlendPremultiplied()
+		dest := device.Rectangle{X: fit.X + d.dest.X*scale, Y: fit.Y + d.dest.Y*scale, Width: d.dest.Width * scale, Height: d.dest.Height * scale}
+		device.DrawTexture(d.texture, d.source, dest, device.Vector2{X: d.origin.X * scale, Y: d.origin.Y * scale}, d.rotation, d.tint)
 		device.EndBlend()
 	}
 	r.pointer.draw(fit, scale)

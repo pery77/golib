@@ -73,6 +73,17 @@ type TextOptions struct {
 	// AlignLeft, the default, its middle, with AlignCenter, or its end, with
 	// AlignRight.
 	Align TextAlign
+
+	// FullResolution draws the text at the window's own resolution, its
+	// letters drawn that many times larger, instead of in the screen's
+	// pixels: for a font from a file that is meant to be read smoothly, such
+	// as a book's, in a game whose small screen the window enlarges, as one
+	// with Config.PixelArt. x, y and size are still in screen pixels, and
+	// TextWidth measures in them too. It goes over everything else the frame
+	// draws, after the post-processing shaders, which don't reach it, in the
+	// order such text and frames drawn with DrawOptions.FullResolution are
+	// drawn.
+	FullResolution bool
 }
 
 // TextAlign says which part of each line of text [Screen.DrawText] puts at x.

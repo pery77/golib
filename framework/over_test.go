@@ -142,3 +142,28 @@ func TestAShotShowsTheMouseOnceItMoved(t *testing.T) {
 		t.Error("a script that never moves the mouse shows the pointer")
 	}
 }
+
+// Text drawn at full resolution waits in screen pixels, unrounded, seen
+// through the camera, its size zoomed with it, instead of being drawn.
+func TestFullResolutionTextWaitsInScreenPixels(t *testing.T) {
+	var s Screen
+	s.DrawText("Hola", 10.5, 20, 12, White, TextOptions{FullResolution: true, Align: AlignCenter})
+	if len(s.over) != 1 || s.over[0].text == nil {
+		t.Fatalf("the text waits as %+v, want one text", s.over)
+	}
+	want := overText{text: "Hola", x: 10.5, y: 20, size: 12, color: White, align: AlignCenter}
+	if got := *s.over[0].text; got != want {
+		t.Errorf("the text waits as %+v, want %+v", got, want)
+	}
+
+	camera := NewCamera(320, 180)
+	camera.Zoom = 2
+	camera.Target = Vector2{X: 1000, Y: 500}
+	camera.Snap()
+	s.camera = camera
+	s.DrawText("Adiós", 1010, 505, 10, White, TextOptions{FullResolution: true})
+	seen := *s.over[1].text
+	if seen.x != 180 || seen.y != 100 || seen.size != 20 {
+		t.Errorf("through a camera zoomed twice the text goes to %v, %v at size %v, want 180, 100 at 20", seen.x, seen.y, seen.size)
+	}
+}

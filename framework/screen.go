@@ -21,7 +21,7 @@ type Screen struct {
 	view   Rectangle
 	blend  BlendMode // how SetBlendMode mixes colors in this Draw
 
-	over []overDraw // the frames drawn with DrawOptions.FullResolution in this Draw
+	over []overDraw // the frames and text drawn at full resolution in this Draw
 }
 
 // BlendMode says how the colors a game draws mix with what is on the screen
@@ -138,6 +138,14 @@ func (s *Screen) DrawPolygonOutline(points []Vector2, thickness float32, color C
 //
 //	screen.DrawText("Game over", screen.Width()/2, 300, 40, golib.White, golib.TextOptions{Align: golib.AlignCenter})
 func (s *Screen) DrawText(text string, x, y, size float32, color Color, options ...TextOptions) {
+	if len(options) == 1 && options[0].FullResolution {
+		if options[0].Align != AlignLeft && options[0].Align != AlignCenter && options[0].Align != AlignRight {
+			reportError(fmt.Errorf("golib: Screen.DrawText got TextOptions.Align %d: use AlignLeft, AlignCenter or AlignRight", options[0].Align))
+			return
+		}
+		s.over = append(s.over, overDraw{text: s.overText(text, x, y, size, color, options[0])})
+		return
+	}
 	font, spacing := textFont("DrawText", text, size, options)
 	align := AlignLeft
 	if len(options) > 0 {
@@ -167,6 +175,11 @@ func (s *Screen) DrawText(text string, x, y, size float32, color Color, options 
 //
 //	x := 20 + screen.TextWidth(label, 20) + 8 // after the label and a gap
 func (s *Screen) TextWidth(text string, size float32, options ...TextOptions) float32 {
+	if len(options) == 1 && options[0].FullResolution && overScale > 0 {
+		// measured as it will be drawn, at the window's resolution
+		font, spacing := textFont("TextWidth", text, size*overScale, []TextOptions{{Font: options[0].Font}})
+		return device.TextWidth(font, text, size*overScale, spacing) / overScale
+	}
 	font, spacing := textFont("TextWidth", text, size, options)
 	return device.TextWidth(font, text, size, spacing)
 }
