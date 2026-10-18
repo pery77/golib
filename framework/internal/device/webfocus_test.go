@@ -241,6 +241,11 @@ func startWebBrowser(browser, address string) (stop func(), err error) {
 		"--user-data-dir="+profile,
 		"--no-first-run",
 		"--no-default-browser-check",
+		// Nothing of the person's: an extension Edge syncs into the new
+		// profile may open a page of its own, which takes the focus and
+		// the frames from the one under test (tools/cli/webshot.go).
+		"--disable-extensions",
+		"--disable-sync",
 		"--mute-audio",
 		"--window-size=1280,720",
 		address,

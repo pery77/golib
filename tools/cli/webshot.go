@@ -228,6 +228,16 @@ func startBrowser(browser, address string) (stop func(), err error) {
 		"--user-data-dir="+profile,
 		"--no-first-run",
 		"--no-default-browser-check",
+		// Nothing of the person's: Edge signed in to an account syncs its
+		// extensions into a new profile, and one that opens a page of its
+		// own as it installs, as Dark Reader does, puts the game's tab
+		// behind it, where it gets no more frames and the shots never come.
+		"--disable-extensions",
+		"--disable-sync",
+		// Nor any other reason to slow a page down while nobody watches.
+		"--disable-background-timer-throttling",
+		"--disable-backgrounding-occluded-windows",
+		"--disable-renderer-backgrounding",
 		// A game plays its sounds; nobody is listening, and browsers wait for
 		// a click before making any.
 		"--autoplay-policy=no-user-gesture-required",
