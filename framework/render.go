@@ -111,6 +111,7 @@ func (r *renderer) drawScene(scene Game, screen *Screen) error {
 		device.SetDrawSize(r.width, r.height)
 	}
 	textScale = r.samples
+	smoothEdges3D = !r.pixelArt && r.samples == 1
 	scene.Draw(screen)
 	screen.endDraw()
 	textScale = 1
@@ -277,11 +278,14 @@ func (r *renderer) pass(i int) device.Target {
 }
 
 // close frees the textures and the shaders the renderer loaded, and the
-// sprites and pictures the game drew.
+// sprites, pictures and meshes the game drew.
 func (r *renderer) close() {
 	loadedSprites.unloadAll()
 	loadedImages.unloadAll()
 	loadedFonts.unloadAll()
+	loadedMeshes.unloadAll()
+	loadedTextures.unloadAll()
+	renderer3D.unload()
 	r.unloadScene()
 	for _, pass := range r.passes {
 		device.UnloadTarget(pass)

@@ -246,6 +246,12 @@ func startWebBrowser(browser, address string) (stop func(), err error) {
 		// the frames from the one under test (tools/cli/webshot.go).
 		"--disable-extensions",
 		"--disable-sync",
+		// No keychain: a new profile asks macOS for a keychain to keep its
+		// key in, which shows the person a dialog, and the browser waits
+		// for it while the page waits for the browser. A profile thrown
+		// away after one run has nothing to keep.
+		"--use-mock-keychain",
+		"--password-store=basic",
 		"--mute-audio",
 		"--window-size=1280,720",
 		address,

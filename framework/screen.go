@@ -22,6 +22,7 @@ type Screen struct {
 	blend  BlendMode // how SetBlendMode mixes colors in this Draw
 
 	over []overDraw // the frames and text drawn at full resolution in this Draw
+	pass pass3D     // the 3D gathered since Begin3D
 }
 
 // BlendMode says how the colors a game draws mix with what is on the screen
@@ -233,9 +234,13 @@ func (s *Screen) SetBlendMode(mode BlendMode) {
 	s.blend = mode
 }
 
-// endDraw goes back to drawing in screen pixels, in the normal blend mode.
-// Run calls it after each Draw, in case the game left either set.
+// endDraw draws a 3D pass the game left open, and goes back to drawing in
+// screen pixels, in the normal blend mode. Run calls it after each Draw, in
+// case the game left any of them set.
 func (s *Screen) endDraw() {
+	if s.pass.open {
+		s.End3D()
+	}
 	if s.camera != nil {
 		device.EndCamera()
 		s.camera = nil

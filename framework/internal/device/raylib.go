@@ -99,9 +99,12 @@ func OpenWindow(width, height int, title string, hidden, resizable bool) bool {
 	return true
 }
 
-// CloseWindow closes the game window.
+// CloseWindow closes the game window. Its OpenGL context goes with it, and
+// what the 3D found and made in that context is forgotten: the next window
+// has a context of its own, where the old buffer names mean nothing.
 func CloseWindow() {
 	rl.CloseWindow()
+	forgetGL()
 }
 
 // WindowShouldClose reports whether the player closed the window.

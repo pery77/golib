@@ -34,6 +34,30 @@ const (
 	opBeginFrame
 	opEndFrame
 	opDrawSize
+
+	// The 3D commands, from web_gpu.go.
+	opBegin3D
+	opEnd3D
+	opUseProgram
+	opUniformMatrix
+	opUniform
+	opUniformInt
+	opDepthWrite
+	opBlend3D
+	opCulling
+	opDrawMesh
+	opDrawInstanced
+	opBindTexture3D
+	opDrawFullscreen
+	opUniformVec4s
+	opBeginShadow
+	opEndShadow
+	opBindShadowMap
+	opBeginWork
+	opEndWork
+	opBindWorkTarget
+	opBindPassPicture
+	opAdditive3D
 )
 
 // The blend modes, for opBlend.

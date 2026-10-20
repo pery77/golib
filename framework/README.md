@@ -1,6 +1,6 @@
 # GoLib API guide
 
-For AI agents writing game code with GoLib, and for anyone who wants the whole framework on one page. It covers every exported name in package `golib`, the Go code in this folder, grouped by what a game needs, with the rules the names don't tell you. The doc comments in the `.go` files have the full details, and [games/platformer](../games/platformer) and [games/asteroids](../games/asteroids) show all of it in real games.
+For AI agents writing game code with GoLib, and for anyone who wants the whole framework on one page. It covers every exported name in package `golib`, the Go code in this folder, grouped by what a game needs, with the rules the names don't tell you. The doc comments in the `.go` files have the full details, and [games/platformer](../games/platformer) and [games/asteroids](../games/asteroids) show the 2D in real games, and [games/marbles](../games/marbles), [games/hopper](../games/hopper) and [games/sunset](../games/sunset) the 3D: shapes, models and a Blender level, and light, an HDRI and materials of a game's own.
 
 `golib test` checks this page against the code: it fails when an exported name is missing here, or when this page names one that doesn't exist (see `apiguide_test.go`). Change both together.
 
@@ -18,6 +18,7 @@ For AI agents writing game code with GoLib, and for anyone who wants the whole f
 | Move, aim and chase | `golib.Vector2` and its `Add`, `Scale`, `Normalize`, `MoveTowards` | [Vectors, rectangles and collisions](#vectors-rectangles-and-collisions) |
 | Check collisions | `golib.Rectangle` and its `Overlaps`; `Vector2.Distance` for circles | [Vectors, rectangles and collisions](#vectors-rectangles-and-collisions) |
 | Scroll a world larger than the screen | `golib.NewCamera`, `screen.SetCamera` | [Camera](#camera) |
+| Draw a 3D world | `golib.NewCamera3D`, `screen.Begin3D`, `screen.DrawMesh`, `golib.NewBoxMesh`, `golib.Vector3`, `golib.Transform` | [3D](#3d) |
 | Move between title, play, pause and game over | `golib.SwitchScene` | [Scenes](#scenes) |
 | Roll dice | `golib.RandomInt`, `golib.RandomFloat` | [Random numbers](#random-numbers) |
 | Play sound effects | `golib.NewSound`, `golib.Laser` and the other recipes, `golib.NewSoundFile` for sound files and sounds designed in jfxr, `golib.NewSoundJfxr` for jfxr settings in code | [Sound effects](#sound-effects) |
@@ -80,7 +81,7 @@ func main() {
 4. **Pressed happens once, Down lasts.** `KeyPressed`, `MousePressed` and `GamepadPressed` are true in exactly one update per press: use them for jumping, firing and menus. `KeyDown`, `MouseDown` and `GamepadDown` stay true while held: use them for walking and thrust.
 5. **Use `Input` only in `Update`, and `Screen` only in `Draw`.** Don't keep them in the game's state.
 6. **Draw in screen pixels, or through a camera.** By default the screen is `Config.Width` by `Config.Height` pixels, with 0, 0 at the top-left corner and y growing downwards, whatever the window's size. With `Config.WindowScale` it follows the window instead: use `Config.OnScreenResize` to update the layout and camera. With `Config.FillWindow` it takes the window's shape, so there are no bars; `screen.Width()` and `screen.Height()` say its size. `WindowScale` takes precedence when both are set. `Run` scales the screen to the window and reports the mouse in the same pixels. After `screen.SetCamera(camera)`, positions are in the world instead, until `screen.SetCamera(nil)`.
-7. **Make sprites, maps, fonts, sounds, music and shaders once, and keep them.** Create them as package variables or in `main`, never in `Update`, in `Draw` or in a scene that is made again for every new game: each one loads the first time it is used and stays loaded until `Run` returns.
+7. **Make sprites, maps, fonts, meshes, sounds, music and shaders once, and keep them.** Create them as package variables or in `main`, never in `Update`, in `Draw` or in a scene that is made again for every new game: each one loads the first time it is used and stays loaded until `Run` returns.
 8. **Random numbers come from `RandomInt` and `RandomFloat`**, never from `math/rand`: `golib shot` starts them from the same seed, so its screenshots repeat.
 9. **No key quits on its own, not even Esc.** Call `Quit` when the game should end; the game decides what Esc does.
 10. **`SwitchScene` and `Quit` don't stop the current update.** The code after them still runs, so `return` right after unless that is what you want.
@@ -297,7 +298,7 @@ func (s *playScene) Draw(screen *golib.Screen) {
 	s.drawWorld(screen)
 	if golib.PlayingWithTouch() {
 		for _, pad := range []golib.Rectangle{turnLeft, turnRight, fire} {
-			screen.DrawRectangle(pad.X, pad.Y, pad.Width, pad.Height, golib.WithOpacity(golib.White, 0.15))
+			screen.DrawRectangle(pad, golib.WithOpacity(golib.White, 0.15))
 		}
 	}
 }
@@ -797,6 +798,249 @@ func (s *playScene) Draw(screen *golib.Screen) {
 - With a camera set, `DrawMap` and `DrawMapLayer` draw only the tiles in the camera's view, and move layers with a parallax factor around its middle. Without one, pass the view's top-left corner, negated, as `x, y`.
 - The shake uses `RandomFloat`, so call `Shake` and `Update` from `Update`, never from `Draw`: `golib shot` repeats it.
 - `Update`, `Snap`, `View`, `ToWorld` and `ToScreen` work without a window, so tests can check what the camera shows.
+
+## 3D
+
+A 3D world, seen through a `Camera3D`, drawn between `screen.Begin3D` and `screen.End3D` in the same `Draw` as the 2D: the score and the menus go over it. In meters, with Y up; a model's front faces +Z. GoLib draws models from glTF files, as Blender exports them, with their textures and materials, and shapes made in code, lit physically by a sun that casts shadows, the sky's soft light and lamps of the game's own, with fog and a sky behind; FBX files and animation come in the next stages of M7 (see [docs/roadmap.md](../docs/roadmap.md#m7-3d-planned)).
+
+### Points, turns and places
+
+| Name | What it does |
+| --- | --- |
+| `Vector3` | `golib.Vector3{X: 1, Y: 2, Z: 3}`, with `Vector3.X`, `Vector3.Y` and `Vector3.Z`: a point or a direction in meters. X and Z go across the ground, Y up. |
+| `Vector3.Add`, `Vector3.Sub`, `Vector3.Scale` | As for `Vector2`: `target.Sub(from)` is the way from `from` to `target`. |
+| `Vector3.Length`, `Vector3.Distance`, `Vector3.Dot` | As for `Vector2`. |
+| `Vector3.Cross` | `Cross(other Vector3) Vector3`: at right angles to both, such as the up of a surface from two of its sides. |
+| `Vector3.Normalize`, `Vector3.ClampLength`, `Vector3.MoveTowards`, `Vector3.Lerp` | As for `Vector2`. |
+| `Vector3.Rotate` | `Rotate(rotation Rotation) Vector3`: a direction turned as a model turned by `rotation` turns it. |
+| `Rotation` | How something is turned, in degrees: `golib.Rotation{Yaw: 90}`. The zero `Rotation` faces +Z. The turns happen Roll first, then Pitch, then Yaw: a cube stood on a corner is `golib.Rotation{Roll: 45, Pitch: 35.26}`. |
+| `Rotation.Yaw` | Left and right around the world's up: 0 faces +Z, 90 faces +X, 180 faces -Z. Seen from behind, a larger Yaw turns left, because facing +Z the left side is +X: steer right with `yaw -= turnSpeed * dt`. |
+| `Rotation.Pitch` | The front tilted up, positive, or down, negative: 90 faces straight up. |
+| `Rotation.Roll` | Banking around the front: positive lowers the right side, as a plane rolls right. |
+| `Rotation.Forward`, `Rotation.Right`, `Rotation.Up` | `Forward() Vector3` and the others: which way the front, the right side and the top point once turned, length 1. Move a ship with `position.Add(rotation.Forward().Scale(speed * dt))`. |
+| `RotationTowards` | `RotationTowards(direction Vector3) Rotation`: the Yaw and Pitch that face `direction`, to aim a turret or turn a character to where it walks. |
+| `Rotation.Turn` | `Turn(axis Vector3, degrees float32) Rotation`: turned further around any axis of the world, which three angles can't do on their own: a ball rolling along `velocity` turns around `golib.Vector3{Y: 1}.Cross(velocity)` by `speed * dt / radius * 180 / math.Pi` degrees. |
+| `Transform` | Where a mesh is drawn: `Transform.Position`, `Transform.Rotation`, and `Transform.Scale`, which multiplies its size each way. A part of `Scale` left at 0 counts as 1, so `Scale: golib.Vector3{X: 40, Z: 40}` stretches a plane over the ground. |
+| `Transform.Child` | `Child(local Transform) Transform`: where something placed at `local`, relative to this transform, is in the world: a turret on a tank, eyes on a face, a model's marker once the model is drawn moved. It moves, turns and scales with its parent. |
+
+### Meshes and drawing
+
+| Name | What it does |
+| --- | --- |
+| `Mesh` | A shape made of triangles. Make each once and keep it; draw it as many times as needed. |
+| `NewBoxMesh` | `NewBoxMesh() *Mesh`: a box one meter each way, centered on 0, 0, 0. Scale it into walls, floors, crates and platforms. |
+| `NewSphereMesh` | `NewSphereMesh() *Mesh`: a ball one meter across. |
+| `NewCylinderMesh` | `NewCylinderMesh() *Mesh`: a closed cylinder one meter across and one high, standing on Y, centered on 0, 0, 0. |
+| `NewPlaneMesh` | `NewPlaneMesh() *Mesh`: a flat square one meter a side, on the ground, facing up and seen from below too. Scale X and Z into a floor. |
+| `NewConeMesh` | `NewConeMesh() *Mesh`: a cone one meter across at its base and one high, pointing up Y, centered on 0, 0, 0. |
+| `NewCapsuleMesh` | `NewCapsuleMesh() *Mesh`: a capsule one meter high and half a meter across, the usual shape of a character, centered on 0, 0, 0. Scale it the same way each way. |
+| `NewMesh` | `NewMesh(vertices []Vertex, indices []int) *Mesh`: a mesh made of triangles in code, three indices a triangle, counterclockwise from the side it faces: terrain from heights, a ramp, a gem. |
+| `Vertex` | A corner of a `NewMesh` mesh: `Vertex.Position`; `Vertex.Normal`, which `NewMesh` works out when every vertex leaves it zero, smooth where triangles share a vertex; `Vertex.U` and `Vertex.V`, where it is on a texture; `Vertex.Color`, blended across the triangle and multiplied by the color it is drawn in, the zero `Color` counting as `White`. |
+| `Screen.Begin3D` | `Begin3D(camera *Camera3D)`: starts drawing the 3D world through `camera`, over what `Draw` has drawn so far. The 3D is drawn at `End3D`, so 2D drawn before `End3D` ends up under it. |
+| `Screen.End3D` | `End3D()`: draws the 3D and goes back to 2D; what follows goes over it. `Run` ends a pass left open at the end of `Draw`. |
+| `Screen.DrawMesh` | `DrawMesh(mesh *Mesh, transform Transform, color Color)`: the mesh, lit. A color with `A` below 255 is see-through. |
+| `Screen.DrawWireframe` | `DrawWireframe(mesh *Mesh, transform Transform, color Color)`: only its edges, one pixel wide, unlit: the box a game checks collisions with, while testing. |
+| `Screen.DrawLine3D` | `DrawLine3D(from, to Vector3, color Color)`: a line one pixel wide, unlit, hidden by what is in front of it. |
+| `Screen.DrawGrid` | `DrawGrid(slices int, spacing float32, color Color)`: a square grid on the ground around 0, 0, 0, `slices` squares a side, `spacing` meters apart. |
+| `Screen.DrawAxes` | `DrawAxes(position Vector3, length float32)`: X in red, Y in green and Z in blue, from `position`, to see which way is which. |
+
+### Materials
+
+`DrawMesh` paints a mesh one color. `DrawMeshWith` gives it a `Material`: a texture, metal, a glow, or a shader of the game's own. Make materials once, like meshes.
+
+| Name | What it does |
+| --- | --- |
+| `Material` | How a surface looks: `&golib.Material{Color: golib.Gold, Metallic: 1, Roughness: 0.3}`. Fields left at zero keep a painted look: white, not metallic, roughness 0.6. A changed field shows at the next draw. |
+| `Screen.DrawMeshWith` | `DrawMeshWith(mesh *Mesh, transform Transform, material *Material)`: the mesh, its surface as the material says. |
+| `Material.Color` | Multiplies the texture, or is the color; White when zero. `A` below 255 is see-through. |
+| `Material.Texture`, `Material.Tiling` | A `Texture` wrapped around the mesh by its texture coordinates; `Tiling` repeats it that many times each way, for a floor of tiles (1 when zero). |
+| `Material.Metallic`, `Material.Roughness` | 0 for paint, wood, stone or plastic, 1 for bare metal, which tints what it reflects; and how blurred reflections are, 0.05 for a mirror, 1 for chalk (0.6 when zero). |
+| `Material.Emission`, `Material.EmissionStrength` | The light the surface gives off, shown even in the dark: lava, screens, neon. `EmissionStrength` multiplies it (1 when zero); above white it glows with `Environment.Bloom`. |
+| `Material.Unlit` | The color or texture as it is, with no light or shadow: a sky dome, a sign. As everywhere in the 3D, `Environment.Exposure` brightens or darkens it, and only colors above about 225 of 255 are softened a little by the tonemapper. |
+| `Material.TwoSided` | Draws the back of each triangle too: leaves, flags, paper. |
+| `Material.Shader` | A GLSL function of the game's own, `void surface(inout Surface s)`, that changes the surface before GoLib lights it: `s.color` (vec4, linear), `s.emission` (vec3), `s.metallic`, `s.roughness`, `s.normal` (in the world), and to read, `s.position` (in the world), `s.texcoord` and `s.time` (seconds of game time). Lighting, shadows and fog stay GoLib's. One that doesn't compile stops `Run` with what the graphics card said. |
+| `Texture` | A picture for 3D, from a PNG or JPEG file: smoothed, with mipmaps, repeating past its edges. |
+| `NewTexture` | `NewTexture(name string) *Texture`: the texture in the assets folder named `name`, read the first time it is drawn. |
+| `Texture.Pixelated` | Keeps a pixel art texture's pixels sharp up close. Set it before it is first drawn. |
+| `Texture.Err` | `Err() error`: reads it, and says what stopped it from loading. |
+
+```go
+var (
+	gold  = &golib.Material{Color: golib.Gold, Metallic: 1, Roughness: 0.3}
+	lava  = &golib.Material{Color: golib.Black, Emission: golib.Orange, EmissionStrength: 4}
+	tiles = &golib.Material{Texture: golib.NewTexture("textures/tiles.png"), Tiling: 20}
+	water = &golib.Material{Color: golib.Color{R: 40, G: 110, B: 160, A: 255}, Roughness: 0.05, Shader: `
+void surface(inout Surface s) {
+    s.normal = normalize(s.normal + 0.08 * vec3(sin(s.position.x * 3.0 + s.time * 2.0), 0.0, cos(s.position.z * 2.5 + s.time)));
+}`}
+)
+
+screen.DrawMeshWith(s.plane, golib.Transform{Scale: golib.Vector3{X: 20, Z: 20}}, tiles)
+screen.DrawMeshWith(s.sphere, golib.Transform{Position: coin}, gold)
+```
+
+### Models from Blender
+
+A model is a glTF file, `.glb` or `.gltf`, in the game's assets folder: Blender's File > Export > glTF 2.0, and most other 3D tools and asset packs. GoLib reads its meshes, their materials (color, texture, emission, unlit, see-through or cut out, one or two sides), vertex colors and the empties placed in it, with their custom properties: a level made in Blender carries where things go. Make each model once and keep it.
+
+| Name | What it does |
+| --- | --- |
+| `Model` | A model from a glTF file. Read the first time it is drawn or asked about; its textures go to the graphics card the first time it is drawn. |
+| `NewModel` | `NewModel(name string) *Model`: the model in the assets folder named `name`, such as `"models/ship.glb"`. A `.gltf` file's `.bin` and textures are read from its folder. |
+| `Screen.DrawModel` | `DrawModel(model *Model, transform Transform, tint Color)`: the model, placed by `transform`. `golib.White` draws it as made; another tint multiplies its colors, and `A` below 255 makes it see-through. |
+| `Model.Bounds` | `Bounds() (lowest, upmost Vector3)`: the box around it, in its own space: how big it is, and where its feet are. |
+| `Model.Markers` | `Markers() []ModelMarker`: the empties placed in it, and any other node without a mesh, in the file's order. |
+| `Model.Marker` | `Marker(name string) (ModelMarker, bool)`: the first marker called `name`, such as the player's start. |
+| `Model.Err` | `Err() error`: reads it, and says what stopped it from loading. Drawing or asking a model that didn't load stops `Run` with the same message, so a game needs it only to handle the mistake itself, or to check its models in a test. |
+| `ModelMarker` | A marker: `ModelMarker.Name`, `ModelMarker.Position`, `ModelMarker.Rotation` and `ModelMarker.Scale` in the model's own space, and `ModelMarker.Properties`, its custom properties, read like a Tiled object's (`Properties.String`, `Properties.Float` and the others). |
+
+```go
+var level = golib.NewModel("models/level.glb")
+var coin = golib.NewModel("models/coin.glb")
+
+func newPlayScene() *playScene {
+	s := &playScene{camera: golib.NewCamera3D(screenWidth, screenHeight)}
+	if start, ok := level.Marker("Start"); ok {
+		s.player.Position = start.Position
+	}
+	for _, m := range level.Markers() {
+		if m.Properties.String("kind") == "coin" {
+			s.coins = append(s.coins, m.Position)
+		}
+	}
+	return s
+}
+
+func (s *playScene) Draw(screen *golib.Screen) {
+	screen.Clear(golib.SkyBlue)
+	screen.Begin3D(s.camera)
+	screen.DrawModel(level, golib.Transform{}, golib.White)
+	for _, at := range s.coins {
+		screen.DrawModel(coin, golib.Transform{Position: at, Rotation: golib.Rotation{Yaw: s.spin}}, golib.White)
+	}
+	screen.End3D()
+}
+```
+
+- **Exporting from Blender:** File > Export > glTF 2.0, format glTF Binary (`.glb`), with +Y Up ticked, as it is by default. Tick Include > Custom Properties for the markers' properties. Leave Compression off: GoLib refuses Draco and says so. Keep the source `.blend` in `sources/`, at the same path as the `.glb` in `assets/`.
+- **Size and facing:** Blender's meter is GoLib's meter, and a model's front, Blender's -Y, faces +Z, as a zero `Rotation` faces. Check a new model's size with `Bounds`.
+- **Materials are drawn as made:** color and texture, metallic and roughness, normal and occlusion maps, emission, unlit, see-through or cut out. Not read yet: skins and animations (stage 4), and a file's own lights and cameras; light a model with `Screen.AddLight`.
+- **Copies are cheap.** Every copy of the same model or mesh in a frame is drawn together, and what the camera doesn't see is left out: a forest of the same tree costs little more than one tree.
+
+### Light, sky and fog
+
+A pass is lit by a sun and by the soft light of the sky and the ground; `Screen.SetEnvironment` changes them, and adds fog and a sky behind everything. `Screen.AddLight` adds lamps. Materials are lit physically, in light brighter than white where it is, and brought back to the screen's colors by a tonemapper that leaves a lit color as it is and softens only what is brighter: `golib.Red` facing the sun is `golib.Red`.
+
+| Name | What it does |
+| --- | --- |
+| `Environment` | How a pass is lit, and what shows behind it. Every field left at zero keeps GoLib's default. |
+| `Screen.SetEnvironment` | `SetEnvironment(environment Environment)`: sets it for the pass begun last; every pass starts with the zero `Environment`. Call it between `Begin3D` and `End3D`. |
+| `Environment.SunDirection` | The way the sunlight travels: straight down is `golib.Vector3{Y: -1}`, a low evening sun `golib.Vector3{X: 1, Y: -0.2}`. With an `HDRI`, from its picture's sun when zero. |
+| `Environment.SunColor`, `Environment.SunStrength` | The sun's color, a soft white when zero, none with `golib.Black`; and how strong it is, 1 when zero, 2 or 3 for a glaring desert. With an `HDRI`, the zero `SunColor` is its picture's sun, as bright as it is there, and none for a picture without one; `SunStrength` still multiplies it. |
+| `Environment.Sky`, `Environment.Ground` | The soft light from above and below that lights the side away from the sun; with `SkyBackground`, also the sky overhead and the ground below the horizon. |
+| `Environment.SkyBackground`, `Environment.Horizon` | Draws the sky behind everything, fading from `Sky` overhead to `Horizon` at eye level, a paler `Sky` when zero, and to `Ground` below. Without it, what `Draw` drew before `Begin3D` shows behind the 3D. |
+| `Environment.FogColor`, `Environment.FogDistance` | Fog that starts at a tenth of `FogDistance` meters and hides everything at `FogDistance`; 0 is no fog. The color defaults to the horizon's. |
+| `Environment.HDRI` | An `HDRI` that lights the world as the place in its panorama would, soft light from all around and reflections in shiny things, in place of `Sky` and `Ground`; with `SkyBackground`, it shows behind everything. |
+| `Environment.HDRITurn` | Turns the HDRI's panorama round, in degrees, as `Yaw` turns a model: a larger one turns it left. Its sun, its light and its reflections turn with it. |
+| `HDRI` | A panorama of a sky or a place, brighter than white where the sun is, from a Radiance `.hdr` file: the equirectangular kind Poly Haven (CC0) and most HDRI sites give. The middle of the picture faces +Z, as a zero `Rotation` does, and its right half is to the -X side. Its sun, thousands of times brighter than its sky, is taken out of its light as it loads and becomes the pass's sun, which casts the shadows: leave `SunDirection` and `SunColor` at zero to light the world as the photograph was, and set them for a sun of the game's own. Everything else in the picture shows as it is, ground and houses too: GoLib can't hide parts of it yet. |
+| `NewHDRI` | `NewHDRI(name string) *HDRI`: the HDRI in the assets folder named `name`, such as `"skies/park.hdr"`, read the first time it is used. Panoramas wider than 2048 pixels are made smaller as they load. |
+| `HDRI.Err` | `Err() error`: reads it, and says what stopped it from loading. Using one that didn't load stops `Run` with the same message. |
+| `Environment.Exposure` | Brightens or darkens the whole picture: 1 when zero, 2 twice as bright. Under a bright HDRI, below 1. |
+| `Environment.Bloom`, `Environment.NoBloom` | What is brighter than white glows, as in a camera's lens: emission, the sun off something shiny, a lamp close to a wall. `Bloom` is how strongly, 0.5 when zero; ordinary lit colors never glow. `NoBloom` turns it off. |
+| `Environment.ShadowDistance`, `Environment.NoShadows` | The sun casts shadows from everything solid onto everything, up to `ShadowDistance` meters from the camera, 50 when zero, sharpest near it. `NoShadows` turns them off. Lamps cast none yet. |
+| `Light` | A lamp: `Light.Position`, `Light.Color` (white when zero), `Light.Intensity` (1 when zero: lights what faces it a meter away as brightly as the sun, fading with the square of the distance), `Light.Range` (meters it reaches, 10 when zero). With `Light.Direction`, a spotlight lighting a cone `Light.Cone` degrees across, 45 when zero. |
+| `Screen.AddLight` | `AddLight(light Light)`: adds a lamp to the pass begun last, lighting everything it draws. A pass uses the 8 lamps nearest to the camera. |
+
+```go
+// A night, lit by the moon and two torches, with fog that hides the edge of the world.
+screen.Begin3D(s.camera)
+screen.SetEnvironment(golib.Environment{
+	SunColor: golib.Color{R: 120, G: 140, B: 200, A: 255}, SunStrength: 0.3, SunDirection: golib.Vector3{X: -1, Y: -2, Z: 1},
+	Sky: golib.Color{R: 20, G: 24, B: 50, A: 255}, Ground: golib.Black, SkyBackground: true,
+	FogDistance: 40,
+})
+for _, torch := range s.torches {
+	screen.AddLight(golib.Light{Position: torch, Color: golib.Orange, Intensity: 3, Range: 8})
+}
+screen.DrawModel(level, golib.Transform{}, golib.White)
+screen.End3D()
+```
+
+### The 3D camera
+
+| Name | What it does |
+| --- | --- |
+| `Camera3D` | The eye the world is seen through. Make one per scene with `NewCamera3D`, and keep it in the scene. |
+| `NewCamera3D` | `NewCamera3D(width, height float32) *Camera3D`: a camera for the screen's size, the one in `Config`, 4 meters up and 8 back from 0, 0, 0, looking at it towards +Z, the way the zero `Rotation` faces. |
+| `Camera3D.Position`, `Camera3D.Target` | Where the eye is, and the point it looks at. |
+| `Camera3D.Orbit` | `Orbit(center Vector3, yaw, pitch, distance float32)`: `distance` meters from `center`, looking at it, facing `yaw` and `pitch` as a `Rotation` does. The yaw a player faces puts the camera behind them; a negative pitch looks down from above. The third-person camera. |
+| `Camera3D.Look` | `Look(position Vector3, yaw, pitch float32)`: the eye at `position`, looking `yaw` and `pitch`. The first-person camera. |
+| `Camera3D.Follow` | `Follow(target, velocity Vector3, distance, pitch, dt float32)`: behind `target`, `distance` meters away, looking down `pitch` degrees (negative), swinging round behind the way `velocity` moves it along the ground, but not while it moves back towards the camera. The third-person camera; call it in every `Update`. |
+| `Camera3D.Heading` | The yaw `Follow` keeps the camera behind. `Follow` turns it; a game can turn it too, such as with the right stick. |
+| `Camera3D.Direction` | `Direction(forward, right float32) Vector3`: the way to move on the ground for keys or a stick pushed `forward` and `right`, from -1 to 1, as the player sees it: forward is away from the camera. At most length 1. A stick's Y grows downwards, so `Direction(-stickY, stickX)`. |
+| `Camera3D.FieldOfView` | Degrees seen from the bottom of the screen to the top: 60, the default, is usual; less zooms in. With `Orthographic`, meters seen from bottom to top instead. |
+| `Camera3D.Orthographic` | No perspective: far things are as large as near ones, for isometric and top-down games. |
+| `Camera3D.Near`, `Camera3D.Far` | The closest and the farthest the camera draws. 0 counts as 0.1 and 1000 meters. |
+| `Camera3D.Lag` | Seconds of smoothing towards `Position` and `Target`, as for the 2D camera. 0, the default, follows them exactly. |
+| `Camera3D.Update` | `Update(dt float32)`: moves the view by `Lag` and moves the shake on. Call it in every `Update` when the camera has `Lag` or shakes. |
+| `Camera3D.Snap` | `Snap()`: the view on `Position` and `Target` at once, without `Lag`. |
+| `Camera3D.Shake` | `Shake(strength, seconds float32)`: shakes the view by up to `strength` meters, fading out. Call it from `Update`. |
+| `Camera3D.Forward`, `Camera3D.Right` | `Forward() Vector3`: where it looks, tilted as the camera is; `Right() Vector3`: the screen's right, flat on the ground. Both length 1. To walk where the camera looks, flatten `Forward` first: set its `Y` to 0 and `Normalize` it, or keep the yaw given to `Orbit` and use `golib.Rotation{Yaw: yaw}.Forward()`. |
+| `Camera3D.ToScreen` | `ToScreen(point Vector3) (Vector2, bool)`: where a point of the world is on the screen, to draw a name or a health bar over it; false when it is behind the camera. |
+| `Camera3D.Ray` | `Ray(x, y float32) (origin, direction Vector3)`: the line from the camera through a point of the screen, such as `camera.Ray(input.MousePosition())`, to find what the player clicks on. |
+
+```go
+type playScene struct {
+	camera         *golib.Camera3D
+	ground, sphere *golib.Mesh
+	ballAt         golib.Vector3
+	yaw            float32 // where the player faces
+}
+
+func newPlayScene() *playScene {
+	s := &playScene{
+		camera: golib.NewCamera3D(screenWidth, screenHeight),
+		ground: golib.NewPlaneMesh(),
+		sphere: golib.NewSphereMesh(),
+	}
+	s.camera.Lag = 0.2
+	s.camera.Orbit(s.ballAt, s.yaw, -20, 8)
+	s.camera.Snap() // ready to draw before the first update
+	return s
+}
+
+func (s *playScene) Update(input *golib.Input, dt float32) {
+	if input.KeyDown(golib.KeyLeft) {
+		s.yaw += 120 * dt // a larger yaw turns left
+	}
+	if input.KeyDown(golib.KeyRight) {
+		s.yaw -= 120 * dt
+	}
+	if input.KeyDown(golib.KeyUp) {
+		s.ballAt = s.ballAt.Add(golib.Rotation{Yaw: s.yaw}.Forward().Scale(5 * dt))
+	}
+	s.camera.Orbit(s.ballAt, s.yaw, -20, 8) // behind the ball, looking down at it
+	s.camera.Update(dt)
+}
+
+func (s *playScene) Draw(screen *golib.Screen) {
+	screen.Clear(golib.SkyBlue)
+	screen.Begin3D(s.camera)
+	screen.DrawMesh(s.ground, golib.Transform{Scale: golib.Vector3{X: 40, Z: 40}}, golib.DarkGreen)
+	screen.DrawMesh(s.sphere, golib.Transform{Position: s.ballAt.Add(golib.Vector3{Y: 0.5})}, golib.Orange)
+	screen.End3D()
+	screen.DrawText("Arrows to roll", 10, 10, 20, golib.White)
+}
+```
+
+- **Positions are the rules; the camera is only the view.** Keep the world in `Vector3`s in the rules and in the tests, as in 2D. Many 3D games play on the ground, so their rules can stay in X and Z.
+- **Turns, in short:** a zero `Rotation` faces +Z; a larger `Yaw` turns left; seen through a camera facing +Z, the screen's right is -X. Check which way things move with a test that calls `Camera3D.ToScreen`, as [games/marbles](../games/marbles/world_test.go) does, rather than by reasoning about axes.
+- **The basic meshes are one meter across, centered.** A box standing on the ground at `p` with height `h` is drawn at `p.Add(golib.Vector3{Y: h / 2})` with `Scale` Y `h`.
+- **Two surfaces at the same height flicker through each other**, such as a plane laid on a box's top. Lift the one on top by a centimeter, or make floors from thin boxes.
+- **Check what the camera sees with `golib shot`.** A camera looking the wrong way shows only the background color. While testing, `screen.DrawAxes(golib.Vector3{}, 1)` and `screen.DrawGrid(20, 1, golib.Gray)` show where the world is and which way is which.
+- With the zero `Environment`, a sun high behind and to the right of a camera facing +Z, as `NewCamera3D`'s and a `Follow` camera's do, and a soft light from the sky: a color facing the sun shows as it is, and a side facing away from it at about half its brightness.
+- The 3D smooths its edges as it goes over the 2D (FXAA). `Config.PixelArt` draws it at the screen's size, scaled up with its edges sharp, the look of the first 3D consoles; `Config.Antialias` draws it twice as large and shrinks it, smoother still. Post-processing shaders run over it as over the 2D.
+- `Update`, `Snap`, `Orbit`, `Look`, `ToScreen` and `Ray` work without a window, so tests can check what the camera sees.
 
 ## Scenes
 
@@ -1362,6 +1606,7 @@ func TestJumpOnlyFromTheGround(t *testing.T) {
 
 - `Rectangle`, the random numbers, `ReadAsset`, `Animation`, a sprite's `Width`, `Height`, `Frames` and `Animation`, and everything a `Map` has but drawing work in tests; `golib test` runs them in the game's folder, so a test can check that a level has a start and the player can reach the exit.
 - `Sound.Play` and `Music.Play` play nothing in tests; `Sound.Play` still reads a sound file, so a test that plays it checks the file.
+- In 3D, `Vector3`, `Rotation`, `Transform`, `Camera3D` (`ToScreen`, `Ray`, `Orbit`, `Look`, `Update`), and a model's `Err`, `Bounds` and `Markers` work in tests: check which way a key moves a character on the screen, and that a level's markers are where they should be, as `games/hopper/level_test.go` does.
 - `Run` and `Screen` need a window: check drawing with `golib shot` instead.
 
 ## Using raylib directly
@@ -1413,10 +1658,11 @@ A web build is what a phone plays, so a game meant for one is a game meant for t
 | --- | --- | --- |
 | Parts of an image that aren't on a grid, Aseprite slices and tilemap layers | Not on the roadmap yet | Save each part as its own PNG file, or put the parts on a grid |
 | Isometric and hexagonal maps; drawing a map's shapes and text | Not on the roadmap yet | Orthogonal maps; draw what objects stand for with sprites and shapes |
-| Positional sound: louder on the side it comes from | Not on the roadmap yet | `Sound.PlayWith` at a lower volume for what is far away |
-| Physics | Not planned: GoLib is for games, not engines | Simple movement and `Rectangle` overlap checks in the game |
+| Positional sound: louder on the side it comes from | Planned with 3D (M7, stage 6) | `Sound.PlayWith` at a lower volume for what is far away |
+| Physics | Planned with 3D (M7, stage 6): collisions and a character controller in Go, then rigid bodies with Jolt | Simple movement and `Rectangle` overlap checks in the game |
 | Trigger pressure, vibration | Not on the roadmap yet | Triggers read as buttons |
-| 3D | M7, after the web build | None |
+| 3D shadows from lamps, FBX files, skeletal animation, collisions against a model's meshes, and hiding or reading one part of a model | Planned (M7, stages 4 to 7): see [docs/roadmap.md](../docs/roadmap.md#m7-3d-planned) | Models, materials, lights, the sun's shadows and fog work; for solid level geometry, mark it with empties and custom properties, as [games/hopper](../games/hopper) does, and check collisions in the game |
+| Reflections of the world in water and mirrors, a tint for each draw of one `Material`, and hiding or dimming part of an HDRI | Planned (M7, stage 7) | Shiny things reflect the HDRI or the sky; make a `Material` for each color; paint the HDRI over in a copy made offline, as [games/sunset](../games/sunset)'s `sources/skies/lakesky.go` does |
 | `.qoa`, `.xm` and `.mod` in a browser | Not planned: browsers cannot decode them | Save the sound as `.wav`, `.ogg` or `.mp3`. For music, put that file next to the `.xm` under the same name: a web build plays it, and the desktop keeps playing the module |
 
 When a game needs one of these, say so to the user and point to [docs/roadmap.md](../docs/roadmap.md), as [AGENTS.md](../AGENTS.md) asks, instead of building an engine to fill the gap.

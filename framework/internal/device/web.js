@@ -17,6 +17,18 @@ window.golib = (function () {
 		END_SHADER = 15, SHADER_VALUES = 16, BEGIN_FRAME = 17, END_FRAME = 18,
 		DRAW_SIZE = 19;
 
+	// The 3D commands, as web_gpu.go writes them.
+	const BEGIN_3D = 20, END_3D = 21, USE_PROGRAM = 22, UNIFORM_MATRIX = 23,
+		UNIFORM = 24, UNIFORM_INT = 25, DEPTH_WRITE = 26, BLEND_3D = 27,
+		CULLING = 28, DRAW_MESH = 29, DRAW_INSTANCED = 30, BIND_TEXTURE_3D = 31,
+		DRAW_FULLSCREEN = 32, UNIFORM_VEC4S = 33, BEGIN_SHADOW = 34, END_SHADOW = 35,
+		BIND_SHADOW_MAP = 36, BEGIN_WORK = 37, END_WORK = 38, BIND_WORK_TARGET = 39,
+		BIND_PASS_PICTURE = 40, ADDITIVE_3D = 41;
+
+	// The vertex layouts of 3D meshes, as gpu.go defines them, and how many
+	// floats an instance of a lit mesh takes: its matrix and its tint.
+	const LAYOUT_LIT = 0, LAYOUT_COLORED = 1, INSTANCE_FLOATS = 20;
+
 	const BLEND_NORMAL = 0, BLEND_ADD = 1, BLEND_COPY = 2, BLEND_PREMULTIPLIED = 3;
 
 	// How many vertices a batch holds before it goes to the graphics card.
@@ -354,6 +366,148 @@ void main() {
 					setShaderValues(c[i], c[i + 1], c[i + 2], c[i + 3], c[i + 4], c[i + 5], c[i + 6]);
 					i += 7;
 					break;
+				case BEGIN_3D:
+					begin3D();
+					break;
+				case END_3D:
+					end3D(c[i]);
+					i += 1;
+					break;
+				case UNIFORM_VEC4S: {
+					const count = c[i + 1];
+					gl.uniform4fv(locations3D[c[i]], c, i + 2, count * 4);
+					i += 2 + count * 4;
+					break;
+				}
+				case BEGIN_SHADOW: {
+					const map = shadowMaps.get(c[i]);
+					if (map) {
+						gl.bindFramebuffer(gl.FRAMEBUFFER, map.framebuffer);
+						gl.viewport(c[i + 1], c[i + 2], c[i + 3], c[i + 4]);
+						gl.depthMask(true);
+						if (c[i + 5] !== 0) gl.clearBufferfv(gl.DEPTH, 0, [1]);
+					}
+					i += 6;
+					break;
+				}
+				case END_SHADOW:
+					gl.bindFramebuffer(gl.FRAMEBUFFER, pass3D.framebuffer);
+					gl.viewport(0, 0, pass3D.width, pass3D.height);
+					break;
+				case BIND_SHADOW_MAP: {
+					const map = shadowMaps.get(c[i + 1]);
+					gl.activeTexture(gl.TEXTURE0 + c[i]);
+					gl.bindTexture(gl.TEXTURE_2D, map ? map.texture : null);
+					i += 2;
+					break;
+				}
+				case BEGIN_WORK: {
+					const work = workTargets.get(c[i]);
+					if (work) {
+						gl.bindFramebuffer(gl.FRAMEBUFFER, work.framebuffer);
+						gl.viewport(0, 0, work.width, work.height);
+						gl.disable(gl.DEPTH_TEST);
+						if (c[i + 1] !== 0) gl.clearBufferfv(gl.COLOR, 0, [0, 0, 0, 0]);
+					}
+					i += 2;
+					break;
+				}
+				case END_WORK:
+					gl.bindFramebuffer(gl.FRAMEBUFFER, pass3D.framebuffer);
+					gl.viewport(0, 0, pass3D.width, pass3D.height);
+					gl.enable(gl.DEPTH_TEST);
+					break;
+				case BIND_WORK_TARGET: {
+					const work = workTargets.get(c[i + 1]);
+					gl.activeTexture(gl.TEXTURE0 + c[i]);
+					gl.bindTexture(gl.TEXTURE_2D, work ? work.texture : null);
+					i += 2;
+					break;
+				}
+				case BIND_PASS_PICTURE:
+					gl.activeTexture(gl.TEXTURE0 + c[i]);
+					gl.bindTexture(gl.TEXTURE_2D, pass3D.color);
+					i += 1;
+					break;
+				case ADDITIVE_3D:
+					if (c[i] !== 0) {
+						gl.blendFunc(gl.ONE, gl.ONE);
+						gl.enable(gl.BLEND);
+					} else {
+						gl.disable(gl.BLEND);
+					}
+					i += 1;
+					break;
+				case DRAW_FULLSCREEN:
+					gl.bindVertexArray(emptyArray);
+					gl.drawArrays(gl.TRIANGLES, 0, 3);
+					break;
+				case USE_PROGRAM:
+					gl.useProgram(programs3D.get(c[i]) || null);
+					i += 1;
+					break;
+				case UNIFORM_MATRIX:
+					gl.uniformMatrix4fv(locations3D[c[i]], false, c, i + 1, 16);
+					i += 17;
+					break;
+				case UNIFORM: {
+					const where = locations3D[c[i]], count = c[i + 1];
+					if (count === 1) gl.uniform1f(where, c[i + 2]);
+					else if (count === 2) gl.uniform2f(where, c[i + 2], c[i + 3]);
+					else if (count === 3) gl.uniform3f(where, c[i + 2], c[i + 3], c[i + 4]);
+					else gl.uniform4f(where, c[i + 2], c[i + 3], c[i + 4], c[i + 5]);
+					i += 6;
+					break;
+				}
+				case UNIFORM_INT:
+					gl.uniform1i(locations3D[c[i]], c[i + 1]);
+					i += 2;
+					break;
+				case DEPTH_WRITE:
+					gl.depthMask(c[i] !== 0);
+					i += 1;
+					break;
+				case BLEND_3D:
+					if (c[i] !== 0) {
+						// Opacity piles up as coverage, so end3D can put
+						// the pass over the 2D with what shows through.
+						gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+						gl.enable(gl.BLEND);
+					} else {
+						gl.disable(gl.BLEND);
+					}
+					i += 1;
+					break;
+				case CULLING:
+					if (c[i] !== 0) gl.enable(gl.CULL_FACE); else gl.disable(gl.CULL_FACE);
+					i += 1;
+					break;
+				case DRAW_INSTANCED: {
+					const mesh = meshes.get(c[i]), count = c[i + 1];
+					const floats = count * INSTANCE_FLOATS;
+					if (mesh) {
+						gl.bindBuffer(gl.ARRAY_BUFFER, instanceBuffer);
+						gl.bufferData(gl.ARRAY_BUFFER, c.subarray(i + 2, i + 2 + floats), gl.STREAM_DRAW);
+						gl.bindVertexArray(mesh.vao);
+						gl.drawElementsInstanced(gl.TRIANGLES, mesh.count, gl.UNSIGNED_INT, 0, count);
+					}
+					i += 2 + floats;
+					break;
+				}
+				case BIND_TEXTURE_3D:
+					gl.activeTexture(gl.TEXTURE0 + c[i]);
+					gl.bindTexture(gl.TEXTURE_2D, textures.get(c[i + 1]) || null);
+					i += 2;
+					break;
+				case DRAW_MESH: {
+					const mesh = meshes.get(c[i]);
+					if (mesh) {
+						gl.bindVertexArray(mesh.vao);
+						gl.drawElements(mesh.lines ? gl.LINES : gl.TRIANGLES, mesh.count, gl.UNSIGNED_INT, 0);
+					}
+					i += 1;
+					break;
+				}
 				default:
 					// A command this file doesn't know means the two halves
 					// have drifted apart. Stopping says so loudly.
@@ -645,6 +799,338 @@ void main() {
 		used = 0;
 	}
 
+	// -------------------------------------------------------------------- 3D
+
+	// The 3D's own objects. Meshes and programs share nextID with the rest;
+	// uniform locations are numbered in one list for every program.
+	const meshes = new Map();     // id -> { vao, vbo, ibo, count, lines }
+	const programs3D = new Map(); // id -> WebGLProgram
+	const locations3D = [];       // number -> WebGLUniformLocation
+	const locationsByName = new Map(); // "program name" -> number, or -1
+	let instanceBuffer = null;    // what instanced draws fill, attached to every lit mesh
+	const bitmaps = new Map();    // id -> ImageBitmap, decoded and waiting for newTexture3D
+	let anisotropy = undefined;   // the extension, once looked for
+
+	// decodeImage has the browser decode a PNG or JPEG file off the page's
+	// thread, as it is, and calls done with its number and size, or -1.
+	function decodeImage(bytes, done) {
+		const blob = new Blob([bytes]);
+		createImageBitmap(blob, { premultiplyAlpha: 'none', colorSpaceConversion: 'none', imageOrientation: 'none' })
+			.then(function (bitmap) {
+				const id = nextID++;
+				bitmaps.set(id, bitmap);
+				done(id, bitmap.width, bitmap.height);
+			}, function () { done(-1, 0, 0); });
+	}
+
+	// newHDRTexture puts a panorama brighter than white on the graphics
+	// card, in half floats, with the mipmaps package golib made, one after
+	// another in bytes: WebGL can't make them for a format it can't render
+	// into without an extension.
+	function newHDRTexture(width, height, bytes, levels) {
+		const halves = new Uint16Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 2);
+		const id = nextID++;
+		const made = gl.createTexture();
+		gl.activeTexture(gl.TEXTURE7);
+		gl.bindTexture(gl.TEXTURE_2D, made);
+		gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+		let w = width, h = height, at = 0;
+		for (let level = 0; level < levels; level++) {
+			const size = w * h * 4;
+			gl.texImage2D(gl.TEXTURE_2D, level, gl.RGBA16F, w, h, 0, gl.RGBA, gl.HALF_FLOAT, halves.subarray(at, at + size));
+			at += size;
+			w = Math.max(1, w >> 1);
+			h = Math.max(1, h >> 1);
+		}
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAX_LEVEL, levels - 1);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+		gl.bindTexture(gl.TEXTURE_2D, null);
+		gl.activeTexture(gl.TEXTURE0);
+		textures.set(id, made);
+		boundTexture = -1;
+		return id;
+	}
+
+	// newTexture3D puts a decoded picture on the graphics card, with
+	// mipmaps, its top row first, as WebGL and glTF both want it.
+	function newTexture3D(bitmapID, linear, nearest, nearestMipmaps, wrapS, wrapT) {
+		const bitmap = bitmaps.get(bitmapID);
+		if (!bitmap) return 0;
+		bitmaps.delete(bitmapID);
+		const id = nextID++;
+		const made = gl.createTexture();
+		// A unit no program samples, so the textures bound for drawing stay.
+		gl.activeTexture(gl.TEXTURE7);
+		gl.bindTexture(gl.TEXTURE_2D, made);
+		gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+		gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+		gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, gl.NONE);
+		gl.texImage2D(gl.TEXTURE_2D, 0, linear ? gl.RGBA8 : gl.SRGB8_ALPHA8, gl.RGBA, gl.UNSIGNED_BYTE, bitmap);
+		gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, gl.BROWSER_DEFAULT_WEBGL);
+		bitmap.close();
+		gl.generateMipmap(gl.TEXTURE_2D);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, nearestMipmaps ? gl.NEAREST_MIPMAP_NEAREST : gl.LINEAR_MIPMAP_LINEAR);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, nearest ? gl.NEAREST : gl.LINEAR);
+		const wraps = [gl.REPEAT, gl.CLAMP_TO_EDGE, gl.MIRRORED_REPEAT];
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, wraps[wrapS]);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, wraps[wrapT]);
+		if (anisotropy === undefined) anisotropy = gl.getExtension('EXT_texture_filter_anisotropic');
+		if (anisotropy) gl.texParameterf(gl.TEXTURE_2D, anisotropy.TEXTURE_MAX_ANISOTROPY_EXT, 8);
+		gl.bindTexture(gl.TEXTURE_2D, null);
+		gl.activeTexture(gl.TEXTURE0);
+		textures.set(id, made);
+		boundTexture = -1;
+		return id;
+	}
+
+	function newMesh(layout, vertexBytes, indexBytes, lines) {
+		const id = nextID++;
+		const vao = gl.createVertexArray();
+		gl.bindVertexArray(vao);
+		const vbo = gl.createBuffer();
+		gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+		const ibo = gl.createBuffer();
+		gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
+		if (layout === LAYOUT_LIT) {
+			bindAttribute(0, 3, 0, 48);
+			bindAttribute(1, 3, 12, 48);
+			bindAttribute(2, 2, 24, 48);
+			bindAttribute(3, 4, 32, 48);
+			if (!instanceBuffer) instanceBuffer = gl.createBuffer();
+			gl.bindBuffer(gl.ARRAY_BUFFER, instanceBuffer);
+			for (let k = 0; k < 5; k++) { // the matrix's four columns, then the tint
+				bindAttribute(4 + k, 4, k * 16, INSTANCE_FLOATS * 4);
+				gl.vertexAttribDivisor(4 + k, 1);
+			}
+		} else {
+			bindAttribute(0, 3, 0, 28);
+			bindAttribute(3, 4, 12, 28);
+		}
+		const mesh = { vao: vao, vbo: vbo, ibo: ibo, count: 0, lines: lines };
+		fillMesh(mesh, vertexBytes, indexBytes);
+		meshes.set(id, mesh);
+		backTo2D();
+		return id;
+	}
+
+	// fillMesh puts the bytes into a mesh whose vertex array is bound.
+	function fillMesh(mesh, vertexBytes, indexBytes) {
+		gl.bindBuffer(gl.ARRAY_BUFFER, mesh.vbo);
+		gl.bufferData(gl.ARRAY_BUFFER, vertexBytes, gl.STATIC_DRAW);
+		gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indexBytes, gl.STATIC_DRAW);
+		mesh.count = indexBytes.length / 4;
+	}
+
+	function updateMesh(id, vertexBytes, indexBytes) {
+		const mesh = meshes.get(id);
+		if (!mesh) return;
+		gl.bindVertexArray(mesh.vao);
+		fillMesh(mesh, vertexBytes, indexBytes);
+		backTo2D();
+	}
+
+	function unloadMesh(id) {
+		const mesh = meshes.get(id);
+		if (!mesh) return;
+		gl.deleteVertexArray(mesh.vao);
+		gl.deleteBuffer(mesh.vbo);
+		gl.deleteBuffer(mesh.ibo);
+		meshes.delete(id);
+		backTo2D();
+	}
+
+	// backTo2D binds what the 2D's batch draws with again.
+	function backTo2D() {
+		gl.bindVertexArray(vertexArray);
+		gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
+	}
+
+	function newProgram3D(vertexSource, fragmentSource) {
+		const built = linkProgram(vertexSource, fragmentSource);
+		if (built.error) return [-1, (built.error || 'the graphics card gave no reason').trim()];
+		const id = nextID++;
+		programs3D.set(id, built.program);
+		return [id, ''];
+	}
+
+	function unloadProgram3D(id) {
+		const made = programs3D.get(id);
+		if (!made) return;
+		gl.deleteProgram(made);
+		programs3D.delete(id);
+		useCurrentProgram();
+	}
+
+	function location3D(id, name) {
+		const key = id + ' ' + name;
+		if (locationsByName.has(key)) return locationsByName.get(key);
+		const made = programs3D.get(id);
+		const found = made ? gl.getUniformLocation(made, name) : null;
+		let at = -1;
+		if (found) {
+			at = locations3D.length;
+			locations3D.push(found);
+		}
+		locationsByName.set(key, at);
+		return at;
+	}
+
+	// pass3D is what a 3D pass draws into: colors in half floats where the
+	// browser can render into them, a depth buffer, the size of the target
+	// the pass is drawn over. end3D puts it over that target, tonemapped.
+	const pass3D = { framebuffer: null, color: null, depth: null, width: 0, height: 0, float: undefined };
+	let emptyArray = null; // a vertex array with nothing, for a triangle over the whole view
+
+	function preparePass3D(width, height) {
+		if (pass3D.framebuffer && pass3D.width === width && pass3D.height === height) return;
+		if (pass3D.float === undefined) pass3D.float = !!gl.getExtension('EXT_color_buffer_float');
+		if (!emptyArray) emptyArray = gl.createVertexArray();
+		if (pass3D.framebuffer) {
+			gl.deleteFramebuffer(pass3D.framebuffer);
+			gl.deleteTexture(pass3D.color);
+			gl.deleteRenderbuffer(pass3D.depth);
+		}
+		pass3D.width = width;
+		pass3D.height = height;
+		pass3D.color = gl.createTexture();
+		gl.activeTexture(gl.TEXTURE7);
+		gl.bindTexture(gl.TEXTURE_2D, pass3D.color);
+		if (pass3D.float) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, width, height, 0, gl.RGBA, gl.HALF_FLOAT, null);
+		else gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+		// Smoothed, for what reads between its texels: the glow's first
+		// step, and the compose shader smoothing edges.
+		clampAndFilter(gl.LINEAR);
+		gl.bindTexture(gl.TEXTURE_2D, null);
+		gl.activeTexture(gl.TEXTURE0);
+		pass3D.depth = gl.createRenderbuffer();
+		gl.bindRenderbuffer(gl.RENDERBUFFER, pass3D.depth);
+		gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, width, height);
+		pass3D.framebuffer = gl.createFramebuffer();
+		gl.bindFramebuffer(gl.FRAMEBUFFER, pass3D.framebuffer);
+		gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, pass3D.color, 0);
+		gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, pass3D.depth);
+		boundTexture = -1;
+	}
+
+	// Shadow maps: depth textures sampled with comparison, each with a
+	// framebuffer that draws only depth into it.
+	const shadowMaps = new Map(); // id -> { framebuffer, texture }
+
+	function newShadowMap(width, height) {
+		const id = nextID++;
+		const texture = gl.createTexture();
+		gl.activeTexture(gl.TEXTURE7);
+		gl.bindTexture(gl.TEXTURE_2D, texture);
+		gl.texImage2D(gl.TEXTURE_2D, 0, gl.DEPTH_COMPONENT24, width, height, 0, gl.DEPTH_COMPONENT, gl.UNSIGNED_INT, null);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_COMPARE_MODE, gl.COMPARE_REF_TO_TEXTURE);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_COMPARE_FUNC, gl.LEQUAL);
+		gl.bindTexture(gl.TEXTURE_2D, null);
+		gl.activeTexture(gl.TEXTURE0);
+		const framebuffer = gl.createFramebuffer();
+		gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+		gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.TEXTURE_2D, texture, 0);
+		gl.drawBuffers([gl.NONE]);
+		gl.readBuffer(gl.NONE);
+		const target = boundTarget === 0 ? null : targets.get(boundTarget);
+		gl.bindFramebuffer(gl.FRAMEBUFFER, target ? target.framebuffer : null);
+		shadowMaps.set(id, { framebuffer: framebuffer, texture: texture });
+		boundTexture = -1;
+		return id;
+	}
+
+	function unloadShadowMap(id) {
+		const map = shadowMaps.get(id);
+		if (!map) return;
+		gl.deleteFramebuffer(map.framebuffer);
+		gl.deleteTexture(map.texture);
+		shadowMaps.delete(id);
+	}
+
+	// Work targets: pictures a pass draws into and reads back on the way to
+	// the screen, in half floats where the browser can render into them.
+	const workTargets = new Map(); // id -> { framebuffer, texture, width, height }
+
+	function newWorkTarget(width, height) {
+		if (pass3D.float === undefined) pass3D.float = !!gl.getExtension('EXT_color_buffer_float');
+		const id = nextID++;
+		const texture = gl.createTexture();
+		gl.activeTexture(gl.TEXTURE7);
+		gl.bindTexture(gl.TEXTURE_2D, texture);
+		if (pass3D.float) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, width, height, 0, gl.RGBA, gl.HALF_FLOAT, null);
+		else gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+		clampAndFilter(gl.LINEAR);
+		gl.bindTexture(gl.TEXTURE_2D, null);
+		gl.activeTexture(gl.TEXTURE0);
+		const framebuffer = gl.createFramebuffer();
+		gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+		gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0);
+		const target = boundTarget === 0 ? null : targets.get(boundTarget);
+		gl.bindFramebuffer(gl.FRAMEBUFFER, target ? target.framebuffer : null);
+		workTargets.set(id, { framebuffer: framebuffer, texture: texture, width: width, height: height });
+		boundTexture = -1;
+		return id;
+	}
+
+	function unloadWorkTarget(id) {
+		const work = workTargets.get(id);
+		if (!work) return;
+		gl.deleteFramebuffer(work.framebuffer);
+		gl.deleteTexture(work.texture);
+		workTargets.delete(id);
+	}
+
+	function begin3D() {
+		flush();
+		preparePass3D(Math.max(1, viewWidth), Math.max(1, viewHeight));
+		gl.bindFramebuffer(gl.FRAMEBUFFER, pass3D.framebuffer);
+		gl.viewport(0, 0, pass3D.width, pass3D.height);
+		gl.enable(gl.DEPTH_TEST);
+		gl.depthFunc(gl.LEQUAL);
+		gl.depthMask(true);
+		gl.clearBufferfv(gl.COLOR, 0, [0, 0, 0, 0]);
+		gl.clearBufferfv(gl.DEPTH, 0, [1]);
+		gl.enable(gl.CULL_FACE);
+		gl.cullFace(gl.BACK);
+		gl.frontFace(gl.CCW);
+		gl.disable(gl.BLEND);
+	}
+
+	// end3D draws the pass's picture over the target the pass was drawn
+	// over, through the compose program, which reads it from texture unit 0
+	// and gives colors premultiplied by their opacity. Then it leaves WebGL as
+	// the 2D expects it: no depth testing or culling, blending as it was, and
+	// the 2D's program, batch and texture unit.
+	function end3D(composeID) {
+		const target = boundTarget === 0 ? null : targets.get(boundTarget);
+		gl.bindFramebuffer(gl.FRAMEBUFFER, target ? target.framebuffer : null);
+		gl.viewport(0, 0, viewWidth, viewHeight);
+		gl.disable(gl.DEPTH_TEST);
+		gl.depthMask(true);
+		gl.disable(gl.CULL_FACE);
+		gl.enable(gl.BLEND);
+		gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+		gl.useProgram(programs3D.get(composeID) || null);
+		gl.activeTexture(gl.TEXTURE0);
+		gl.bindTexture(gl.TEXTURE_2D, pass3D.color);
+		gl.bindVertexArray(emptyArray);
+		gl.drawArrays(gl.TRIANGLES, 0, 3);
+		const mode = boundBlend;
+		boundBlend = -1;
+		setBlend(mode < 0 ? BLEND_NORMAL : mode);
+		gl.activeTexture(gl.TEXTURE0);
+		boundTexture = -1;
+		backTo2D();
+		useCurrentProgram();
+	}
+
+
 	// -------------------------------------------------------------- pictures
 
 	// newTexture loads a picture, unsmoothed as raylib loads one, or smoothed
@@ -693,8 +1179,14 @@ void main() {
 		const framebuffer = gl.createFramebuffer();
 		gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
 		gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, made, 0);
+		// A depth buffer, for the 3D drawn into the target, as raylib's
+		// render textures have one.
+		const depth = gl.createRenderbuffer();
+		gl.bindRenderbuffer(gl.RENDERBUFFER, depth);
+		gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, width, height);
+		gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, depth);
 		gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-		targets.set(id, { framebuffer: framebuffer, texture: made, textureID: textureID, width: width, height: height });
+		targets.set(id, { framebuffer: framebuffer, depth: depth, texture: made, textureID: textureID, width: width, height: height });
 		boundTexture = -1;
 		boundTarget = -1;
 		bindCanvas();
@@ -705,6 +1197,7 @@ void main() {
 		const target = targets.get(id);
 		if (!target) return;
 		gl.deleteFramebuffer(target.framebuffer);
+		gl.deleteRenderbuffer(target.depth);
 		gl.deleteTexture(target.texture);
 		textures.delete(target.textureID);
 		targets.delete(id);
@@ -1607,6 +2100,11 @@ void main() {
 		showError: showError,
 		postPicture: postPicture,
 		newShader: newShader, unloadShader: unloadShader, shaderLocation: shaderLocation,
+		newMesh: newMesh, updateMesh: updateMesh, unloadMesh: unloadMesh,
+		decodeImage: decodeImage, newTexture3D: newTexture3D, newHDRTexture: newHDRTexture,
+		newShadowMap: newShadowMap, unloadShadowMap: unloadShadowMap,
+		newWorkTarget: newWorkTarget, unloadWorkTarget: unloadWorkTarget,
+		newProgram3D: newProgram3D, unloadProgram3D: unloadProgram3D, location3D: location3D,
 		readFont: readFont,
 		openAudio: openAudio, closeAudio: closeAudio, setMasterVolume: setMasterVolume,
 		decodeSound: decodeSound, unloadWave: unloadWave,
