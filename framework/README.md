@@ -801,7 +801,7 @@ func (s *playScene) Draw(screen *golib.Screen) {
 
 ## 3D
 
-A 3D world, seen through a `Camera3D`, drawn between `screen.Begin3D` and `screen.End3D` in the same `Draw` as the 2D: the score and the menus go over it. In meters, with Y up; a model's front faces +Z. For now GoLib draws the basic shapes in solid colors, lit by a fixed sun and sky; models from Blender, textures, lights of the game's own, shadows and animation come in the next stages of M7 (see [docs/roadmap.md](../docs/roadmap.md#m7-3d-planned)).
+A 3D world, seen through a `Camera3D`, drawn between `screen.Begin3D` and `screen.End3D` in the same `Draw` as the 2D: the score and the menus go over it. In meters, with Y up; a model's front faces +Z. GoLib draws models from glTF files, as Blender exports them, with their textures, and shapes made in code, all lit by a fixed sun and sky; lights of the game's own, shadows, FBX files and animation come in the next stages of M7 (see [docs/roadmap.md](../docs/roadmap.md#m7-3d-planned)).
 
 ### Points, turns and places
 
@@ -819,7 +819,9 @@ A 3D world, seen through a `Camera3D`, drawn between `screen.Begin3D` and `scree
 | `Rotation.Roll` | Banking around the front: positive lowers the right side, as a plane rolls right. |
 | `Rotation.Forward`, `Rotation.Right`, `Rotation.Up` | `Forward() Vector3` and the others: which way the front, the right side and the top point once turned, length 1. Move a ship with `position.Add(rotation.Forward().Scale(speed * dt))`. |
 | `RotationTowards` | `RotationTowards(direction Vector3) Rotation`: the Yaw and Pitch that face `direction`, to aim a turret or turn a character to where it walks. |
+| `Rotation.Turn` | `Turn(axis Vector3, degrees float32) Rotation`: turned further around any axis of the world, which three angles can't do on their own: a ball rolling along `velocity` turns around `golib.Vector3{Y: 1}.Cross(velocity)` by `speed * dt / radius * 180 / math.Pi` degrees. |
 | `Transform` | Where a mesh is drawn: `Transform.Position`, `Transform.Rotation`, and `Transform.Scale`, which multiplies its size each way. A part of `Scale` left at 0 counts as 1, so `Scale: golib.Vector3{X: 40, Z: 40}` stretches a plane over the ground. |
+| `Transform.Child` | `Child(local Transform) Transform`: where something placed at `local`, relative to this transform, is in the world: a turret on a tank, eyes on a face, a model's marker once the model is drawn moved. It moves, turns and scales with its parent. |
 
 ### Meshes and drawing
 
@@ -830,6 +832,10 @@ A 3D world, seen through a `Camera3D`, drawn between `screen.Begin3D` and `scree
 | `NewSphereMesh` | `NewSphereMesh() *Mesh`: a ball one meter across. |
 | `NewCylinderMesh` | `NewCylinderMesh() *Mesh`: a closed cylinder one meter across and one high, standing on Y, centered on 0, 0, 0. |
 | `NewPlaneMesh` | `NewPlaneMesh() *Mesh`: a flat square one meter a side, on the ground, facing up and seen from below too. Scale X and Z into a floor. |
+| `NewConeMesh` | `NewConeMesh() *Mesh`: a cone one meter across at its base and one high, pointing up Y, centered on 0, 0, 0. |
+| `NewCapsuleMesh` | `NewCapsuleMesh() *Mesh`: a capsule one meter high and half a meter across, the usual shape of a character, centered on 0, 0, 0. Scale it the same way each way. |
+| `NewMesh` | `NewMesh(vertices []Vertex, indices []int) *Mesh`: a mesh made of triangles in code, three indices a triangle, counterclockwise from the side it faces: terrain from heights, a ramp, a gem. |
+| `Vertex` | A corner of a `NewMesh` mesh: `Vertex.Position`; `Vertex.Normal`, which `NewMesh` works out when every vertex leaves it zero, smooth where triangles share a vertex; `Vertex.U` and `Vertex.V`, where it is on a texture; `Vertex.Color`, blended across the triangle and multiplied by the color it is drawn in, the zero `Color` counting as `White`. |
 | `Screen.Begin3D` | `Begin3D(camera *Camera3D)`: starts drawing the 3D world through `camera`, over what `Draw` has drawn so far. The 3D is drawn at `End3D`, so 2D drawn before `End3D` ends up under it. |
 | `Screen.End3D` | `End3D()`: draws the 3D and goes back to 2D; what follows goes over it. `Run` ends a pass left open at the end of `Draw`. |
 | `Screen.DrawMesh` | `DrawMesh(mesh *Mesh, transform Transform, color Color)`: the mesh, lit. A color with `A` below 255 is see-through. |
@@ -837,6 +843,54 @@ A 3D world, seen through a `Camera3D`, drawn between `screen.Begin3D` and `scree
 | `Screen.DrawLine3D` | `DrawLine3D(from, to Vector3, color Color)`: a line one pixel wide, unlit, hidden by what is in front of it. |
 | `Screen.DrawGrid` | `DrawGrid(slices int, spacing float32, color Color)`: a square grid on the ground around 0, 0, 0, `slices` squares a side, `spacing` meters apart. |
 | `Screen.DrawAxes` | `DrawAxes(position Vector3, length float32)`: X in red, Y in green and Z in blue, from `position`, to see which way is which. |
+
+### Models from Blender
+
+A model is a glTF file, `.glb` or `.gltf`, in the game's assets folder: Blender's File > Export > glTF 2.0, and most other 3D tools and asset packs. GoLib reads its meshes, their materials (color, texture, emission, unlit, see-through or cut out, one or two sides), vertex colors and the empties placed in it, with their custom properties: a level made in Blender carries where things go. Make each model once and keep it.
+
+| Name | What it does |
+| --- | --- |
+| `Model` | A model from a glTF file. Read the first time it is drawn or asked about; its textures go to the graphics card the first time it is drawn. |
+| `NewModel` | `NewModel(name string) *Model`: the model in the assets folder named `name`, such as `"models/ship.glb"`. A `.gltf` file's `.bin` and textures are read from its folder. |
+| `Screen.DrawModel` | `DrawModel(model *Model, transform Transform, tint Color)`: the model, placed by `transform`. `golib.White` draws it as made; another tint multiplies its colors, and `A` below 255 makes it see-through. |
+| `Model.Bounds` | `Bounds() (lowest, upmost Vector3)`: the box around it, in its own space: how big it is, and where its feet are. |
+| `Model.Markers` | `Markers() []ModelMarker`: the empties placed in it, and any other node without a mesh, in the file's order. |
+| `Model.Marker` | `Marker(name string) (ModelMarker, bool)`: the first marker called `name`, such as the player's start. |
+| `Model.Err` | `Err() error`: reads it, and says what stopped it from loading. Drawing or asking a model that didn't load stops `Run` with the same message, so a game needs it only to handle the mistake itself, or to check its models in a test. |
+| `ModelMarker` | A marker: `ModelMarker.Name`, `ModelMarker.Position`, `ModelMarker.Rotation` and `ModelMarker.Scale` in the model's own space, and `ModelMarker.Properties`, its custom properties, read like a Tiled object's (`Properties.String`, `Properties.Float` and the others). |
+
+```go
+var level = golib.NewModel("models/level.glb")
+var coin = golib.NewModel("models/coin.glb")
+
+func newPlayScene() *playScene {
+	s := &playScene{camera: golib.NewCamera3D(screenWidth, screenHeight)}
+	if start, ok := level.Marker("Start"); ok {
+		s.player.Position = start.Position
+	}
+	for _, m := range level.Markers() {
+		if m.Properties.String("kind") == "coin" {
+			s.coins = append(s.coins, m.Position)
+		}
+	}
+	return s
+}
+
+func (s *playScene) Draw(screen *golib.Screen) {
+	screen.Clear(golib.SkyBlue)
+	screen.Begin3D(s.camera)
+	screen.DrawModel(level, golib.Transform{}, golib.White)
+	for _, at := range s.coins {
+		screen.DrawModel(coin, golib.Transform{Position: at, Rotation: golib.Rotation{Yaw: s.spin}}, golib.White)
+	}
+	screen.End3D()
+}
+```
+
+- **Exporting from Blender:** File > Export > glTF 2.0, format glTF Binary (`.glb`), with +Y Up ticked, as it is by default. Tick Include > Custom Properties for the markers' properties. Leave Compression off: GoLib refuses Draco and says so. Keep the source `.blend` in `sources/`, at the same path as the `.glb` in `assets/`.
+- **Size and facing:** Blender's meter is GoLib's meter, and a model's front, Blender's -Y, faces +Z, as a zero `Rotation` faces. Check a new model's size with `Bounds`.
+- **Not read yet:** skins and animations (stage 4), lights and cameras, metallic and roughness, normal and occlusion maps, which stage 3's lighting will use. A model shows its color, texture and emission under the fixed sun.
+- **Copies are cheap.** Every copy of the same model or mesh in a frame is drawn together, and what the camera doesn't see is left out: a forest of the same tree costs little more than one tree.
 
 ### The 3D camera
 
@@ -904,7 +958,7 @@ func (s *playScene) Draw(screen *golib.Screen) {
 
 - **Positions are the rules; the camera is only the view.** Keep the world in `Vector3`s in the rules and in the tests, as in 2D. Many 3D games play on the ground, so their rules can stay in X and Z.
 - **Turns, in short:** a zero `Rotation` faces +Z; a larger `Yaw` turns left; seen through a camera facing +Z, the screen's right is -X. Check which way things move with a test that calls `Camera3D.ToScreen`, as [games/marbles](../games/marbles/world_test.go) does, rather than by reasoning about axes.
-- **Meshes are one meter across, centered.** A box standing on the ground at `p` with height `h` is drawn at `p.Add(golib.Vector3{Y: h / 2})` with `Scale` Y `h`.
+- **The basic meshes are one meter across, centered.** A box standing on the ground at `p` with height `h` is drawn at `p.Add(golib.Vector3{Y: h / 2})` with `Scale` Y `h`.
 - **Two surfaces at the same height flicker through each other**, such as a plane laid on a box's top. Lift the one on top by a centimeter, or make floors from thin boxes.
 - **Check what the camera sees with `golib shot`.** A camera looking the wrong way shows only the background color. While testing, `screen.DrawAxes(golib.Vector3{}, 1)` and `screen.DrawGrid(20, 1, golib.Gray)` show where the world is and which way is which.
 - The light is fixed for now: a sun high behind and to the right of a camera facing +Z, as `NewCamera3D`'s does, and a soft light from the sky. A side facing away from the sun shows its color at about half its brightness.

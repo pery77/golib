@@ -283,6 +283,7 @@ func (r *renderer) close() {
 	loadedImages.unloadAll()
 	loadedFonts.unloadAll()
 	loadedMeshes.unloadAll()
+	loadedTextures.unloadAll()
 	renderer3D.unload()
 	r.unloadScene()
 	for _, pass := range r.passes {

@@ -190,3 +190,53 @@ func (t Transform) matrix() matrix {
 	m[12], m[13], m[14] = t.Position.X, t.Position.Y, t.Position.Z
 	return m
 }
+
+// Turn returns r turned further, by degrees around axis, an axis of the
+// world through the model's middle, counterclockwise as seen from where axis
+// points. It turns about any axis, which the three angles of a Rotation
+// can't do on their own: a ball rolling along the ground turns around the
+// axis at right angles to the way it rolls, by as many degrees as it rolls.
+//
+//	axis := golib.Vector3{Y: 1}.Cross(velocity) // sideways to the way it rolls
+//	degrees := velocity.Length() * dt / radius * 180 / math.Pi
+//	ball.Rotation = ball.Rotation.Turn(axis, degrees)
+func (r Rotation) Turn(axis Vector3, degrees float32) Rotation {
+	axis = axis.Normalize()
+	if axis == (Vector3{}) || degrees == 0 {
+		return r
+	}
+	sin, cos := math.Sincos(float64(degrees) * math.Pi / 180)
+	s, c, t := float32(sin), float32(cos), float32(1-cos)
+	x, y, z := axis.X, axis.Y, axis.Z
+	turn := matrix{
+		t*x*x + c, t*x*y + s*z, t*x*z - s*y, 0,
+		t*x*y - s*z, t*y*y + c, t*y*z + s*x, 0,
+		t*x*z + s*y, t*y*z - s*x, t*z*z + c, 0,
+		0, 0, 0, 1,
+	}
+	return turn.mul(r.matrix()).rotation()
+}
+
+// Child returns where something placed at local, relative to t, is in the
+// world: a hat on a head, a turret on a tank, a marker of a model drawn
+// moved. It moves, turns and scales with t.
+//
+//	head := golib.Transform{Position: golib.Vector3{Y: 1.6}}
+//	screen.DrawMesh(hat, player.Transform.Child(head), golib.Red)
+//
+// A parent scaled more one way than another, turning a child, would shear
+// it, which a Transform can't hold; the child keeps its shape instead.
+func (t Transform) Child(local Transform) Transform {
+	position, rotation, _ := t.matrix().mul(local.matrix()).decompose()
+	ones := func(v Vector3) Vector3 {
+		for _, part := range []*float32{&v.X, &v.Y, &v.Z} {
+			if *part == 0 {
+				*part = 1
+			}
+		}
+		return v
+	}
+	parent, child := ones(t.Scale), ones(local.Scale)
+	scale := Vector3{X: parent.X * child.X, Y: parent.Y * child.Y, Z: parent.Z * child.Z}
+	return Transform{Position: position, Rotation: rotation, Scale: scale}
+}

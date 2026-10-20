@@ -1,6 +1,7 @@
 package golib
 
 import (
+	"fmt"
 	"math"
 	"sync"
 
@@ -19,9 +20,14 @@ import (
 // A mesh goes to the graphics card the first time it is drawn, and Run frees
 // it when the game ends. One mesh can be drawn any number of times a frame.
 type Mesh struct {
-	vertices []float32 // position, normal, texture coordinates: device.LayoutLit
+	vertices []float32 // position, normal, texture coordinates, linear color: device.LayoutLit
 	indices  []uint32  // three a triangle, counterclockwise seen from outside
 	twoSided bool      // flat: seen from both sides, so its back isn't culled
+
+	measured       bool    // center and radius are known
+	center         Vector3 // the middle of its bounds
+	radius         float32 // how far its farthest vertex is from center
+	lowest, upmost Vector3 // its bounds: the least and the most of each axis
 
 	gpu     device.Mesh // on the graphics card, once drawn
 	edges   []uint32    // the wireframe's lines, two indices each, made when first drawn
@@ -143,7 +149,183 @@ func (m *Mesh) vertexCount() uint32 {
 }
 
 func (m *Mesh) addVertex(position, normal Vector3, u, v float32) {
-	m.vertices = append(m.vertices, position.X, position.Y, position.Z, normal.X, normal.Y, normal.Z, u, v)
+	m.vertices = append(m.vertices, position.X, position.Y, position.Z, normal.X, normal.Y, normal.Z, u, v, 1, 1, 1, 1)
+}
+
+// bounds measures the mesh, the first time it is asked: the box around it,
+// and the sphere around that, which culling tests against what the camera
+// sees.
+func (m *Mesh) bounds() {
+	if m.measured {
+		return
+	}
+	m.measured = true
+	stride := device.LayoutFloats[device.LayoutLit]
+	if len(m.vertices) < stride {
+		return
+	}
+	lo := Vector3{X: m.vertices[0], Y: m.vertices[1], Z: m.vertices[2]}
+	hi := lo
+	for i := stride; i+2 < len(m.vertices); i += stride {
+		p := Vector3{X: m.vertices[i], Y: m.vertices[i+1], Z: m.vertices[i+2]}
+		lo = Vector3{X: min(lo.X, p.X), Y: min(lo.Y, p.Y), Z: min(lo.Z, p.Z)}
+		hi = Vector3{X: max(hi.X, p.X), Y: max(hi.Y, p.Y), Z: max(hi.Z, p.Z)}
+	}
+	m.lowest, m.upmost = lo, hi
+	m.center = lo.Lerp(hi, 0.5)
+	m.radius = hi.Distance(m.center)
+}
+
+// Vertex is a corner of a mesh made with [NewMesh].
+type Vertex struct {
+	Position Vector3
+
+	// Normal is the way the surface faces at the corner, length 1. Leave
+	// it zero in every vertex and NewMesh works the normals out from the
+	// triangles: shared corners make a smooth surface, corners repeated for
+	// each triangle a faceted one.
+	Normal Vector3
+
+	// U and V place a texture on the mesh: 0, 0 is the picture's top-left
+	// corner, 1, 1 its bottom-right one.
+	U, V float32
+
+	// Color tints the mesh at this corner, blending towards the next ones;
+	// the color DrawMesh gets multiplies it. The zero Color counts as White.
+	Color Color
+}
+
+// NewMesh returns a mesh made of triangles given in code: terrain from a
+// height map, a ramp, a gem, any shape the New...Mesh functions don't make.
+// indices name three vertices for each triangle, counterclockwise as seen
+// from the side the triangle faces; that side is drawn, and the other is
+// culled.
+//
+//	// A slope rising towards -Z, 4 meters wide and long, 1 high.
+//	ramp := golib.NewMesh([]golib.Vertex{
+//		{Position: golib.Vector3{X: -2, Z: 2}}, {Position: golib.Vector3{X: 2, Z: 2}},
+//		{Position: golib.Vector3{X: 2, Y: 1, Z: -2}}, {Position: golib.Vector3{X: -2, Y: 1, Z: -2}},
+//	}, []int{0, 1, 2, 0, 2, 3})
+func NewMesh(vertices []Vertex, indices []int) *Mesh {
+	m := &Mesh{}
+	if len(indices)%3 != 0 {
+		reportError(fmt.Errorf("golib.NewMesh got %d indices: give three for each triangle", len(indices)))
+		return m
+	}
+	smooth := true
+	for _, v := range vertices {
+		if v.Normal != (Vector3{}) {
+			smooth = false
+			break
+		}
+	}
+	normals := make([]Vector3, len(vertices))
+	for i := range vertices {
+		normals[i] = vertices[i].Normal
+	}
+	for t := 0; t < len(indices); t += 3 {
+		a, b, c := indices[t], indices[t+1], indices[t+2]
+		for _, i := range []int{a, b, c} {
+			if i < 0 || i >= len(vertices) {
+				reportError(fmt.Errorf("golib.NewMesh: triangle %d names vertex %d, but there are %d", t/3, i, len(vertices)))
+				return &Mesh{}
+			}
+		}
+		if smooth {
+			// Each triangle adds its normal, weighted by its area, to its
+			// corners'.
+			face := vertices[b].Position.Sub(vertices[a].Position).Cross(vertices[c].Position.Sub(vertices[a].Position))
+			normals[a], normals[b], normals[c] = normals[a].Add(face), normals[b].Add(face), normals[c].Add(face)
+		}
+		m.indices = append(m.indices, uint32(a), uint32(b), uint32(c))
+	}
+	for i, v := range vertices {
+		color := [4]float32{1, 1, 1, 1}
+		if v.Color != (Color{}) {
+			color = linearColor(v.Color)
+		}
+		n := normals[i].Normalize()
+		m.vertices = append(m.vertices, v.Position.X, v.Position.Y, v.Position.Z, n.X, n.Y, n.Z, v.U, v.V,
+			color[0], color[1], color[2], color[3])
+	}
+	return m
+}
+
+// linearColor returns c as four numbers from 0 to 1, its red, green and blue
+// turned from sRGB, as colors are given, into the linear light shaders mix.
+func linearColor(c Color) [4]float32 {
+	toLinear := func(v uint8) float32 { return float32(math.Pow(float64(v)/255, 2.2)) }
+	return [4]float32{toLinear(c.R), toLinear(c.G), toLinear(c.B), float32(c.A) / 255}
+}
+
+// NewConeMesh returns a cone one meter across at its base and one meter high,
+// pointing up the Y axis, centered on 0, 0, 0, its base closed.
+func NewConeMesh() *Mesh {
+	m := &Mesh{}
+	slope := float32(1 / math.Sqrt(5)) // a side rises 1 for every 0.5 out: its normal leans up by this
+	across := float32(2 / math.Sqrt(5))
+	for slice := 0; slice <= roundSlices; slice++ {
+		u := float64(slice) / roundSlices
+		around := u * 2 * math.Pi
+		sin, cos := float32(math.Sin(around)), float32(math.Cos(around))
+		normal := Vector3{X: sin * across, Y: slope, Z: cos * across}
+		m.addVertex(Vector3{Y: 0.5}, normal, float32(u), 0)
+		m.addVertex(Vector3{X: sin / 2, Y: -0.5, Z: cos / 2}, normal, float32(u), 1)
+	}
+	for slice := uint32(0); slice < roundSlices; slice++ {
+		tip, edge := slice*2, slice*2+1
+		m.indices = append(m.indices, tip, edge, edge+2)
+	}
+	center := m.vertexCount()
+	m.addVertex(Vector3{Y: -0.5}, Vector3{Y: -1}, 0.5, 0.5)
+	for slice := 0; slice <= roundSlices; slice++ {
+		around := float64(slice) / roundSlices * 2 * math.Pi
+		sin, cos := float32(math.Sin(around)), float32(math.Cos(around))
+		m.addVertex(Vector3{X: sin / 2, Y: -0.5, Z: cos / 2}, Vector3{Y: -1}, 0.5+sin/2, 0.5-cos/2)
+	}
+	for slice := uint32(0); slice < roundSlices; slice++ {
+		m.indices = append(m.indices, center, center+2+slice, center+1+slice)
+	}
+	return m
+}
+
+// NewCapsuleMesh returns a capsule, the usual shape of a character: one meter
+// high and half a meter across, standing on the Y axis, centered on 0, 0, 0.
+// Scale it the same way in X, Y and Z, or its round ends stretch.
+func NewCapsuleMesh() *Mesh {
+	m := &Mesh{}
+	const radius, middle = 0.25, 0.25 // the round ends' radius, and how far their centers are from 0
+	// A sphere's rows of vertices, split at its equator into two halves: the
+	// top half's last row and the bottom half's first are both on the
+	// equator, and the straight side runs between them.
+	half := sphereRings / 2
+	rings := sphereRings + 1 // rows of quads
+	row := uint32(roundSlices + 1)
+	for ring := 0; ring <= rings; ring++ {
+		step, center := ring, float32(middle)
+		if ring > half {
+			step, center = ring-1, -middle
+		}
+		polar := float64(step) / float64(sphereRings) * math.Pi
+		for slice := 0; slice <= roundSlices; slice++ {
+			u := float64(slice) / roundSlices
+			around := u * 2 * math.Pi
+			normal := Vector3{
+				X: float32(math.Sin(polar) * math.Sin(around)),
+				Y: float32(math.Cos(polar)),
+				Z: float32(math.Sin(polar) * math.Cos(around)),
+			}
+			position := normal.Scale(radius).Add(Vector3{Y: center})
+			m.addVertex(position, normal, float32(u), 0.5-position.Y)
+		}
+	}
+	for ring := uint32(0); ring < uint32(rings); ring++ {
+		for slice := uint32(0); slice < roundSlices; slice++ {
+			top, bottom := ring*row+slice, (ring+1)*row+slice
+			m.addQuad(top, bottom, bottom+1, top+1)
+		}
+	}
+	return m
 }
 
 // addQuad adds the quad a, b, c, d, counterclockwise, as two triangles.
@@ -170,6 +352,9 @@ func (m *Mesh) uploadWire() device.Mesh {
 		count := int(m.vertexCount())
 		vertices := make([]float32, 0, count*device.LayoutFloats[device.LayoutColored])
 		stride := device.LayoutFloats[device.LayoutLit]
+		if count == 0 {
+			return device.Mesh{}
+		}
 		for i := 0; i < count; i++ {
 			p := m.vertices[i*stride:]
 			vertices = append(vertices, p[0], p[1], p[2], 1, 1, 1, 1)

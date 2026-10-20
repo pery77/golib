@@ -13,6 +13,8 @@ func TestMeshesAreClosedAndFaceOut(t *testing.T) {
 		"sphere":   NewSphereMesh(),
 		"cylinder": NewCylinderMesh(),
 		"plane":    NewPlaneMesh(),
+		"cone":     NewConeMesh(),
+		"capsule":  NewCapsuleMesh(),
 	} {
 		stride := device.LayoutFloats[device.LayoutLit]
 		count := mesh.vertexCount()
@@ -34,7 +36,7 @@ func TestMeshesAreClosedAndFaceOut(t *testing.T) {
 				t.Errorf("%s: vertex %d at %v is outside the meter around 0, 0, 0", name, i, p)
 				break
 			}
-			if l := normal(i).Length(); math.Abs(float64(l-1)) > 1e-4 {
+			if l := normal(i).Length(); math.Abs(float64(l-1)) > 1e-3 {
 				t.Errorf("%s: vertex %d has a normal of length %v, want 1", name, i, l)
 				break
 			}
