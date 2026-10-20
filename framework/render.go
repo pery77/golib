@@ -111,6 +111,7 @@ func (r *renderer) drawScene(scene Game, screen *Screen) error {
 		device.SetDrawSize(r.width, r.height)
 	}
 	textScale = r.samples
+	smoothEdges3D = !r.pixelArt && r.samples == 1
 	scene.Draw(screen)
 	screen.endDraw()
 	textScale = 1

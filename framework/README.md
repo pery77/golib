@@ -910,6 +910,7 @@ A pass is lit by a sun and by the soft light of the sky and the ground; `Screen.
 | `NewHDRI` | `NewHDRI(name string) *HDRI`: the HDRI in the assets folder named `name`, such as `"skies/park.hdr"`, read the first time it is used. Panoramas wider than 2048 pixels are made smaller as they load. |
 | `HDRI.Err` | `Err() error`: reads it, and says what stopped it from loading. Using one that didn't load stops `Run` with the same message. |
 | `Environment.Exposure` | Brightens or darkens the whole picture: 1 when zero, 2 twice as bright. Under a bright HDRI, below 1. |
+| `Environment.Bloom`, `Environment.NoBloom` | What is brighter than white glows, as in a camera's lens: emission, the sun off something shiny, a lamp close to a wall. `Bloom` is how strongly, 0.5 when zero; ordinary lit colors never glow. `NoBloom` turns it off. |
 | `Environment.ShadowDistance`, `Environment.NoShadows` | The sun casts shadows from everything solid onto everything, up to `ShadowDistance` meters from the camera, 50 when zero, sharpest near it. `NoShadows` turns them off. Lamps cast none yet. |
 | `Light` | A lamp: `Light.Position`, `Light.Color` (white when zero), `Light.Intensity` (1 when zero: lights what faces it a meter away as brightly as the sun, fading with the square of the distance), `Light.Range` (meters it reaches, 10 when zero). With `Light.Direction`, a spotlight lighting a cone `Light.Cone` degrees across, 45 when zero. |
 | `Screen.AddLight` | `AddLight(light Light)`: adds a lamp to the pass begun last, lighting everything it draws. A pass uses the 8 lamps nearest to the camera. |
@@ -1002,7 +1003,7 @@ func (s *playScene) Draw(screen *golib.Screen) {
 - **Two surfaces at the same height flicker through each other**, such as a plane laid on a box's top. Lift the one on top by a centimeter, or make floors from thin boxes.
 - **Check what the camera sees with `golib shot`.** A camera looking the wrong way shows only the background color. While testing, `screen.DrawAxes(golib.Vector3{}, 1)` and `screen.DrawGrid(20, 1, golib.Gray)` show where the world is and which way is which.
 - With the zero `Environment`, a sun high behind and to the right of a camera facing +Z, as `NewCamera3D`'s and a `Follow` camera's do, and a soft light from the sky: a color facing the sun shows as it is, and a side facing away from it at about half its brightness.
-- `Config.PixelArt` draws the 3D at the screen's size and scales it up, the look of the first 3D consoles; `Config.Antialias` smooths its edges; post-processing shaders run over it as over the 2D.
+- The 3D smooths its edges as it goes over the 2D (FXAA). `Config.PixelArt` draws it at the screen's size, scaled up with its edges sharp, the look of the first 3D consoles; `Config.Antialias` draws it twice as large and shrinks it, smoother still. Post-processing shaders run over it as over the 2D.
 - `Update`, `Snap`, `Orbit`, `Look`, `ToScreen` and `Ray` work without a window, so tests can check what the camera sees.
 
 ## Scenes

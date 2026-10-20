@@ -70,6 +70,12 @@ type Environment struct {
 	// needs every frame it can get, or wants the flat look.
 	ShadowDistance float32
 	NoShadows      bool
+
+	// Bloom is how strongly what is brighter than white glows: a glowing
+	// material, the sun off something shiny, a lamp close to a wall. 0
+	// counts as 0.5; ordinary lit colors never glow. NoBloom turns it off.
+	Bloom   float32
+	NoBloom bool
 }
 
 // SetEnvironment sets how the 3D pass begun last is lit, and what shows
@@ -198,6 +204,7 @@ type environmentUniforms struct {
 	shadows         bool
 	shadowDistance  float32
 	hdri            *HDRI
+	bloom           float32 // 0 for none
 }
 
 // The default light: a sun high behind and to the right of a camera facing
@@ -269,6 +276,12 @@ func (e Environment) uniforms() environmentUniforms {
 		u.exposure = e.Exposure
 	}
 	u.hdri = e.HDRI
+	if !e.NoBloom {
+		u.bloom = 0.5
+		if e.Bloom > 0 {
+			u.bloom = e.Bloom
+		}
+	}
 	u.shadows = !e.NoShadows && (u.sun[0] > 0 || u.sun[1] > 0 || u.sun[2] > 0)
 	u.shadowDistance = 50
 	if e.ShadowDistance > 0 {

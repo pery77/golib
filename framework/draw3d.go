@@ -85,6 +85,8 @@ type pass3D struct {
 	lineIndices []uint32
 	environment Environment
 	lights      []Light
+	width       int // the size of the target the pass draws over, in its texels
+	height      int
 }
 
 // Begin3D starts drawing the 3D world seen through camera, over what Draw
@@ -123,8 +125,15 @@ func (s *Screen) Begin3D(camera *Camera3D) {
 		lines:       s.pass.lines[:0],
 		lineIndices: s.pass.lineIndices[:0],
 		lights:      s.pass.lights[:0],
+		width:       max(1, int(s.width*textScale)),
+		height:      max(1, int(s.height*textScale)),
 	}
 }
+
+// smoothEdges3D says whether the 3D smooths its edges as it goes over the
+// 2D: not in a pixel art game, whose edges should stay sharp, nor with
+// Config.Antialias, which smooths them already. Run sets it.
+var smoothEdges3D = true
 
 // in3D says whether a 3D pass is open, and reports the mistake when it isn't.
 func (s *Screen) in3D(call string) bool {
@@ -557,7 +566,11 @@ void main()
 	composeFragmentShader = `#version 330
 in vec2 texcoord;
 uniform sampler2D picture;
+uniform sampler2D glow;
+uniform float glowStrength;
 uniform float exposure;
+uniform vec2 texel;
+uniform int smoothEdges;
 out vec4 fragColor;
 
 vec3 neutral(vec3 color)
@@ -576,15 +589,54 @@ vec3 neutral(vec3 color)
     return mix(color, vec3(newPeak), g);
 }
 
+// The finished color at uv, glow added, tonemapped, in sRGB, premultiplied
+// by its opacity.
+vec4 finished(vec2 uv)
+{
+    vec4 c = texture(picture, uv);
+    vec3 light = c.rgb;
+    float a = c.a;
+    if (glowStrength > 0.0) {
+        vec3 g = texture(glow, uv).rgb * glowStrength;
+        light += g;
+        a = clamp(a + max(g.r, max(g.g, g.b)), 0.0, 1.0);
+    }
+    if (a <= 0.0) return vec4(0.0);
+    vec3 color = neutral(max(light / a * exposure, vec3(0.0)));
+    return vec4(pow(color, vec3(1.0 / 2.2)) * a, a);
+}
+
+float luma(vec4 c)
+{
+    return dot(c.rgb, vec3(0.299, 0.587, 0.114));
+}
+
 void main()
 {
-    vec4 c = texture(picture, texcoord);
-    if (c.a <= 0.0) {
-        fragColor = vec4(0.0);
+    vec4 middle = finished(texcoord);
+    if (smoothEdges == 0) {
+        fragColor = middle;
         return;
     }
-    vec3 color = neutral(max(c.rgb / c.a * exposure, vec3(0.0)));
-    fragColor = vec4(pow(color, vec3(1.0 / 2.2)) * c.a, c.a);
+    // FXAA: where the colors around differ, blend along the edge they make.
+    vec4 nw = finished(texcoord + vec2(-1.0, -1.0) * texel);
+    vec4 ne = finished(texcoord + vec2(1.0, -1.0) * texel);
+    vec4 sw = finished(texcoord + vec2(-1.0, 1.0) * texel);
+    vec4 se = finished(texcoord + vec2(1.0, 1.0) * texel);
+    float lm = luma(middle), lnw = luma(nw), lne = luma(ne), lsw = luma(sw), lse = luma(se);
+    float lowest = min(lm, min(min(lnw, lne), min(lsw, lse)));
+    float highest = max(lm, max(max(lnw, lne), max(lsw, lse)));
+    if (highest - lowest < max(0.0312, highest * 0.125)) {
+        fragColor = middle;
+        return;
+    }
+    vec2 dir = vec2(-((lnw + lne) - (lsw + lse)), (lnw + lsw) - (lne + lse));
+    float reduce = max((lnw + lne + lsw + lse) * 0.25 * 0.125, 1.0 / 128.0);
+    dir = clamp(dir / (min(abs(dir.x), abs(dir.y)) + reduce), vec2(-8.0), vec2(8.0)) * texel;
+    vec4 a = 0.5 * (finished(texcoord + dir * (1.0 / 3.0 - 0.5)) + finished(texcoord + dir * (2.0 / 3.0 - 0.5)));
+    vec4 b = a * 0.5 + 0.25 * (finished(texcoord - dir * 0.5) + finished(texcoord + dir * 0.5));
+    float lb = luma(b);
+    fragColor = (lb < lowest || lb > highest) ? a : b;
 }
 `
 	lineVertexShader = `#version 330
@@ -656,8 +708,10 @@ type skyProgram struct {
 
 // composeProgram puts a pass over the 2D.
 type composeProgram struct {
-	program           device.Program
-	picture, exposure int32
+	program            device.Program
+	picture, exposure  int32
+	glow, glowStrength int32
+	texel, smoothEdges int32
 }
 
 // state3D is what every 3D pass draws with: made when the first one ends,
@@ -670,6 +724,9 @@ type state3D struct {
 	compose   composeProgram
 	shadow    shadowProgram
 	shadowMap device.ShadowMap
+	bloomDown bloomProgram
+	bloomUp   bloomProgram
+	bloom     bloomChain
 	lineMesh  device.Mesh
 	instances []float32 // the instances of the draw being built
 }
@@ -721,6 +778,14 @@ func (r *state3D) load() error {
 	if err != nil {
 		return err
 	}
+	bloomDown, err := build("bloom", fullscreenVertexShader, bloomDownShader)
+	if err != nil {
+		return err
+	}
+	bloomUp, err := build("bloom", fullscreenVertexShader, bloomUpShader)
+	if err != nil {
+		return err
+	}
 	at := func(p device.Program, name string) int32 { return device.UniformLocation(p, name) }
 	r.lit = litProgram{
 		program: lit, viewProjection: at(lit, "viewProjection"), eye: at(lit, "eye"),
@@ -741,7 +806,13 @@ func (r *state3D) load() error {
 		program: sky, inverseViewProjection: at(sky, "inverseViewProjection"), eye: at(sky, "eye"),
 		skyTop: at(sky, "skyTop"), horizon: at(sky, "horizon"), skyBottom: at(sky, "skyBottom"), fog: at(sky, "fog"),
 	}
-	r.compose = composeProgram{program: compose, picture: at(compose, "picture"), exposure: at(compose, "exposure")}
+	r.compose = composeProgram{
+		program: compose, picture: at(compose, "picture"), exposure: at(compose, "exposure"),
+		glow: at(compose, "glow"), glowStrength: at(compose, "glowStrength"),
+		texel: at(compose, "texel"), smoothEdges: at(compose, "smoothEdges"),
+	}
+	r.bloomDown = bloomProgram{program: bloomDown, source: at(bloomDown, "source"), texel: at(bloomDown, "texel"), first: at(bloomDown, "first")}
+	r.bloomUp = bloomProgram{program: bloomUp, source: at(bloomUp, "source"), texel: at(bloomUp, "texel")}
 	r.shadow = shadowProgram{
 		program: shadow, lightViewProjection: at(shadow, "lightViewProjection"),
 		baseTexture: at(shadow, "baseTexture"), hasBaseTexture: at(shadow, "hasBaseTexture"),
@@ -765,9 +836,10 @@ func (r *state3D) unload() {
 	if !r.loaded {
 		return
 	}
-	for _, p := range []device.Program{r.lit.program, r.lines.program, r.sky.program, r.compose.program, r.shadow.program} {
+	for _, p := range []device.Program{r.lit.program, r.lines.program, r.sky.program, r.compose.program, r.shadow.program, r.bloomDown.program, r.bloomUp.program} {
 		device.UnloadProgram(p)
 	}
+	r.unloadBloom()
 	device.UnloadShadowMap(r.shadowMap)
 	device.UnloadMesh(r.lineMesh)
 	*r = state3D{}
@@ -1070,10 +1142,21 @@ func (r *state3D) draw(pass *pass3D) {
 		device.SetBlend3D(false)
 	}
 
+	width, height := pass.width, pass.height
+	if env.bloom > 0 {
+		r.glow(width, height)
+	}
 	compose := r.compose
 	device.UseProgram(compose.program)
 	device.SetUniformInt(compose.picture, 0)
+	device.SetUniformInt(compose.glow, 1)
+	device.SetUniform(compose.glowStrength, 1, [4]float32{env.bloom})
+	if env.bloom > 0 {
+		device.BindWorkTarget(1, r.bloom.levels[0])
+	}
 	device.SetUniform(compose.exposure, 1, [4]float32{env.exposure})
+	device.SetUniform(compose.texel, 2, [4]float32{1 / float32(width), 1 / float32(height)})
+	device.SetUniformInt(compose.smoothEdges, boolInt(smoothEdges3D))
 	device.End3D(compose.program)
 }
 
