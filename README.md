@@ -2,7 +2,7 @@
 
 Make games in **Go**, powered by **[raylib](https://www.raylib.com)**, designed so an AI agent can turn a single prompt into a playable game.
 
-> **Status: early development.** GoLib installs its own Go toolchain, runs games with keyboard, mouse and gamepad input, shapes, text, random numbers, scenes, fullscreen, post-processing shaders, sprites and animations from PNG and Aseprite files, Tiled maps, fonts, sound effects made in code, designed in jfxr or read from files, and music, and builds them into a zip to share, and `golib new` starts a new game. 3D has started: boxes, spheres, cylinders and planes through a 3D camera; models, lights and the rest are on the [roadmap](docs/roadmap.md).
+> **Status: early development.** GoLib installs its own Go toolchain, runs games with keyboard, mouse and gamepad input, shapes, text, random numbers, scenes, fullscreen, post-processing shaders, sprites and animations from PNG and Aseprite files, Tiled maps, fonts, sound effects made in code, designed in jfxr or read from files, and music, and builds them into a zip to share, and `golib new` starts a new game. 3D has started: models from Blender and other tools as glTF files, with their textures, and shapes made in code, through a 3D camera; lights, shadows, animation and the rest are on the [roadmap](docs/roadmap.md).
 
 ## Quick start
 

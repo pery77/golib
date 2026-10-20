@@ -2,7 +2,7 @@
 
 For AI agents. Follow it when a user asks you to create a game, or to change the game in this project.
 
-> **Status:** the framework is still small: a window, a fixed-step game loop, keyboard, mouse, gamepad and touch input, random numbers, rectangles, circles, lines, triangles and text, sprites and animations from PNG and Aseprite files, Tiled maps, fonts, vector math, a camera for worlds larger than the screen, fullscreen, post-processing shaders, sound effects made in code, from jfxr's `.jfxr` files or from sound files, music from files or from notes, saved data, scenes, screenshots through `golib shot`, builds for the browser, and zips to share through `golib dist`. 3D has begun (M7): basic shapes in solid colors through a 3D camera; models, textures, lights, shadows and animation come later. Check the "Project status" table in [AGENTS.md](../../AGENTS.md), and the end of [framework/README.md](../../framework/README.md) for what else is missing. If the game needs something that doesn't exist yet, tell the user. Don't build a private engine to fill the gap.
+> **Status:** the framework is still small: a window, a fixed-step game loop, keyboard, mouse, gamepad and touch input, random numbers, rectangles, circles, lines, triangles and text, sprites and animations from PNG and Aseprite files, Tiled maps, fonts, vector math, a camera for worlds larger than the screen, fullscreen, post-processing shaders, sound effects made in code, from jfxr's `.jfxr` files or from sound files, music from files or from notes, saved data, scenes, screenshots through `golib shot`, builds for the browser, and zips to share through `golib dist`. 3D has begun (M7): glTF models with their textures, shapes made in code, and a 3D camera; lights, shadows, animation and collisions come later. Check the "Project status" table in [AGENTS.md](../../AGENTS.md), and the end of [framework/README.md](../../framework/README.md) for what else is missing. If the game needs something that doesn't exist yet, tell the user. Don't build a private engine to fill the gap.
 
 ## Goal
 
@@ -139,7 +139,7 @@ GoLib has no editors. Content comes from established tools, and the game loads t
 | --- | --- |
 | 2D maps and levels | Tiled |
 | Sprites and animations | Aseprite |
-| 3D models | Blender, once GoLib reads models (M7). Until then, build 3D games from the meshes GoLib makes: boxes, spheres, cylinders and planes |
+| 3D models and levels | Blender, saved as glTF (`.glb`), or a CC0 pack the user gives you, such as Kenney's or Quaternius'. Without models, build from the meshes GoLib makes and `golib.NewMesh` |
 | Music | A file the user provides: a tracker module (XM, MOD) or OGG, MP3, WAV or QOA |
 
 - Files the user provides go in the game's `assets/` folder, with paths relative to that folder: load pictures with `golib.NewSprite("sprites/player.aseprite")` or `golib.NewSpriteSheet("sprites/player.png", 32, 32)`, maps with `golib.NewMap("maps/level1.tmx")`, music with `golib.NewMusic`, and other files with `golib.ReadAsset`. Keep Aseprite files as `.aseprite`: the game reads them as they are, with their tags as animations.
@@ -190,6 +190,11 @@ A level written by hand, `assets/maps/level1.tmx`, with the tileset `assets/maps
 ```
 
 Keep `id`, `nextlayerid` and `nextobjectid` unique and increasing, as Tiled does, so the file opens cleanly in Tiled. Check a new map with a test that reads it (see "Testing a game" in the API guide) and with `golib shot`.
+
+### 3D models
+
+- **Where models come from:** the user's own, or a pack they point you to whose license allows it (Kenney's and Quaternius' are CC0). Never download models on your own. Copy only the files the game uses into `assets/models/`, with the textures they name beside them (a `.glb` can keep its textures in a `Textures/` folder next to it), and write where they came from and their license in `assets/ATTRIBUTION.md`. Check each with `golib.NewModel(name).Err()` in a test, and its size with `Bounds`.
+- **Levels from Blender:** a level is a `.glb` whose empties mark where things go, with custom properties saying what they are (`kind`: `coin`, `enemy`), read with `Model.Markers`, as a Tiled map's objects are. When the user has Blender and wants a level made for them, write a Python script for it in `sources/`, such as `sources/models/level.py`, that builds the scene, links the pack's models, places empties with custom properties and exports with `bpy.ops.export_scene.gltf(filepath=..., export_format='GLB', export_extras=True, export_yup=True)`, saving the `.blend` beside it. Run it with Blender in the background: `blender --background --python sources/models/level.py`, with `/Applications/Blender.app/Contents/MacOS/Blender` on macOS, or Blender's folder under `Program Files` on Windows. The script stays so the user can change the level in Blender, or run it again. Builds never run Blender: commit the `.glb` it made.
 
 ## Code organization
 

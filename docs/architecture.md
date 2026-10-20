@@ -137,7 +137,7 @@ GoLib has no visual editor, scene designer, level editor or asset GUI, and won't
 | 2D maps and levels | [Tiled](https://www.mapeditor.org) | TMX maps, TSX tilesets and TX templates, Tiled's default formats; orthogonal maps only | Done (M4): `golib.NewMap` |
 | Sprites and animations | [Aseprite](https://www.aseprite.org) | `.aseprite` and `.ase` files, with their layers combined as Aseprite shows them and their tags as animations | Done (M4): `golib.NewSprite` |
 | Images and sprite sheets | Any image tool | PNG; a sprite sheet is cut into a grid of frames of one size | Done (M4): `golib.NewSprite`, `golib.NewSpriteSheet` |
-| 3D models and levels | [Blender](https://www.blender.org), or any 3D tool or store that gives FBX, such as Mixamo | glTF (`.glb`, `.gltf`), read in Go; FBX, turned into GoLib's own model data by `golib build`; Blender empties and custom properties as markers in levels | Planned (M7) |
+| 3D models and levels | [Blender](https://www.blender.org), or any 3D tool or store that gives FBX, such as Mixamo | glTF (`.glb`, `.gltf`), read in Go; FBX, turned into GoLib's own model data by `golib build`; Blender empties and custom properties as markers in levels | glTF done (M7's stage 2): `golib.NewModel`; FBX planned (stage 5) |
 | Skies and image-based light | Any HDRI source, such as Poly Haven | `.hdr` | Planned (M7) |
 | Baked light | Blender, with Cycles | Lightmaps, as images on a model's second UV set | Planned (M7) |
 | Music | Any music tool, or a tracker such as [MilkyTracker](https://milkytracker.org) | `.ogg`, `.mp3`, `.wav`, `.qoa`, and the tracker modules `.xm` and `.mod` | Done (M2): `golib.NewMusic` |
