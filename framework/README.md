@@ -298,7 +298,7 @@ func (s *playScene) Draw(screen *golib.Screen) {
 	s.drawWorld(screen)
 	if golib.PlayingWithTouch() {
 		for _, pad := range []golib.Rectangle{turnLeft, turnRight, fire} {
-			screen.DrawRectangle(pad.X, pad.Y, pad.Width, pad.Height, golib.WithOpacity(golib.White, 0.15))
+			screen.DrawRectangle(pad, golib.WithOpacity(golib.White, 0.15))
 		}
 	}
 }
