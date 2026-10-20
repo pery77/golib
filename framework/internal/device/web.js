@@ -20,10 +20,11 @@ window.golib = (function () {
 	// The 3D commands, as web_gpu.go writes them.
 	const BEGIN_3D = 20, END_3D = 21, USE_PROGRAM = 22, UNIFORM_MATRIX = 23,
 		UNIFORM = 24, UNIFORM_INT = 25, DEPTH_WRITE = 26, BLEND_3D = 27,
-		CULLING = 28, DRAW_MESH = 29;
+		CULLING = 28, DRAW_MESH = 29, DRAW_INSTANCED = 30, BIND_TEXTURE_3D = 31;
 
-	// The vertex layouts of 3D meshes, as gpu.go defines them.
-	const LAYOUT_LIT = 0, LAYOUT_COLORED = 1;
+	// The vertex layouts of 3D meshes, as gpu.go defines them, and how many
+	// floats an instance of a lit mesh takes: its matrix and its tint.
+	const LAYOUT_LIT = 0, LAYOUT_COLORED = 1, INSTANCE_FLOATS = 20;
 
 	const BLEND_NORMAL = 0, BLEND_ADD = 1, BLEND_COPY = 2, BLEND_PREMULTIPLIED = 3;
 
@@ -406,6 +407,23 @@ void main() {
 					if (c[i] !== 0) gl.enable(gl.CULL_FACE); else gl.disable(gl.CULL_FACE);
 					i += 1;
 					break;
+				case DRAW_INSTANCED: {
+					const mesh = meshes.get(c[i]), count = c[i + 1];
+					const floats = count * INSTANCE_FLOATS;
+					if (mesh) {
+						gl.bindBuffer(gl.ARRAY_BUFFER, instanceBuffer);
+						gl.bufferData(gl.ARRAY_BUFFER, c.subarray(i + 2, i + 2 + floats), gl.STREAM_DRAW);
+						gl.bindVertexArray(mesh.vao);
+						gl.drawElementsInstanced(gl.TRIANGLES, mesh.count, gl.UNSIGNED_INT, 0, count);
+					}
+					i += 2 + floats;
+					break;
+				}
+				case BIND_TEXTURE_3D:
+					gl.activeTexture(gl.TEXTURE0 + c[i]);
+					gl.bindTexture(gl.TEXTURE_2D, textures.get(c[i + 1]) || null);
+					i += 2;
+					break;
 				case DRAW_MESH: {
 					const mesh = meshes.get(c[i]);
 					if (mesh) {
@@ -714,6 +732,49 @@ void main() {
 	const programs3D = new Map(); // id -> WebGLProgram
 	const locations3D = [];       // number -> WebGLUniformLocation
 	const locationsByName = new Map(); // "program name" -> number, or -1
+	let instanceBuffer = null;    // what instanced draws fill, attached to every lit mesh
+	const bitmaps = new Map();    // id -> ImageBitmap, decoded and waiting for newTexture3D
+	let anisotropy = undefined;   // the extension, once looked for
+
+	// decodeImage has the browser decode a PNG or JPEG file off the page's
+	// thread, as it is, and calls done with its number and size, or -1.
+	function decodeImage(bytes, done) {
+		const blob = new Blob([bytes]);
+		createImageBitmap(blob, { premultiplyAlpha: 'none', colorSpaceConversion: 'none', imageOrientation: 'none' })
+			.then(function (bitmap) {
+				const id = nextID++;
+				bitmaps.set(id, bitmap);
+				done(id, bitmap.width, bitmap.height);
+			}, function () { done(-1, 0, 0); });
+	}
+
+	// newTexture3D puts a decoded picture on the graphics card, with
+	// mipmaps, its top row first, as WebGL and glTF both want it.
+	function newTexture3D(bitmapID, linear, nearest, nearestMipmaps, wrapS, wrapT) {
+		const bitmap = bitmaps.get(bitmapID);
+		if (!bitmap) return 0;
+		bitmaps.delete(bitmapID);
+		const id = nextID++;
+		const made = gl.createTexture();
+		gl.bindTexture(gl.TEXTURE_2D, made);
+		gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+		gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+		gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, gl.NONE);
+		gl.texImage2D(gl.TEXTURE_2D, 0, linear ? gl.RGBA8 : gl.SRGB8_ALPHA8, gl.RGBA, gl.UNSIGNED_BYTE, bitmap);
+		gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, gl.BROWSER_DEFAULT_WEBGL);
+		bitmap.close();
+		gl.generateMipmap(gl.TEXTURE_2D);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, nearestMipmaps ? gl.NEAREST_MIPMAP_NEAREST : gl.LINEAR_MIPMAP_LINEAR);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, nearest ? gl.NEAREST : gl.LINEAR);
+		const wraps = [gl.REPEAT, gl.CLAMP_TO_EDGE, gl.MIRRORED_REPEAT];
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, wraps[wrapS]);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, wraps[wrapT]);
+		if (anisotropy === undefined) anisotropy = gl.getExtension('EXT_texture_filter_anisotropic');
+		if (anisotropy) gl.texParameterf(gl.TEXTURE_2D, anisotropy.TEXTURE_MAX_ANISOTROPY_EXT, 8);
+		textures.set(id, made);
+		boundTexture = -1;
+		return id;
+	}
 
 	function newMesh(layout, vertexBytes, indexBytes, lines) {
 		const id = nextID++;
@@ -724,9 +785,16 @@ void main() {
 		const ibo = gl.createBuffer();
 		gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
 		if (layout === LAYOUT_LIT) {
-			bindAttribute(0, 3, 0, 32);
-			bindAttribute(1, 3, 12, 32);
-			bindAttribute(2, 2, 24, 32);
+			bindAttribute(0, 3, 0, 48);
+			bindAttribute(1, 3, 12, 48);
+			bindAttribute(2, 2, 24, 48);
+			bindAttribute(3, 4, 32, 48);
+			if (!instanceBuffer) instanceBuffer = gl.createBuffer();
+			gl.bindBuffer(gl.ARRAY_BUFFER, instanceBuffer);
+			for (let k = 0; k < 5; k++) { // the matrix's four columns, then the tint
+				bindAttribute(4 + k, 4, k * 16, INSTANCE_FLOATS * 4);
+				gl.vertexAttribDivisor(4 + k, 1);
+			}
 		} else {
 			bindAttribute(0, 3, 0, 28);
 			bindAttribute(3, 4, 12, 28);
@@ -827,6 +895,7 @@ void main() {
 		backTo2D();
 		useCurrentProgram();
 	}
+
 
 	// -------------------------------------------------------------- pictures
 
@@ -1798,6 +1867,7 @@ void main() {
 		postPicture: postPicture,
 		newShader: newShader, unloadShader: unloadShader, shaderLocation: shaderLocation,
 		newMesh: newMesh, updateMesh: updateMesh, unloadMesh: unloadMesh,
+		decodeImage: decodeImage, newTexture3D: newTexture3D,
 		newProgram3D: newProgram3D, unloadProgram3D: unloadProgram3D, location3D: location3D,
 		readFont: readFont,
 		openAudio: openAudio, closeAudio: closeAudio, setMasterVolume: setMasterVolume,

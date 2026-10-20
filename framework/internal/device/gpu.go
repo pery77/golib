@@ -16,8 +16,10 @@ package device
 // what they mean. The attribute locations are fixed, so every program reads
 // a layout the same way.
 const (
-	// LayoutLit is a position (location 0), a normal (location 1) and
-	// texture coordinates (location 2): 8 floats a vertex.
+	// LayoutLit is a position (location 0), a normal (location 1), texture
+	// coordinates (location 2) and an RGBA color from 0 to 1, linear
+	// (location 3): 12 floats a vertex. Meshes in it are drawn instanced:
+	// each instance's model matrix is at locations 4 to 7 and its tint at 8.
 	LayoutLit = iota
 
 	// LayoutColored is a position (location 0) and an RGBA color from 0 to
@@ -26,7 +28,11 @@ const (
 )
 
 // LayoutFloats is how many floats a vertex of each layout takes.
-var LayoutFloats = [...]int{LayoutLit: 8, LayoutColored: 7}
+var LayoutFloats = [...]int{LayoutLit: 12, LayoutColored: 7}
+
+// InstanceFloats is how many floats an instance takes in DrawMeshInstanced:
+// its model matrix, column-major, then its tint, RGBA.
+const InstanceFloats = 16 + 4
 
 // Mesh is a mesh on the graphics card: vertices in one of the layouts, and
 // indices into them, three for each triangle or, for a mesh of lines, two for
@@ -42,4 +48,22 @@ type Mesh struct {
 // Portable field: ID, 0 for none.
 type Program struct {
 	ID uint32
+}
+
+// Texture3D is a picture on the graphics card for 3D, with mipmaps. Portable
+// fields: ID, 0 for none, Width and Height.
+type Texture3D struct {
+	ID            uint32
+	Width, Height int
+}
+
+// TextureOptions say how a Texture3D is stored and sampled. The zero value
+// is a color picture, smoothed, repeated both ways.
+type TextureOptions struct {
+	Linear         bool // the numbers are data, such as normals, not sRGB colors
+	Nearest        bool // magnified without smoothing, as pixel art wants
+	NearestMipmaps bool // minified without blending between sizes
+	ClampS, ClampT bool // the edge pixel goes on past the edge, across and down
+	MirrorS        bool // repeated mirrored across
+	MirrorT        bool
 }

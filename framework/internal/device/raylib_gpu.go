@@ -3,8 +3,13 @@
 package device
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"image"
+	"image/draw"
+	_ "image/jpeg" // pictures in glTF files
+	_ "image/png"
 	"runtime"
 	"strings"
 	"unsafe"
@@ -41,7 +46,30 @@ const (
 	glLinkStatus         = 0x8B82
 	glLEqual             = 0x0203
 	glDepthBufferBit     = 0x0100
+	glStreamDraw         = 0x88E0
+	glTexture2D          = 0x0DE1
+	glRGBA               = 0x1908
+	glRGBA8              = 0x8058
+	glSRGB8Alpha8        = 0x8C43
+	glUnsignedByte       = 0x1401
+	glTextureMinFilter   = 0x2801
+	glTextureMagFilter   = 0x2800
+	glNearest            = 0x2600
+	glLinear             = 0x2601
+	glNearestMipNearest  = 0x2700
+	glLinearMipLinear    = 0x2703
+	glTextureWrapS       = 0x2802
+	glTextureWrapT       = 0x2803
+	glRepeat             = 0x2901
+	glClampToEdge        = 0x812F
+	glMirroredRepeat     = 0x8370
+	glMaxAnisotropy      = 0x84FE
+	glUnpackAlignment    = 0x0CF5
 )
+
+// anisotropy is how many samples a texture takes along a surface seen at a
+// slant; graphics cards that allow fewer use their most.
+const anisotropy = 8
 
 // gl holds the OpenGL functions this file calls, found once a window, and
 // so an OpenGL context, exists.
@@ -61,6 +89,13 @@ var gl struct {
 	Uniform1fv, Uniform2fv, Uniform3fv, Uniform4fv, UniformMatrix4fv         uintptr
 	Enable, Disable, DepthFunc, DepthMask, Clear, CullFace, FrontFace        uintptr
 	BlendFunc                                                                uintptr
+	VertexAttribDivisor, DrawElementsInstanced                               uintptr
+	GenTextures, BindTexture, TexImage2D, TexParameteri, GenerateMipmap      uintptr
+	DeleteTextures, PixelStorei                                              uintptr
+
+	// instances is the buffer every instanced draw fills with its
+	// instances' matrices and tints, attached to every lit mesh.
+	instances uint32
 }
 
 // loadGL finds the OpenGL functions, the first time a 3D call needs them.
@@ -92,6 +127,11 @@ func loadGL() {
 		{&gl.Enable, "glEnable"}, {&gl.Disable, "glDisable"}, {&gl.DepthFunc, "glDepthFunc"},
 		{&gl.DepthMask, "glDepthMask"}, {&gl.Clear, "glClear"}, {&gl.CullFace, "glCullFace"},
 		{&gl.FrontFace, "glFrontFace"}, {&gl.BlendFunc, "glBlendFunc"},
+		{&gl.VertexAttribDivisor, "glVertexAttribDivisor"}, {&gl.DrawElementsInstanced, "glDrawElementsInstanced"},
+		{&gl.GenTextures, "glGenTextures"}, {&gl.BindTexture, "glBindTexture"},
+		{&gl.TexImage2D, "glTexImage2D"}, {&gl.TexParameteri, "glTexParameteri"},
+		{&gl.GenerateMipmap, "glGenerateMipmap"}, {&gl.DeleteTextures, "glDeleteTextures"},
+		{&gl.PixelStorei, "glPixelStorei"},
 	} {
 		*f.to = uintptr(rl.GetProcAddress(f.name))
 		if *f.to == 0 {
@@ -100,7 +140,15 @@ func loadGL() {
 			panic("golib: OpenGL has no " + f.name + ": 3D needs a window open")
 		}
 	}
+	glCall(gl.GenBuffers, 1, uintptr(unsafe.Pointer(&gl.instances)))
 	gl.loaded = true
+}
+
+// forgetGL drops the functions and the instance buffer found in a window's
+// OpenGL context, when the window closes.
+func forgetGL() {
+	gl.loaded = false
+	gl.instances = 0
 }
 
 // glCall calls an OpenGL function with integer and pointer arguments.
@@ -143,6 +191,14 @@ func NewMesh(layout int, vertices []float32, indices []uint32, lines bool) Mesh 
 		attribute(0, 3, 0)
 		attribute(1, 3, 3)
 		attribute(2, 2, 6)
+		attribute(3, 4, 8)
+		glCall(gl.BindBuffer, glArrayBuffer, uintptr(gl.instances))
+		for i := uintptr(0); i < 5; i++ { // the matrix's four columns, then the tint
+			glCall(gl.EnableVertexAttribArray, 4+i)
+			glCall(gl.VertexAttribPointer, 4+i, 4, glFloat, 0, InstanceFloats*4, i*16)
+			glCall(gl.VertexAttribDivisor, 4+i, 1)
+		}
+		glCall(gl.BindBuffer, glArrayBuffer, uintptr(m.vbo))
 	case LayoutColored:
 		attribute(0, 3, 0)
 		attribute(3, 4, 3)
@@ -350,6 +406,100 @@ func SetCulling(on bool) {
 	} else {
 		glCall(gl.Disable, glCullFace)
 	}
+}
+
+// DrawMeshInstanced draws a lit mesh once for each instance, with the program
+// in use: instances holds InstanceFloats numbers for each.
+func DrawMeshInstanced(mesh Mesh, instances []float32) {
+	count := len(instances) / InstanceFloats
+	if mesh.ID == 0 || mesh.count == 0 || count == 0 {
+		return
+	}
+	glCall(gl.BindBuffer, glArrayBuffer, uintptr(gl.instances))
+	glCall(gl.BufferData, glArrayBuffer, uintptr(count*InstanceFloats*4), uintptr(unsafe.Pointer(&instances[0])), glStreamDraw)
+	runtime.KeepAlive(instances)
+	glCall(gl.BindVertexArray, uintptr(mesh.ID))
+	glCall(gl.DrawElementsInstanced, glTriangles, uintptr(mesh.count), glUnsignedInt, 0, uintptr(count))
+}
+
+// DecodedImage is a picture read from a PNG or JPEG file, ready for
+// NewTexture3D.
+type DecodedImage struct {
+	pixels        []byte // RGBA, not premultiplied, the top row first
+	Width, Height int
+}
+
+// DecodeImage reads a PNG or JPEG file. It may run on any goroutine, so a
+// model's pictures decode at the same time.
+func DecodeImage(data []byte) (DecodedImage, error) {
+	img, _, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		return DecodedImage{}, err
+	}
+	b := img.Bounds()
+	nrgba, ok := img.(*image.NRGBA)
+	if !ok || nrgba.Stride != b.Dx()*4 || b.Min != (image.Point{}) {
+		nrgba = image.NewNRGBA(image.Rect(0, 0, b.Dx(), b.Dy()))
+		draw.Draw(nrgba, nrgba.Bounds(), img, b.Min, draw.Src)
+	}
+	return DecodedImage{pixels: nrgba.Pix, Width: b.Dx(), Height: b.Dy()}, nil
+}
+
+// NewTexture3D puts a decoded picture on the graphics card, with mipmaps.
+// Its top row is where texture coordinates have V 0, as in glTF.
+func NewTexture3D(img DecodedImage, options TextureOptions) Texture3D {
+	if img.Width == 0 || img.Height == 0 {
+		return Texture3D{}
+	}
+	loadGL()
+	var id uint32
+	glCall(gl.GenTextures, 1, uintptr(unsafe.Pointer(&id)))
+	glCall(gl.BindTexture, glTexture2D, uintptr(id))
+	glCall(gl.PixelStorei, glUnpackAlignment, 1)
+	format := uintptr(glSRGB8Alpha8)
+	if options.Linear {
+		format = glRGBA8
+	}
+	glCall(gl.TexImage2D, glTexture2D, 0, format, uintptr(img.Width), uintptr(img.Height), 0, glRGBA, glUnsignedByte, uintptr(unsafe.Pointer(&img.pixels[0])))
+	runtime.KeepAlive(img.pixels)
+	glCall(gl.GenerateMipmap, glTexture2D)
+	minify, magnify := uintptr(glLinearMipLinear), uintptr(glLinear)
+	if options.NearestMipmaps {
+		minify = glNearestMipNearest
+	}
+	if options.Nearest {
+		magnify = glNearest
+	}
+	glCall(gl.TexParameteri, glTexture2D, glTextureMinFilter, minify)
+	glCall(gl.TexParameteri, glTexture2D, glTextureMagFilter, magnify)
+	glCall(gl.TexParameteri, glTexture2D, glTextureWrapS, wrap(options.ClampS, options.MirrorS))
+	glCall(gl.TexParameteri, glTexture2D, glTextureWrapT, wrap(options.ClampT, options.MirrorT))
+	glCall(gl.TexParameteri, glTexture2D, glMaxAnisotropy, anisotropy)
+	glCall(gl.BindTexture, glTexture2D, 0)
+	return Texture3D{ID: id, Width: img.Width, Height: img.Height}
+}
+
+func wrap(clamp, mirror bool) uintptr {
+	switch {
+	case clamp:
+		return glClampToEdge
+	case mirror:
+		return glMirroredRepeat
+	}
+	return glRepeat
+}
+
+// UnloadTexture3D frees a texture.
+func UnloadTexture3D(texture Texture3D) {
+	if texture.ID != 0 {
+		glCall(gl.DeleteTextures, 1, uintptr(unsafe.Pointer(&texture.ID)))
+	}
+}
+
+// BindTexture3D makes texture the one a sampler uniform set to unit reads.
+func BindTexture3D(unit int, texture Texture3D) {
+	glCall(gl.ActiveTexture, glTexture0+uintptr(unit))
+	glCall(gl.BindTexture, glTexture2D, uintptr(texture.ID))
 }
 
 // DrawMesh draws mesh with the program in use.

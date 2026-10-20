@@ -46,6 +46,8 @@ const (
 	opBlend3D
 	opCulling
 	opDrawMesh
+	opDrawInstanced
+	opBindTexture3D
 )
 
 // The blend modes, for opBlend.

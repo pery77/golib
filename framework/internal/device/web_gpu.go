@@ -3,6 +3,7 @@
 package device
 
 import (
+	"errors"
 	"syscall/js"
 	"unsafe"
 )
@@ -163,6 +164,83 @@ func SetBlend3D(on bool) {
 // as they are for closed shapes; flat things seen from both sides keep them.
 func SetCulling(on bool) {
 	push(opCulling, onOff(on))
+}
+
+// DrawMeshInstanced draws a lit mesh once for each instance, with the program
+// in use: instances holds InstanceFloats numbers for each. They travel in the
+// command, and web.js hands them to the graphics card.
+func DrawMeshInstanced(mesh Mesh, instances []float32) {
+	count := len(instances) / InstanceFloats
+	if mesh.ID == 0 || mesh.count == 0 || count == 0 {
+		return
+	}
+	push(opDrawInstanced, float32(mesh.ID), float32(count))
+	for _, v := range instances[:count*InstanceFloats] {
+		putf(v)
+	}
+}
+
+// DecodedImage is a picture the browser has decoded, ready for NewTexture3D.
+type DecodedImage struct {
+	id            int // the page's number for it
+	Width, Height int
+}
+
+// DecodeImage hands a PNG or JPEG file to the browser, which decodes it off
+// the page's thread, and waits for it: in WebAssembly, which has one thread,
+// Go decoded Sponza's pictures eighteen times slower (see docs/3d.md).
+// Pictures asked for from several goroutines decode at the same time.
+func DecodeImage(data []byte) (DecodedImage, error) {
+	done := make(chan DecodedImage, 1)
+	var answer js.Func
+	answer = js.FuncOf(func(_ js.Value, args []js.Value) any {
+		answer.Release()
+		done <- DecodedImage{id: args[0].Int(), Width: args[1].Int(), Height: args[2].Int()}
+		return nil
+	})
+	js_().Call("decodeImage", jsBytes(data), answer)
+	img := <-done
+	if img.id < 0 {
+		return DecodedImage{}, errors.New("the browser could not decode the picture")
+	}
+	return img, nil
+}
+
+// NewTexture3D puts a decoded picture on the graphics card, with mipmaps.
+// Its top row is where texture coordinates have V 0, as in glTF.
+func NewTexture3D(img DecodedImage, options TextureOptions) Texture3D {
+	if img.Width == 0 {
+		return Texture3D{}
+	}
+	flush()
+	id := js_().Call("newTexture3D", img.id, options.Linear, options.Nearest, options.NearestMipmaps,
+		wrapMode(options.ClampS, options.MirrorS), wrapMode(options.ClampT, options.MirrorT)).Int()
+	return Texture3D{ID: uint32(id), Width: img.Width, Height: img.Height}
+}
+
+// wrapMode is how web.js names a way to wrap: 0 repeat, 1 clamp, 2 mirror.
+func wrapMode(clamp, mirror bool) int {
+	switch {
+	case clamp:
+		return 1
+	case mirror:
+		return 2
+	}
+	return 0
+}
+
+// UnloadTexture3D frees a texture.
+func UnloadTexture3D(texture Texture3D) {
+	if texture.ID == 0 {
+		return
+	}
+	flush()
+	js_().Call("unloadTexture", int(texture.ID))
+}
+
+// BindTexture3D makes texture the one a sampler uniform set to unit reads.
+func BindTexture3D(unit int, texture Texture3D) {
+	push(opBindTexture3D, float32(unit), float32(texture.ID))
 }
 
 // DrawMesh draws mesh with the program in use.
