@@ -844,6 +844,41 @@ A 3D world, seen through a `Camera3D`, drawn between `screen.Begin3D` and `scree
 | `Screen.DrawGrid` | `DrawGrid(slices int, spacing float32, color Color)`: a square grid on the ground around 0, 0, 0, `slices` squares a side, `spacing` meters apart. |
 | `Screen.DrawAxes` | `DrawAxes(position Vector3, length float32)`: X in red, Y in green and Z in blue, from `position`, to see which way is which. |
 
+### Materials
+
+`DrawMesh` paints a mesh one color. `DrawMeshWith` gives it a `Material`: a texture, metal, a glow, or a shader of the game's own. Make materials once, like meshes.
+
+| Name | What it does |
+| --- | --- |
+| `Material` | How a surface looks: `&golib.Material{Color: golib.Gold, Metallic: 1, Roughness: 0.3}`. Fields left at zero keep a painted look: white, not metallic, roughness 0.6. A changed field shows at the next draw. |
+| `Screen.DrawMeshWith` | `DrawMeshWith(mesh *Mesh, transform Transform, material *Material)`: the mesh, its surface as the material says. |
+| `Material.Color` | Multiplies the texture, or is the color; White when zero. `A` below 255 is see-through. |
+| `Material.Texture`, `Material.Tiling` | A `Texture` wrapped around the mesh by its texture coordinates; `Tiling` repeats it that many times each way, for a floor of tiles (1 when zero). |
+| `Material.Metallic`, `Material.Roughness` | 0 for paint, wood, stone or plastic, 1 for bare metal, which tints what it reflects; and how blurred reflections are, 0.05 for a mirror, 1 for chalk (0.6 when zero). |
+| `Material.Emission`, `Material.EmissionStrength` | The light the surface gives off, shown even in the dark: lava, screens, neon. `EmissionStrength` multiplies it (1 when zero); above white it glows with `Environment.Bloom`. |
+| `Material.Unlit` | The color or texture as it is, with no light or shadow: a sky dome, a sign. As everywhere in the 3D, only colors above about 225 of 255 are softened a little by the tonemapper. |
+| `Material.TwoSided` | Draws the back of each triangle too: leaves, flags, paper. |
+| `Material.Shader` | A GLSL function of the game's own, `void surface(inout Surface s)`, that changes the surface before GoLib lights it: `s.color` (vec4, linear), `s.emission` (vec3), `s.metallic`, `s.roughness`, `s.normal` (in the world), and to read, `s.position` (in the world), `s.texcoord` and `s.time` (seconds of game time). Lighting, shadows and fog stay GoLib's. One that doesn't compile stops `Run` with what the graphics card said. |
+| `Texture` | A picture for 3D, from a PNG or JPEG file: smoothed, with mipmaps, repeating past its edges. |
+| `NewTexture` | `NewTexture(name string) *Texture`: the texture in the assets folder named `name`, read the first time it is drawn. |
+| `Texture.Pixelated` | Keeps a pixel art texture's pixels sharp up close. Set it before it is first drawn. |
+| `Texture.Err` | `Err() error`: reads it, and says what stopped it from loading. |
+
+```go
+var (
+	gold  = &golib.Material{Color: golib.Gold, Metallic: 1, Roughness: 0.3}
+	lava  = &golib.Material{Color: golib.Black, Emission: golib.Orange, EmissionStrength: 4}
+	tiles = &golib.Material{Texture: golib.NewTexture("textures/tiles.png"), Tiling: 20}
+	water = &golib.Material{Color: golib.Color{R: 40, G: 110, B: 160, A: 255}, Roughness: 0.05, Shader: `
+void surface(inout Surface s) {
+    s.normal = normalize(s.normal + 0.08 * vec3(sin(s.position.x * 3.0 + s.time * 2.0), 0.0, cos(s.position.z * 2.5 + s.time)));
+}`}
+)
+
+screen.DrawMeshWith(s.plane, golib.Transform{Scale: golib.Vector3{X: 20, Z: 20}}, tiles)
+screen.DrawMeshWith(s.sphere, golib.Transform{Position: coin}, gold)
+```
+
 ### Models from Blender
 
 A model is a glTF file, `.glb` or `.gltf`, in the game's assets folder: Blender's File > Export > glTF 2.0, and most other 3D tools and asset packs. GoLib reads its meshes, their materials (color, texture, emission, unlit, see-through or cut out, one or two sides), vertex colors and the empties placed in it, with their custom properties: a level made in Blender carries where things go. Make each model once and keep it.

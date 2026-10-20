@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"slices"
+	"strings"
 
 	"golib/internal/device"
 )
@@ -32,8 +33,10 @@ type material3D struct {
 	occlusionStrength float32
 	alpha             alphaMode
 	alphaCutoff       float32
-	twoSided          bool // its back faces are drawn too
-	unlit             bool // its color shows as it is, without the sun
+	twoSided          bool       // its back faces are drawn too
+	unlit             bool       // its color shows as it is, without the sun
+	tiling            [2]float32 // how many times textures repeat across and down; zero is once
+	surface           string     // a game's own surface function, in GLSL, or ""
 }
 
 type alphaMode int
@@ -87,6 +90,7 @@ type pass3D struct {
 	lights      []Light
 	width       int // the size of the target the pass draws over, in its texels
 	height      int
+	time        float32 // seconds of game time, for a game's own surfaces
 }
 
 // Begin3D starts drawing the 3D world seen through camera, over what Draw
@@ -125,6 +129,7 @@ func (s *Screen) Begin3D(camera *Camera3D) {
 		lines:       s.pass.lines[:0],
 		lineIndices: s.pass.lineIndices[:0],
 		lights:      s.pass.lights[:0],
+		time:        s.time,
 		width:       max(1, int(s.width*textScale)),
 		height:      max(1, int(s.height*textScale)),
 	}
@@ -326,6 +331,8 @@ uniform float occlusionStrength;
 uniform int alphaMode;
 uniform float alphaCutoff;
 uniform int unlit;
+uniform vec2 tiling;
+uniform float time;
 
 uniform vec3 sunDirection;
 uniform vec3 sunColor;
@@ -439,37 +446,62 @@ float sunShadow(vec3 n)
     return mix(lit, 1.0, smoothstep(shadowSplits.z * 0.85, shadowSplits.z, depth));
 }
 
+// What a material's surface is at one point, which a game's own shader,
+// Material.Shader, changes before GoLib lights it.
+struct Surface {
+    vec4 color;      // linear, with its opacity
+    vec3 emission;   // linear light it gives off
+    float metallic;
+    float roughness;
+    vec3 normal;     // length 1, in the world
+    vec3 position;   // in the world
+    vec2 texcoord;   // tiled
+    float time;      // seconds of game time
+};
+
+// SURFACE
+
 void main()
 {
+    vec2 uv = texcoord * tiling;
     vec4 albedo = baseColor * color;
-    if (hasBaseTexture == 1) albedo *= texture(baseTexture, texcoord);
+    if (hasBaseTexture == 1) albedo *= texture(baseTexture, uv);
+    vec3 glow = emissive;
+    if (hasEmissiveTexture == 1) glow *= texture(emissiveTexture, uv).rgb;
+    float metal = metallic;
+    float rough = roughness;
+    if (hasMetalRoughTexture == 1) {
+        vec4 mr = texture(metalRoughTexture, uv);
+        rough *= mr.g;
+        metal *= mr.b;
+    }
+    vec3 n = normalize(normal);
+    if (!gl_FrontFacing) n = -n;
+    if (hasNormalTexture == 1) {
+        vec3 bump = texture(normalTexture, uv).xyz * 2.0 - 1.0;
+        bump.xy *= normalScale;
+        n = normalize(surfaceFrame(n, worldPosition, uv) * bump);
+    }
+    float occlusion = 1.0;
+    if (hasOcclusionTexture == 1) occlusion = mix(1.0, texture(occlusionTexture, uv).r, occlusionStrength);
+#ifdef CUSTOM_SURFACE
+    Surface s = Surface(albedo, glow, metal, rough, n, worldPosition, uv, time);
+    surface(s);
+    albedo = s.color;
+    glow = s.emission;
+    metal = s.metallic;
+    rough = s.roughness;
+    n = normalize(s.normal);
+#endif
+
     if (alphaMode == 1 && albedo.a < alphaCutoff) discard;
     float alpha = alphaMode == 2 ? albedo.a : 1.0;
-
-    vec3 glow = emissive;
-    if (hasEmissiveTexture == 1) glow *= texture(emissiveTexture, texcoord).rgb;
     if (unlit == 1) {
         fragColor = vec4((albedo.rgb + glow) * alpha, alpha);
         return;
     }
-
-    float metal = metallic;
-    float rough = roughness;
-    if (hasMetalRoughTexture == 1) {
-        vec4 mr = texture(metalRoughTexture, texcoord);
-        rough *= mr.g;
-        metal *= mr.b;
-    }
     rough = clamp(rough, 0.04, 1.0);
     metal = clamp(metal, 0.0, 1.0);
-
-    vec3 n = normalize(normal);
-    if (!gl_FrontFacing) n = -n;
-    if (hasNormalTexture == 1) {
-        vec3 bump = texture(normalTexture, texcoord).xyz * 2.0 - 1.0;
-        bump.xy *= normalScale;
-        n = normalize(surfaceFrame(n, worldPosition, texcoord) * bump);
-    }
     vec3 v = normalize(eye - worldPosition);
     vec3 f0 = mix(vec3(0.04), albedo.rgb, metal);
 
@@ -492,8 +524,6 @@ void main()
 
     // The soft light of the sky and the ground, diffuse and reflected, the
     // reflection fading as the surface roughens.
-    float occlusion = 1.0;
-    if (hasOcclusionTexture == 1) occlusion = mix(1.0, texture(occlusionTexture, texcoord).r, occlusionStrength);
     vec3 r = reflect(-v, n);
     vec3 around;
     vec3 mirrored;
@@ -682,6 +712,7 @@ type litProgram struct {
 	occlusionTexture, hasOcclusionTexture       int32
 	occlusionStrength                           int32
 	alphaMode, alphaCutoff, unlit               int32
+	tiling, time                                int32
 	sunDirection, sunColor, skyColor, ground    int32
 	fog, lightCount                             int32
 	lightPositions, lightColors, lightDirection int32
@@ -727,6 +758,7 @@ type state3D struct {
 	bloomDown bloomProgram
 	bloomUp   bloomProgram
 	bloom     bloomChain
+	surfaces  map[string]*litProgram // programs with a game's own surface, by its source; nil for one that didn't compile
 	lineMesh  device.Mesh
 	instances []float32 // the instances of the draw being built
 }
@@ -787,20 +819,7 @@ func (r *state3D) load() error {
 		return err
 	}
 	at := func(p device.Program, name string) int32 { return device.UniformLocation(p, name) }
-	r.lit = litProgram{
-		program: lit, viewProjection: at(lit, "viewProjection"), eye: at(lit, "eye"),
-		baseColor: at(lit, "baseColor"), baseTexture: at(lit, "baseTexture"), hasBaseTexture: at(lit, "hasBaseTexture"),
-		emissive: at(lit, "emissive"), emissiveTexture: at(lit, "emissiveTexture"), hasEmissive: at(lit, "hasEmissiveTexture"),
-		metallic: at(lit, "metallic"), roughness: at(lit, "roughness"),
-		metalRoughTexture: at(lit, "metalRoughTexture"), hasMetalRoughTexture: at(lit, "hasMetalRoughTexture"),
-		normalTexture: at(lit, "normalTexture"), hasNormalTexture: at(lit, "hasNormalTexture"), normalScale: at(lit, "normalScale"),
-		occlusionTexture: at(lit, "occlusionTexture"), hasOcclusionTexture: at(lit, "hasOcclusionTexture"),
-		occlusionStrength: at(lit, "occlusionStrength"),
-		alphaMode:         at(lit, "alphaMode"), alphaCutoff: at(lit, "alphaCutoff"), unlit: at(lit, "unlit"),
-		sunDirection: at(lit, "sunDirection"), sunColor: at(lit, "sunColor"), skyColor: at(lit, "skyColor"), ground: at(lit, "groundColor"),
-		fog: at(lit, "fog"), lightCount: at(lit, "lightCount"),
-		lightPositions: at(lit, "lightPositions"), lightColors: at(lit, "lightColors"), lightDirection: at(lit, "lightDirections"),
-	}
+	r.lit = locateLit(lit)
 	r.lines = lineProgram{program: lines, model: at(lines, "model"), viewProjection: at(lines, "viewProjection"), color: at(lines, "color")}
 	r.sky = skyProgram{
 		program: sky, inverseViewProjection: at(sky, "inverseViewProjection"), eye: at(sky, "eye"),
@@ -818,16 +837,68 @@ func (r *state3D) load() error {
 		baseTexture: at(shadow, "baseTexture"), hasBaseTexture: at(shadow, "hasBaseTexture"),
 		baseOpacity: at(shadow, "baseOpacity"), cutout: at(shadow, "cutout"), alphaCutoff: at(shadow, "alphaCutoff"),
 	}
-	r.lit.shadowMap, r.lit.hasShadows = at(lit, "shadowMap"), at(lit, "hasShadows")
-	r.lit.environmentMap, r.lit.hasEnvironment = at(lit, "environmentMap"), at(lit, "hasEnvironment")
-	r.lit.environmentLevels, r.lit.irradiance = at(lit, "environmentLevels"), at(lit, "irradiance")
 	r.sky.environmentMap, r.sky.hasEnvironment = at(sky, "environmentMap"), at(sky, "hasEnvironment")
-	for k := range shadowCascades {
-		r.lit.shadowMatrices[k] = at(lit, fmt.Sprintf("shadowMatrix%d", k))
-	}
-	r.lit.shadowSplits, r.lit.shadowTexels, r.lit.viewForward = at(lit, "shadowSplits"), at(lit, "shadowTexels"), at(lit, "viewForward")
 	r.loaded = true
 	return nil
+}
+
+// locateLit finds where the lit shader's uniforms sit in program, the
+// plain one or one with a game's own surface.
+func locateLit(program device.Program) litProgram {
+	at := func(name string) int32 { return device.UniformLocation(program, name) }
+	p := litProgram{
+		program: program, viewProjection: at("viewProjection"), eye: at("eye"),
+		baseColor: at("baseColor"), baseTexture: at("baseTexture"), hasBaseTexture: at("hasBaseTexture"),
+		emissive: at("emissive"), emissiveTexture: at("emissiveTexture"), hasEmissive: at("hasEmissiveTexture"),
+		metallic: at("metallic"), roughness: at("roughness"),
+		metalRoughTexture: at("metalRoughTexture"), hasMetalRoughTexture: at("hasMetalRoughTexture"),
+		normalTexture: at("normalTexture"), hasNormalTexture: at("hasNormalTexture"), normalScale: at("normalScale"),
+		occlusionTexture: at("occlusionTexture"), hasOcclusionTexture: at("hasOcclusionTexture"),
+		occlusionStrength: at("occlusionStrength"),
+		alphaMode:         at("alphaMode"), alphaCutoff: at("alphaCutoff"), unlit: at("unlit"),
+		tiling: at("tiling"), time: at("time"),
+		sunDirection: at("sunDirection"), sunColor: at("sunColor"), skyColor: at("skyColor"), ground: at("groundColor"),
+		fog: at("fog"), lightCount: at("lightCount"),
+		lightPositions: at("lightPositions"), lightColors: at("lightColors"), lightDirection: at("lightDirections"),
+		shadowMap: at("shadowMap"), hasShadows: at("hasShadows"),
+		environmentMap: at("environmentMap"), hasEnvironment: at("hasEnvironment"),
+		environmentLevels: at("environmentLevels"), irradiance: at("irradiance"),
+		shadowSplits: at("shadowSplits"), shadowTexels: at("shadowTexels"), viewForward: at("viewForward"),
+	}
+	for k := range shadowCascades {
+		p.shadowMatrices[k] = at(fmt.Sprintf("shadowMatrix%d", k))
+	}
+	return p
+}
+
+// surfaceProgram returns the lit program for a material: the plain one, or,
+// for one with a shader of the game's own, that shader's, compiled the first
+// time a material uses it. A shader that doesn't compile is reported, and the
+// material drawn with the plain program.
+func (r *state3D) surfaceProgram(m *material3D) *litProgram {
+	if m.surface == "" {
+		return &r.lit
+	}
+	if p, ok := r.surfaces[m.surface]; ok {
+		if p == nil {
+			return &r.lit
+		}
+		return p
+	}
+	fragment := strings.Replace(litFragmentShader, "// SURFACE", m.surface, 1)
+	fragment = strings.Replace(fragment, "#version 330\n", "#version 330\n#define CUSTOM_SURFACE\n", 1)
+	program, err := device.NewProgram(litVertexShader, fragment)
+	if r.surfaces == nil {
+		r.surfaces = map[string]*litProgram{}
+	}
+	if err != nil {
+		reportError(fmt.Errorf("golib: a Material's Shader doesn't compile: %w", err))
+		r.surfaces[m.surface] = nil
+		return &r.lit
+	}
+	p := locateLit(program)
+	r.surfaces[m.surface] = &p
+	return &p
 }
 
 // unload frees the programs and the lines' mesh. The window must still be
@@ -838,6 +909,11 @@ func (r *state3D) unload() {
 	}
 	for _, p := range []device.Program{r.lit.program, r.lines.program, r.sky.program, r.compose.program, r.shadow.program, r.bloomDown.program, r.bloomUp.program} {
 		device.UnloadProgram(p)
+	}
+	for _, p := range r.surfaces {
+		if p != nil {
+			device.UnloadProgram(p.program)
+		}
 	}
 	r.unloadBloom()
 	device.UnloadShadowMap(r.shadowMap)
@@ -969,24 +1045,6 @@ func (r *state3D) draw(pass *pass3D) {
 		r.drawShadows(&sunViews, built)
 	}
 
-	lit := r.lit
-	device.UseProgram(lit.program)
-	device.SetUniformMatrix(lit.viewProjection, &viewProjection)
-	device.SetUniform(lit.eye, 3, vec3(eye))
-	device.SetUniform(lit.sunDirection, 3, vec3(env.sunDirection))
-	device.SetUniform(lit.sunColor, 3, env.sun)
-	device.SetUniform(lit.skyColor, 3, env.sky)
-	device.SetUniform(lit.ground, 3, env.ground)
-	device.SetUniform(lit.fog, 4, env.fog)
-	device.SetUniformInt(lit.lightCount, lights.count)
-	if lights.count > 0 {
-		device.SetUniformVec4s(lit.lightPositions, lights.positions)
-		device.SetUniformVec4s(lit.lightColors, lights.colors)
-		device.SetUniformVec4s(lit.lightDirection, lights.directions)
-	}
-	for unit, at := range []int32{lit.baseTexture, lit.emissiveTexture, lit.metalRoughTexture, lit.normalTexture, lit.occlusionTexture} {
-		device.SetUniformInt(at, int32(unit))
-	}
 	// The HDRI, when there is one, lights the pass in place of Sky and
 	// Ground.
 	var environment device.Texture3D
@@ -998,40 +1056,79 @@ func (r *state3D) draw(pass *pass3D) {
 		environment = texture
 	}
 	hasEnvironment := environment.ID != 0
-	device.SetUniformInt(lit.environmentMap, environmentUnit)
-	device.SetUniformInt(lit.hasEnvironment, boolInt(hasEnvironment))
 	if hasEnvironment {
 		device.BindTexture3D(environmentUnit, environment)
-		device.SetUniform(lit.environmentLevels, 1, [4]float32{float32(len(env.hdri.levels) - 1)})
-		var sh []float32
-		for _, c := range env.hdri.irradiance {
-			sh = append(sh, c[:]...)
-		}
-		device.SetUniformVec4s(lit.irradiance, sh)
 	}
-	device.SetUniformInt(lit.hasShadows, boolInt(shadows))
-	// The shadow sampler keeps a unit of its own even without shadows: two
-	// kinds of sampler on one unit stop the draw.
-	device.SetUniformInt(lit.shadowMap, shadowUnit)
 	if shadows {
 		device.BindShadowMap(shadowUnit, r.shadowMap)
-		for k := range shadowCascades {
-			m := [16]float32(sunViews.viewProjections[k])
-			device.SetUniformMatrix(lit.shadowMatrices[k], &m)
+	}
+	var irradiance []float32
+	if hasEnvironment {
+		for _, c := range env.hdri.irradiance {
+			irradiance = append(irradiance, c[:]...)
 		}
-		device.SetUniform(lit.shadowSplits, 4, sunViews.splits)
-		texels := sunViews.texels
-		texels[3] = shadowResolution
-		device.SetUniform(lit.shadowTexels, 4, texels)
-		device.SetUniform(lit.viewForward, 3, vec3(pass.camera.Forward()))
+	}
+	// What every lit program reads the same this pass, given to each the
+	// first time the pass uses it.
+	framed := map[*litProgram]bool{}
+	frame := func(lit *litProgram) {
+		device.UseProgram(lit.program)
+		if framed[lit] {
+			return
+		}
+		framed[lit] = true
+		device.SetUniformMatrix(lit.viewProjection, &viewProjection)
+		device.SetUniform(lit.eye, 3, vec3(eye))
+		device.SetUniform(lit.time, 1, [4]float32{pass.time})
+		device.SetUniform(lit.sunDirection, 3, vec3(env.sunDirection))
+		device.SetUniform(lit.sunColor, 3, env.sun)
+		device.SetUniform(lit.skyColor, 3, env.sky)
+		device.SetUniform(lit.ground, 3, env.ground)
+		device.SetUniform(lit.fog, 4, env.fog)
+		device.SetUniformInt(lit.lightCount, lights.count)
+		if lights.count > 0 {
+			device.SetUniformVec4s(lit.lightPositions, lights.positions)
+			device.SetUniformVec4s(lit.lightColors, lights.colors)
+			device.SetUniformVec4s(lit.lightDirection, lights.directions)
+		}
+		for unit, at := range []int32{lit.baseTexture, lit.emissiveTexture, lit.metalRoughTexture, lit.normalTexture, lit.occlusionTexture} {
+			device.SetUniformInt(at, int32(unit))
+		}
+		// The shadow and environment samplers keep units of their own
+		// even when unused: two kinds of sampler on one unit stop the draw.
+		device.SetUniformInt(lit.environmentMap, environmentUnit)
+		device.SetUniformInt(lit.hasEnvironment, boolInt(hasEnvironment))
+		if hasEnvironment {
+			device.SetUniform(lit.environmentLevels, 1, [4]float32{float32(len(env.hdri.levels) - 1)})
+			device.SetUniformVec4s(lit.irradiance, irradiance)
+		}
+		device.SetUniformInt(lit.shadowMap, shadowUnit)
+		device.SetUniformInt(lit.hasShadows, boolInt(shadows))
+		if shadows {
+			for k := range shadowCascades {
+				m := [16]float32(sunViews.viewProjections[k])
+				device.SetUniformMatrix(lit.shadowMatrices[k], &m)
+			}
+			device.SetUniform(lit.shadowSplits, 4, sunViews.splits)
+			texels := sunViews.texels
+			texels[3] = shadowResolution
+			device.SetUniform(lit.shadowTexels, 4, texels)
+			device.SetUniform(lit.viewForward, 3, vec3(pass.camera.Forward()))
+		}
 	}
 	var current *material3D
+	var program *litProgram
 	culling := true
 	use := func(m *material3D) {
 		if m == current {
 			return
 		}
 		current = m
+		if p := r.surfaceProgram(m); p != program {
+			program = p
+			frame(p)
+		}
+		lit := program
 		device.SetUniform(lit.baseColor, 4, m.baseColor)
 		device.SetUniform(lit.emissive, 3, [4]float32{m.emissive[0], m.emissive[1], m.emissive[2]})
 		device.SetUniform(lit.metallic, 1, [4]float32{m.metallic})
@@ -1041,6 +1138,11 @@ func (r *state3D) draw(pass *pass3D) {
 		device.SetUniformInt(lit.alphaMode, int32(m.alpha))
 		device.SetUniform(lit.alphaCutoff, 1, [4]float32{m.alphaCutoff})
 		device.SetUniformInt(lit.unlit, boolInt(m.unlit))
+		tiling := m.tiling
+		if tiling == [2]float32{} {
+			tiling = [2]float32{1, 1}
+		}
+		device.SetUniform(lit.tiling, 2, [4]float32{tiling[0], tiling[1]})
 		bind := func(unit int, texture *texture3D, has int32) {
 			if gpu := texture.upload(); gpu.ID != 0 {
 				device.BindTexture3D(unit, gpu)
@@ -1120,8 +1222,7 @@ func (r *state3D) draw(pass *pass3D) {
 		slices.SortStableFunc(seeThrough, func(a, b int) int {
 			return cmp.Compare(distance(b), distance(a)) // farthest first
 		})
-		device.UseProgram(lit.program)
-		current = nil
+		current, program = nil, nil
 		device.SetDepthWrite(false)
 		device.SetBlend3D(true)
 		for _, i := range seeThrough {
