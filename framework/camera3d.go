@@ -45,6 +45,11 @@ type Camera3D struct {
 	// to Position and Target in Lag seconds. 0 follows them exactly.
 	Lag float32
 
+	// Heading is the yaw Follow keeps the camera behind: Follow swings it
+	// round behind what it follows, and a game can turn it too, such as
+	// with the right stick: camera.Heading -= stickX * 120 * dt.
+	Heading float32
+
 	width, height float32 // the screen's size
 	started       bool    // Update has placed the view since Lag was set
 	eye, look     Vector3 // the view, as Lag lets it follow Position and Target
@@ -71,6 +76,66 @@ func NewCamera3D(width, height float32) *Camera3D {
 func (c *Camera3D) Orbit(center Vector3, yaw, pitch, distance float32) {
 	c.Target = center
 	c.Position = center.Sub(Rotation{Yaw: yaw, Pitch: pitch}.Forward().Scale(distance))
+}
+
+// Follow places the camera behind target, distance meters away, looking
+// down pitch degrees (a negative pitch looks down, as for Orbit): the camera
+// of a third-person game. Call it in every Update, with how fast target
+// moves. Heading swings round behind the way it moves along the ground,
+// over about half a second, but only while it moves away from the camera or
+// across it: running back towards the camera doesn't spin the view round.
+//
+//	s.camera.Follow(s.player.Position, s.player.Velocity, 6, -20, dt)
+//	s.camera.Update(dt)
+func (c *Camera3D) Follow(target, velocity Vector3, distance, pitch, dt float32) {
+	ground := Vector3{X: velocity.X, Z: velocity.Z}
+	if ground.Length() > followSpeed {
+		turn := shortestTurn(c.Heading, RotationTowards(ground).Yaw)
+		if turn >= -followArc && turn <= followArc {
+			c.Heading += turn * min(1, followRate*dt)
+		}
+	}
+	c.Orbit(target, c.Heading, pitch, distance)
+}
+
+// How Follow swings: it turns only for things moving faster than
+// followSpeed meters a second, at most followArc degrees from where the
+// camera looks, closing followRate of the turn a second.
+const (
+	followSpeed = 0.5
+	followArc   = 100
+	followRate  = 2.5
+)
+
+// shortestTurn returns the turn from one yaw to another the short way round,
+// from -180 to 180 degrees.
+func shortestTurn(from, to float32) float32 {
+	turn := float32(math.Mod(float64(to-from), 360))
+	if turn > 180 {
+		turn -= 360
+	}
+	if turn < -180 {
+		turn += 360
+	}
+	return turn
+}
+
+// Direction returns the way to move on the ground for keys or a stick
+// pushed forward and right, each from -1 to 1, as the player sees it: forward
+// is away from the camera, right is the screen's right. Its length is at
+// most 1, so pushing diagonally isn't faster:
+//
+//	stickX, stickY := input.GamepadLeftStick(0)
+//	move := s.camera.Direction(-stickY, stickX) // a stick's Y grows downwards
+//	s.player.Velocity = move.Scale(runSpeed)
+func (c *Camera3D) Direction(forward, right float32) Vector3 {
+	ahead := c.Forward()
+	ahead.Y = 0
+	ahead = ahead.Normalize()
+	if ahead == (Vector3{}) {
+		ahead = Rotation{Yaw: c.Heading}.Forward() // looking straight down
+	}
+	return ahead.Scale(forward).Add(c.Right().Scale(right)).ClampLength(1)
 }
 
 // Look places the eye at position, looking yaw and pitch degrees as a

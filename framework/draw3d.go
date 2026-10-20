@@ -19,14 +19,21 @@ import (
 // material3D is how a surface looks: its colors, its textures and how it
 // lets light and what is behind it through. Colors are linear.
 type material3D struct {
-	baseColor       [4]float32
-	baseTexture     *texture3D // nil for none
-	emissive        [3]float32
-	emissiveTexture *texture3D
-	alpha           alphaMode
-	alphaCutoff     float32
-	twoSided        bool // its back faces are drawn too
-	unlit           bool // its color shows as it is, without the sun
+	baseColor         [4]float32
+	baseTexture       *texture3D // nil for none
+	emissive          [3]float32
+	emissiveTexture   *texture3D
+	metallic          float32    // 0 for paint, wood or stone; 1 for bare metal
+	roughness         float32    // 0 for a mirror, 1 for chalk
+	metalRoughTexture *texture3D // roughness in green, metallic in blue, multiplying the two
+	normalTexture     *texture3D // the surface's small bumps
+	normalScale       float32
+	occlusionTexture  *texture3D // where the soft light doesn't reach, in red
+	occlusionStrength float32
+	alpha             alphaMode
+	alphaCutoff       float32
+	twoSided          bool // its back faces are drawn too
+	unlit             bool // its color shows as it is, without the sun
 }
 
 type alphaMode int
@@ -37,11 +44,15 @@ const (
 	alphaBlend                   // see-through by its opacity
 )
 
+// plainRoughness is how rough the meshes GoLib makes are: painted wood or
+// plastic, with a soft highlight.
+const plainRoughness = 0.6
+
 // The materials of the meshes GoLib makes: white, so DrawMesh's color is the
 // color.
 var (
-	plainMaterial         = &material3D{baseColor: [4]float32{1, 1, 1, 1}}
-	plainTwoSidedMaterial = &material3D{baseColor: [4]float32{1, 1, 1, 1}, twoSided: true}
+	plainMaterial         = &material3D{baseColor: [4]float32{1, 1, 1, 1}, roughness: plainRoughness}
+	plainTwoSidedMaterial = &material3D{baseColor: [4]float32{1, 1, 1, 1}, roughness: plainRoughness, twoSided: true}
 )
 
 // texture3D is a picture a material shows, put on the graphics card the
@@ -72,6 +83,8 @@ type pass3D struct {
 	items       []item3D
 	lines       []float32 // device.LayoutColored
 	lineIndices []uint32
+	environment Environment
+	lights      []Light
 }
 
 // Begin3D starts drawing the 3D world seen through camera, over what Draw
@@ -109,6 +122,7 @@ func (s *Screen) Begin3D(camera *Camera3D) {
 		items:       s.pass.items[:0],
 		lines:       s.pass.lines[:0],
 		lineIndices: s.pass.lineIndices[:0],
+		lights:      s.pass.lights[:0],
 	}
 }
 
@@ -148,7 +162,7 @@ func (s *Screen) addItem(mesh *Mesh, material *material3D, model matrix, tint Co
 	mesh.bounds()
 	// The material's textures go to the graphics card now, before the pass
 	// draws anything.
-	for _, t := range []*texture3D{material.baseTexture, material.emissiveTexture} {
+	for _, t := range []*texture3D{material.baseTexture, material.emissiveTexture, material.metalRoughTexture, material.normalTexture, material.occlusionTexture} {
 		t.upload()
 	}
 	s.pass.items = append(s.pass.items, item3D{
@@ -247,21 +261,11 @@ func (s *Screen) End3D() {
 	}
 }
 
-// The default light, until GoLib has lights a game places: a sun high behind
-// and to the right of a camera facing +Z, as NewCamera3D's does and a
-// third-person camera behind a player with no Yaw does, and the sky's soft
-// light from above, all in linear color. A surface facing the sun shows its
-// color as it is; the side away from the sun, at about half its brightness.
-var (
-	sunDirection = Vector3{X: 0.4, Y: -1, Z: 0.6}.Normalize()
-	sunColor     = [4]float32{0.9, 0.9, 0.9}
-	skyColor     = [4]float32{0.3, 0.3, 0.3}
-	groundColor  = [4]float32{0.12, 0.12, 0.12}
-)
-
 // The shaders of the 3D, in GLSL 3.30; the web backend turns them into GLSL
 // ES. Each instance brings its matrix and its tint; the tint comes in sRGB,
-// as games give colors, and everything is lit in linear light.
+// as games give colors. Everything is lit in linear light, physically, and
+// written into the pass's own picture, which can be brighter than white; the
+// compose shader brings it back to the screen's colors.
 const (
 	litVertexShader = `#version 330
 layout(location = 0) in vec3 vertexPosition;
@@ -271,6 +275,7 @@ layout(location = 3) in vec4 vertexColor;
 layout(location = 4) in mat4 instanceModel;
 layout(location = 8) in vec4 instanceTint;
 uniform mat4 viewProjection;
+out vec3 worldPosition;
 out vec3 normal;
 out vec2 texcoord;
 out vec4 color;
@@ -281,46 +286,231 @@ void main()
     normal = transpose(inverse(turn)) * vertexNormal;
     texcoord = vertexTexcoord;
     color = vertexColor * vec4(pow(instanceTint.rgb, vec3(2.2)), instanceTint.a);
-    gl_Position = viewProjection * instanceModel * vec4(vertexPosition, 1.0);
+    vec4 world = instanceModel * vec4(vertexPosition, 1.0);
+    worldPosition = world.xyz;
+    gl_Position = viewProjection * world;
 }
 `
 	litFragmentShader = `#version 330
+in vec3 worldPosition;
 in vec3 normal;
 in vec2 texcoord;
 in vec4 color;
+
+uniform vec3 eye;
 uniform vec4 baseColor;
 uniform sampler2D baseTexture;
 uniform int hasBaseTexture;
 uniform vec3 emissive;
 uniform sampler2D emissiveTexture;
 uniform int hasEmissiveTexture;
+uniform float metallic;
+uniform float roughness;
+uniform sampler2D metalRoughTexture;
+uniform int hasMetalRoughTexture;
+uniform sampler2D normalTexture;
+uniform int hasNormalTexture;
+uniform float normalScale;
+uniform sampler2D occlusionTexture;
+uniform int hasOcclusionTexture;
+uniform float occlusionStrength;
 uniform int alphaMode;
 uniform float alphaCutoff;
 uniform int unlit;
+
 uniform vec3 sunDirection;
 uniform vec3 sunColor;
 uniform vec3 skyColor;
 uniform vec3 groundColor;
+uniform vec4 fog;
+uniform int lightCount;
+uniform vec4 lightPositions[8];
+uniform vec4 lightColors[8];
+uniform vec4 lightDirections[8];
+
 out vec4 fragColor;
+
+const float PI = 3.14159265;
+
+// The surface's frame from how its position and texture coordinates change
+// across the screen, so normal maps need no tangents in the mesh. V grows
+// down the picture, where a normal map's green points up.
+mat3 surfaceFrame(vec3 n, vec3 p, vec2 uv)
+{
+    vec3 dp1 = dFdx(p);
+    vec3 dp2 = dFdy(p);
+    vec2 duv1 = dFdx(uv);
+    vec2 duv2 = dFdy(uv);
+    vec3 dp2perp = cross(dp2, n);
+    vec3 dp1perp = cross(n, dp1);
+    vec3 t = dp2perp * duv1.x + dp1perp * duv2.x;
+    vec3 b = dp2perp * duv1.y + dp1perp * duv2.y;
+    float scale = inversesqrt(max(max(dot(t, t), dot(b, b)), 1e-20));
+    return mat3(t * scale, -b * scale, n);
+}
+
+// Light that reaches the eye from one light: Lambert's diffuse and GGX's
+// highlight.
+vec3 shade(vec3 n, vec3 v, vec3 l, vec3 radiance, vec3 albedo, float metal, float rough, vec3 f0)
+{
+    float nl = max(dot(n, l), 0.0);
+    if (nl <= 0.0) return vec3(0.0);
+    vec3 h = normalize(v + l);
+    float nv = max(dot(n, v), 1e-4);
+    float nh = max(dot(n, h), 0.0);
+    float a = rough * rough;
+    float a2 = a * a;
+    float d = a2 / (PI * pow(nh * nh * (a2 - 1.0) + 1.0, 2.0));
+    float k = (rough + 1.0) * (rough + 1.0) / 8.0;
+    float g = nv / (nv * (1.0 - k) + k) * nl / (nl * (1.0 - k) + k);
+    vec3 f = f0 + (1.0 - f0) * pow(1.0 - max(dot(h, v), 0.0), 5.0);
+    vec3 specular = d * g * f / (4.0 * nv * nl + 1e-4);
+    vec3 diffuse = (1.0 - f) * (1.0 - metal) * albedo;
+    return (diffuse + specular * PI) * radiance * nl;
+}
 
 void main()
 {
     vec4 albedo = baseColor * color;
     if (hasBaseTexture == 1) albedo *= texture(baseTexture, texcoord);
     if (alphaMode == 1 && albedo.a < alphaCutoff) discard;
-    vec3 light = albedo.rgb;
-    if (unlit == 0) {
-        vec3 n = normalize(normal);
-        if (!gl_FrontFacing) n = -n;
-        float diffuse = max(dot(n, -sunDirection), 0.0);
-        vec3 ambient = mix(groundColor, skyColor, n.y * 0.5 + 0.5);
-        light *= sunColor * diffuse + ambient;
-    }
+    float alpha = alphaMode == 2 ? albedo.a : 1.0;
+
     vec3 glow = emissive;
     if (hasEmissiveTexture == 1) glow *= texture(emissiveTexture, texcoord).rgb;
-    light += glow;
-    float alpha = alphaMode == 2 ? albedo.a : 1.0;
-    fragColor = vec4(pow(min(light, vec3(1.0)), vec3(1.0 / 2.2)), alpha);
+    if (unlit == 1) {
+        fragColor = vec4((albedo.rgb + glow) * alpha, alpha);
+        return;
+    }
+
+    float metal = metallic;
+    float rough = roughness;
+    if (hasMetalRoughTexture == 1) {
+        vec4 mr = texture(metalRoughTexture, texcoord);
+        rough *= mr.g;
+        metal *= mr.b;
+    }
+    rough = clamp(rough, 0.04, 1.0);
+    metal = clamp(metal, 0.0, 1.0);
+
+    vec3 n = normalize(normal);
+    if (!gl_FrontFacing) n = -n;
+    if (hasNormalTexture == 1) {
+        vec3 bump = texture(normalTexture, texcoord).xyz * 2.0 - 1.0;
+        bump.xy *= normalScale;
+        n = normalize(surfaceFrame(n, worldPosition, texcoord) * bump);
+    }
+    vec3 v = normalize(eye - worldPosition);
+    vec3 f0 = mix(vec3(0.04), albedo.rgb, metal);
+
+    vec3 light = shade(n, v, -sunDirection, sunColor, albedo.rgb, metal, rough, f0);
+    for (int i = 0; i < 8; i++) {
+        if (i >= lightCount) break;
+        vec3 toLight = lightPositions[i].xyz - worldPosition;
+        float distance = length(toLight);
+        vec3 l = toLight / max(distance, 1e-4);
+        float reach = distance / lightPositions[i].w;
+        float fade = clamp(1.0 - reach * reach * reach * reach, 0.0, 1.0);
+        float strength = fade * fade / max(distance * distance, 0.01);
+        float inner = lightDirections[i].w, outer = lightColors[i].w;
+        if (outer > -1.5) {
+            float along = dot(-l, lightDirections[i].xyz);
+            strength *= smoothstep(outer, inner, along);
+        }
+        light += shade(n, v, l, lightColors[i].rgb * strength, albedo.rgb, metal, rough, f0);
+    }
+
+    // The soft light of the sky and the ground, diffuse and reflected, the
+    // reflection fading as the surface roughens.
+    float occlusion = 1.0;
+    if (hasOcclusionTexture == 1) occlusion = mix(1.0, texture(occlusionTexture, texcoord).r, occlusionStrength);
+    vec3 around = mix(groundColor, skyColor, n.y * 0.5 + 0.5);
+    vec3 r = reflect(-v, n);
+    // A rough surface blurs its reflection into the light all around it.
+    vec3 mirrored = mix(mix(groundColor, skyColor, smoothstep(-0.2, 0.2, r.y)), around, rough);
+    float nv = max(dot(n, v), 0.0);
+    vec3 fresnel = f0 + (max(vec3(1.0 - rough), f0) - f0) * pow(1.0 - nv, 5.0);
+    vec3 ambient = (1.0 - fresnel) * (1.0 - metal) * albedo.rgb * around + fresnel * mirrored;
+    light += ambient * occlusion + glow;
+
+    if (fog.w > 0.0) {
+        float distance = length(eye - worldPosition);
+        float amount = clamp((distance - fog.w * 0.1) / (fog.w * 0.9), 0.0, 1.0);
+        light = mix(light, fog.rgb, amount);
+    }
+    fragColor = vec4(light * alpha, alpha);
+}
+`
+	// fullscreenVertexShader covers the view with one triangle, its corners
+	// worked out from gl_VertexID, for the sky and the composing.
+	fullscreenVertexShader = `#version 330
+out vec2 texcoord;
+
+void main()
+{
+    vec2 corner = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));
+    texcoord = corner;
+    gl_Position = vec4(corner * 2.0 - 1.0, 1.0, 1.0);
+}
+`
+	skyFragmentShader = `#version 330
+in vec2 texcoord;
+uniform mat4 inverseViewProjection;
+uniform vec3 eye;
+uniform vec3 skyTop;
+uniform vec3 horizon;
+uniform vec3 skyBottom;
+uniform vec4 fog;
+out vec4 fragColor;
+
+void main()
+{
+    vec4 far = inverseViewProjection * vec4(texcoord * 2.0 - 1.0, 1.0, 1.0);
+    vec3 direction = normalize(far.xyz / far.w - eye);
+    vec3 color = direction.y > 0.0
+        ? mix(horizon, skyTop, pow(direction.y, 0.6))
+        : mix(horizon, skyBottom, pow(-direction.y, 0.4));
+    if (fog.w > 0.0) color = mix(color, fog.rgb, 1.0 - smoothstep(0.0, 0.25, abs(direction.y)));
+    fragColor = vec4(color, 1.0);
+}
+`
+	// composeFragmentShader brings the pass's picture, in linear light that
+	// can be brighter than white, back to the screen's sRGB colors with
+	// Khronos' PBR Neutral tonemapper, which leaves a color as it is up to
+	// 0.76 and softens only what is brighter, so golib.Red lit by the sun is
+	// still golib.Red. It gives colors premultiplied by their opacity, to go
+	// over the 2D under the pass.
+	composeFragmentShader = `#version 330
+in vec2 texcoord;
+uniform sampler2D picture;
+uniform float exposure;
+out vec4 fragColor;
+
+vec3 neutral(vec3 color)
+{
+    const float startCompression = 0.8 - 0.04;
+    const float desaturation = 0.15;
+    float x = min(color.r, min(color.g, color.b));
+    float offset = x < 0.08 ? x - 6.25 * x * x : 0.04;
+    color -= offset;
+    float peak = max(color.r, max(color.g, color.b));
+    if (peak < startCompression) return color;
+    const float d = 1.0 - startCompression;
+    float newPeak = 1.0 - d * d / (peak + d - startCompression);
+    color *= newPeak / peak;
+    float g = 1.0 - 1.0 / (desaturation * (peak - newPeak) + 1.0);
+    return mix(color, vec3(newPeak), g);
+}
+
+void main()
+{
+    vec4 c = texture(picture, texcoord);
+    if (c.a <= 0.0) {
+        fragColor = vec4(0.0);
+        return;
+    }
+    vec3 color = neutral(max(c.rgb / c.a * exposure, vec3(0.0)));
+    fragColor = vec4(pow(color, vec3(1.0 / 2.2)) * c.a, c.a);
 }
 `
 	lineVertexShader = `#version 330
@@ -346,7 +536,8 @@ out vec4 fragColor;
 
 void main()
 {
-    fragColor = tint * color;
+    vec4 c = tint * color;
+    fragColor = vec4(pow(c.rgb, vec3(2.2)) * c.a, c.a);
 }
 `
 )
@@ -354,12 +545,20 @@ void main()
 // litProgram is the program meshes are drawn with, and where its uniforms
 // sit.
 type litProgram struct {
-	program                                  device.Program
-	viewProjection                           int32
-	baseColor, baseTexture, hasBaseTexture   int32
-	emissive, emissiveTexture, hasEmissive   int32
-	alphaMode, alphaCutoff, unlit            int32
-	sunDirection, sunColor, skyColor, ground int32
+	program                                     device.Program
+	viewProjection, eye                         int32
+	baseColor, baseTexture, hasBaseTexture      int32
+	emissive, emissiveTexture, hasEmissive      int32
+	metallic, roughness                         int32
+	metalRoughTexture, hasMetalRoughTexture     int32
+	normalTexture, hasNormalTexture             int32
+	normalScale                                 int32
+	occlusionTexture, hasOcclusionTexture       int32
+	occlusionStrength                           int32
+	alphaMode, alphaCutoff, unlit               int32
+	sunDirection, sunColor, skyColor, ground    int32
+	fog, lightCount                             int32
+	lightPositions, lightColors, lightDirection int32
 }
 
 // lineProgram is the program lines and wireframes are drawn with.
@@ -368,12 +567,27 @@ type lineProgram struct {
 	model, viewProjection, color int32
 }
 
+// skyProgram draws the sky behind everything.
+type skyProgram struct {
+	program                         device.Program
+	inverseViewProjection, eye      int32
+	skyTop, horizon, skyBottom, fog int32
+}
+
+// composeProgram puts a pass over the 2D.
+type composeProgram struct {
+	program           device.Program
+	picture, exposure int32
+}
+
 // state3D is what every 3D pass draws with: made when the first one ends,
 // and freed with the window.
 type state3D struct {
 	loaded    bool
 	lit       litProgram
 	lines     lineProgram
+	sky       skyProgram
+	compose   composeProgram
 	lineMesh  device.Mesh
 	instances []float32 // the instances of the draw being built
 }
@@ -393,24 +607,55 @@ func (r *state3D) load() error {
 	if r.loaded {
 		return nil
 	}
-	lit, err := compile3D("lit", litVertexShader, litFragmentShader)
+	var made []device.Program
+	build := func(name, vertex, fragment string) (device.Program, error) {
+		p, err := compile3D(name, vertex, fragment)
+		if err != nil {
+			for _, m := range made {
+				device.UnloadProgram(m)
+			}
+			return p, err
+		}
+		made = append(made, p)
+		return p, nil
+	}
+	lit, err := build("lit", litVertexShader, litFragmentShader)
 	if err != nil {
 		return err
 	}
-	lines, err := compile3D("line", lineVertexShader, lineFragmentShader)
+	lines, err := build("line", lineVertexShader, lineFragmentShader)
 	if err != nil {
-		device.UnloadProgram(lit)
+		return err
+	}
+	sky, err := build("sky", fullscreenVertexShader, skyFragmentShader)
+	if err != nil {
+		return err
+	}
+	compose, err := build("compose", fullscreenVertexShader, composeFragmentShader)
+	if err != nil {
 		return err
 	}
 	at := func(p device.Program, name string) int32 { return device.UniformLocation(p, name) }
 	r.lit = litProgram{
-		program: lit, viewProjection: at(lit, "viewProjection"),
+		program: lit, viewProjection: at(lit, "viewProjection"), eye: at(lit, "eye"),
 		baseColor: at(lit, "baseColor"), baseTexture: at(lit, "baseTexture"), hasBaseTexture: at(lit, "hasBaseTexture"),
 		emissive: at(lit, "emissive"), emissiveTexture: at(lit, "emissiveTexture"), hasEmissive: at(lit, "hasEmissiveTexture"),
-		alphaMode: at(lit, "alphaMode"), alphaCutoff: at(lit, "alphaCutoff"), unlit: at(lit, "unlit"),
+		metallic: at(lit, "metallic"), roughness: at(lit, "roughness"),
+		metalRoughTexture: at(lit, "metalRoughTexture"), hasMetalRoughTexture: at(lit, "hasMetalRoughTexture"),
+		normalTexture: at(lit, "normalTexture"), hasNormalTexture: at(lit, "hasNormalTexture"), normalScale: at(lit, "normalScale"),
+		occlusionTexture: at(lit, "occlusionTexture"), hasOcclusionTexture: at(lit, "hasOcclusionTexture"),
+		occlusionStrength: at(lit, "occlusionStrength"),
+		alphaMode:         at(lit, "alphaMode"), alphaCutoff: at(lit, "alphaCutoff"), unlit: at(lit, "unlit"),
 		sunDirection: at(lit, "sunDirection"), sunColor: at(lit, "sunColor"), skyColor: at(lit, "skyColor"), ground: at(lit, "groundColor"),
+		fog: at(lit, "fog"), lightCount: at(lit, "lightCount"),
+		lightPositions: at(lit, "lightPositions"), lightColors: at(lit, "lightColors"), lightDirection: at(lit, "lightDirections"),
 	}
 	r.lines = lineProgram{program: lines, model: at(lines, "model"), viewProjection: at(lines, "viewProjection"), color: at(lines, "color")}
+	r.sky = skyProgram{
+		program: sky, inverseViewProjection: at(sky, "inverseViewProjection"), eye: at(sky, "eye"),
+		skyTop: at(sky, "skyTop"), horizon: at(sky, "horizon"), skyBottom: at(sky, "skyBottom"), fog: at(sky, "fog"),
+	}
+	r.compose = composeProgram{program: compose, picture: at(compose, "picture"), exposure: at(compose, "exposure")}
 	r.loaded = true
 	return nil
 }
@@ -421,8 +666,9 @@ func (r *state3D) unload() {
 	if !r.loaded {
 		return
 	}
-	device.UnloadProgram(r.lit.program)
-	device.UnloadProgram(r.lines.program)
+	for _, p := range []device.Program{r.lit.program, r.lines.program, r.sky.program, r.compose.program} {
+		device.UnloadProgram(p)
+	}
 	device.UnloadMesh(r.lineMesh)
 	*r = state3D{}
 }
@@ -472,6 +718,11 @@ func (f *frustum) sees(center Vector3, radius float32) bool {
 	return true
 }
 
+// vec3 returns v as the first three of four uniform values.
+func vec3(v Vector3) [4]float32 {
+	return [4]float32{v.X, v.Y, v.Z}
+}
+
 // draw draws a pass.
 func (r *state3D) draw(pass *pass3D) {
 	view, projection := pass.camera.matrices()
@@ -479,6 +730,8 @@ func (r *state3D) draw(pass *pass3D) {
 	viewProjection := [16]float32(viewProjectionMatrix)
 	sight := frustumOf(viewProjectionMatrix)
 	eye, _ := pass.camera.view()
+	env := pass.environment.uniforms()
+	lights := lightsFor(pass.lights, eye)
 
 	// What is solid, grouped by mesh and material in the order first drawn,
 	// so every copy of a mesh is one draw; what is see-through, one by one.
@@ -521,12 +774,21 @@ func (r *state3D) draw(pass *pass3D) {
 	lit := r.lit
 	device.UseProgram(lit.program)
 	device.SetUniformMatrix(lit.viewProjection, &viewProjection)
-	device.SetUniform(lit.sunDirection, 3, [4]float32{sunDirection.X, sunDirection.Y, sunDirection.Z})
-	device.SetUniform(lit.sunColor, 3, sunColor)
-	device.SetUniform(lit.skyColor, 3, skyColor)
-	device.SetUniform(lit.ground, 3, groundColor)
-	device.SetUniformInt(lit.baseTexture, 0)
-	device.SetUniformInt(lit.emissiveTexture, 1)
+	device.SetUniform(lit.eye, 3, vec3(eye))
+	device.SetUniform(lit.sunDirection, 3, vec3(env.sunDirection))
+	device.SetUniform(lit.sunColor, 3, env.sun)
+	device.SetUniform(lit.skyColor, 3, env.sky)
+	device.SetUniform(lit.ground, 3, env.ground)
+	device.SetUniform(lit.fog, 4, env.fog)
+	device.SetUniformInt(lit.lightCount, lights.count)
+	if lights.count > 0 {
+		device.SetUniformVec4s(lit.lightPositions, lights.positions)
+		device.SetUniformVec4s(lit.lightColors, lights.colors)
+		device.SetUniformVec4s(lit.lightDirection, lights.directions)
+	}
+	for unit, at := range []int32{lit.baseTexture, lit.emissiveTexture, lit.metalRoughTexture, lit.normalTexture, lit.occlusionTexture} {
+		device.SetUniformInt(at, int32(unit))
+	}
 	var current *material3D
 	culling := true
 	use := func(m *material3D) {
@@ -536,6 +798,10 @@ func (r *state3D) draw(pass *pass3D) {
 		current = m
 		device.SetUniform(lit.baseColor, 4, m.baseColor)
 		device.SetUniform(lit.emissive, 3, [4]float32{m.emissive[0], m.emissive[1], m.emissive[2]})
+		device.SetUniform(lit.metallic, 1, [4]float32{m.metallic})
+		device.SetUniform(lit.roughness, 1, [4]float32{m.roughness})
+		device.SetUniform(lit.normalScale, 1, [4]float32{m.normalScale})
+		device.SetUniform(lit.occlusionStrength, 1, [4]float32{m.occlusionStrength})
 		device.SetUniformInt(lit.alphaMode, int32(m.alpha))
 		device.SetUniform(lit.alphaCutoff, 1, [4]float32{m.alphaCutoff})
 		device.SetUniformInt(lit.unlit, boolInt(m.unlit))
@@ -549,6 +815,9 @@ func (r *state3D) draw(pass *pass3D) {
 		}
 		bind(0, m.baseTexture, lit.hasBaseTexture)
 		bind(1, m.emissiveTexture, lit.hasEmissive)
+		bind(2, m.metalRoughTexture, lit.hasMetalRoughTexture)
+		bind(3, m.normalTexture, lit.hasNormalTexture)
+		bind(4, m.occlusionTexture, lit.hasOcclusionTexture)
 		if m.twoSided == culling {
 			culling = !m.twoSided
 			device.SetCulling(culling)
@@ -566,6 +835,26 @@ func (r *state3D) draw(pass *pass3D) {
 			instance(&pass.items[i])
 		}
 		device.DrawMeshInstanced(g.gpu, r.instances)
+	}
+
+	if env.background {
+		// Behind everything: drawn at the far plane, only where nothing is.
+		if !culling {
+			device.SetCulling(true)
+			culling = true
+		}
+		sky := r.sky
+		inverse := [16]float32(viewProjectionMatrix.inverse())
+		device.UseProgram(sky.program)
+		device.SetUniformMatrix(sky.inverseViewProjection, &inverse)
+		device.SetUniform(sky.eye, 3, vec3(eye))
+		device.SetUniform(sky.skyTop, 3, env.skyTop)
+		device.SetUniform(sky.horizon, 3, env.horizon)
+		device.SetUniform(sky.skyBottom, 3, env.skyBottom)
+		device.SetUniform(sky.fog, 4, env.fog)
+		device.SetCulling(false)
+		device.DrawFullscreen()
+		device.SetCulling(true)
 	}
 
 	if len(wires) > 0 || len(pass.lines) > 0 {
@@ -619,7 +908,11 @@ func (r *state3D) draw(pass *pass3D) {
 		device.SetBlend3D(false)
 	}
 
-	device.End3D()
+	compose := r.compose
+	device.UseProgram(compose.program)
+	device.SetUniformInt(compose.picture, 0)
+	device.SetUniform(compose.exposure, 1, [4]float32{env.exposure})
+	device.End3D(compose.program)
 }
 
 func boolInt(b bool) int32 {

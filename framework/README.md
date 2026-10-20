@@ -801,7 +801,7 @@ func (s *playScene) Draw(screen *golib.Screen) {
 
 ## 3D
 
-A 3D world, seen through a `Camera3D`, drawn between `screen.Begin3D` and `screen.End3D` in the same `Draw` as the 2D: the score and the menus go over it. In meters, with Y up; a model's front faces +Z. GoLib draws models from glTF files, as Blender exports them, with their textures, and shapes made in code, all lit by a fixed sun and sky; lights of the game's own, shadows, FBX files and animation come in the next stages of M7 (see [docs/roadmap.md](../docs/roadmap.md#m7-3d-planned)).
+A 3D world, seen through a `Camera3D`, drawn between `screen.Begin3D` and `screen.End3D` in the same `Draw` as the 2D: the score and the menus go over it. In meters, with Y up; a model's front faces +Z. GoLib draws models from glTF files, as Blender exports them, with their textures and materials, and shapes made in code, lit physically by a sun, the sky's soft light and lamps of the game's own, with fog and a sky behind; shadows, FBX files and animation come in the next stages of M7 (see [docs/roadmap.md](../docs/roadmap.md#m7-3d-planned)).
 
 ### Points, turns and places
 
@@ -889,8 +889,40 @@ func (s *playScene) Draw(screen *golib.Screen) {
 
 - **Exporting from Blender:** File > Export > glTF 2.0, format glTF Binary (`.glb`), with +Y Up ticked, as it is by default. Tick Include > Custom Properties for the markers' properties. Leave Compression off: GoLib refuses Draco and says so. Keep the source `.blend` in `sources/`, at the same path as the `.glb` in `assets/`.
 - **Size and facing:** Blender's meter is GoLib's meter, and a model's front, Blender's -Y, faces +Z, as a zero `Rotation` faces. Check a new model's size with `Bounds`.
-- **Not read yet:** skins and animations (stage 4), lights and cameras, metallic and roughness, normal and occlusion maps, which stage 3's lighting will use. A model shows its color, texture and emission under the fixed sun.
+- **Materials are drawn as made:** color and texture, metallic and roughness, normal and occlusion maps, emission, unlit, see-through or cut out. Not read yet: skins and animations (stage 4), and a file's own lights and cameras; light a model with `Screen.AddLight`.
 - **Copies are cheap.** Every copy of the same model or mesh in a frame is drawn together, and what the camera doesn't see is left out: a forest of the same tree costs little more than one tree.
+
+### Light, sky and fog
+
+A pass is lit by a sun and by the soft light of the sky and the ground; `Screen.SetEnvironment` changes them, and adds fog and a sky behind everything. `Screen.AddLight` adds lamps. Materials are lit physically, in light brighter than white where it is, and brought back to the screen's colors by a tonemapper that leaves a lit color as it is and softens only what is brighter: `golib.Red` facing the sun is `golib.Red`.
+
+| Name | What it does |
+| --- | --- |
+| `Environment` | How a pass is lit, and what shows behind it. Every field left at zero keeps GoLib's default. |
+| `Screen.SetEnvironment` | `SetEnvironment(environment Environment)`: sets it for the pass begun last; every pass starts with the zero `Environment`. Call it between `Begin3D` and `End3D`. |
+| `Environment.SunDirection` | The way the sunlight travels: straight down is `golib.Vector3{Y: -1}`, a low evening sun `golib.Vector3{X: 1, Y: -0.2}`. |
+| `Environment.SunColor`, `Environment.SunStrength` | The sun's color, a soft white when zero, none with `golib.Black`; and how strong it is, 1 when zero, 2 or 3 for a glaring desert. |
+| `Environment.Sky`, `Environment.Ground` | The soft light from above and below that lights the side away from the sun; with `SkyBackground`, also the sky overhead and the ground below the horizon. |
+| `Environment.SkyBackground`, `Environment.Horizon` | Draws the sky behind everything, fading from `Sky` overhead to `Horizon` at eye level, a paler `Sky` when zero, and to `Ground` below. Without it, what `Draw` drew before `Begin3D` shows behind the 3D. |
+| `Environment.FogColor`, `Environment.FogDistance` | Fog that starts at a tenth of `FogDistance` meters and hides everything at `FogDistance`; 0 is no fog. The color defaults to the horizon's. |
+| `Environment.Exposure` | Brightens or darkens the whole picture: 1 when zero, 2 twice as bright. |
+| `Light` | A lamp: `Light.Position`, `Light.Color` (white when zero), `Light.Intensity` (1 when zero: lights what faces it a meter away as brightly as the sun, fading with the square of the distance), `Light.Range` (meters it reaches, 10 when zero). With `Light.Direction`, a spotlight lighting a cone `Light.Cone` degrees across, 45 when zero. |
+| `Screen.AddLight` | `AddLight(light Light)`: adds a lamp to the pass begun last, lighting everything it draws. A pass uses the 8 lamps nearest to the camera. |
+
+```go
+// A night, lit by the moon and two torches, with fog that hides the edge of the world.
+screen.Begin3D(s.camera)
+screen.SetEnvironment(golib.Environment{
+	SunColor: golib.Color{R: 120, G: 140, B: 200, A: 255}, SunStrength: 0.3, SunDirection: golib.Vector3{X: -1, Y: -2, Z: 1},
+	Sky: golib.Color{R: 20, G: 24, B: 50, A: 255}, Ground: golib.Black, SkyBackground: true,
+	FogDistance: 40,
+})
+for _, torch := range s.torches {
+	screen.AddLight(golib.Light{Position: torch, Color: golib.Orange, Intensity: 3, Range: 8})
+}
+screen.DrawModel(level, golib.Transform{}, golib.White)
+screen.End3D()
+```
 
 ### The 3D camera
 
@@ -901,6 +933,9 @@ func (s *playScene) Draw(screen *golib.Screen) {
 | `Camera3D.Position`, `Camera3D.Target` | Where the eye is, and the point it looks at. |
 | `Camera3D.Orbit` | `Orbit(center Vector3, yaw, pitch, distance float32)`: `distance` meters from `center`, looking at it, facing `yaw` and `pitch` as a `Rotation` does. The yaw a player faces puts the camera behind them; a negative pitch looks down from above. The third-person camera. |
 | `Camera3D.Look` | `Look(position Vector3, yaw, pitch float32)`: the eye at `position`, looking `yaw` and `pitch`. The first-person camera. |
+| `Camera3D.Follow` | `Follow(target, velocity Vector3, distance, pitch, dt float32)`: behind `target`, `distance` meters away, looking down `pitch` degrees (negative), swinging round behind the way `velocity` moves it along the ground, but not while it moves back towards the camera. The third-person camera; call it in every `Update`. |
+| `Camera3D.Heading` | The yaw `Follow` keeps the camera behind. `Follow` turns it; a game can turn it too, such as with the right stick. |
+| `Camera3D.Direction` | `Direction(forward, right float32) Vector3`: the way to move on the ground for keys or a stick pushed `forward` and `right`, from -1 to 1, as the player sees it: forward is away from the camera. At most length 1. A stick's Y grows downwards, so `Direction(-stickY, stickX)`. |
 | `Camera3D.FieldOfView` | Degrees seen from the bottom of the screen to the top: 60, the default, is usual; less zooms in. With `Orthographic`, meters seen from bottom to top instead. |
 | `Camera3D.Orthographic` | No perspective: far things are as large as near ones, for isometric and top-down games. |
 | `Camera3D.Near`, `Camera3D.Far` | The closest and the farthest the camera draws. 0 counts as 0.1 and 1000 meters. |
@@ -961,7 +996,7 @@ func (s *playScene) Draw(screen *golib.Screen) {
 - **The basic meshes are one meter across, centered.** A box standing on the ground at `p` with height `h` is drawn at `p.Add(golib.Vector3{Y: h / 2})` with `Scale` Y `h`.
 - **Two surfaces at the same height flicker through each other**, such as a plane laid on a box's top. Lift the one on top by a centimeter, or make floors from thin boxes.
 - **Check what the camera sees with `golib shot`.** A camera looking the wrong way shows only the background color. While testing, `screen.DrawAxes(golib.Vector3{}, 1)` and `screen.DrawGrid(20, 1, golib.Gray)` show where the world is and which way is which.
-- The light is fixed for now: a sun high behind and to the right of a camera facing +Z, as `NewCamera3D`'s does, and a soft light from the sky. A side facing away from the sun shows its color at about half its brightness.
+- With the zero `Environment`, a sun high behind and to the right of a camera facing +Z, as `NewCamera3D`'s and a `Follow` camera's do, and a soft light from the sky: a color facing the sun shows as it is, and a side facing away from it at about half its brightness.
 - `Config.PixelArt` draws the 3D at the screen's size and scales it up, the look of the first 3D consoles; `Config.Antialias` smooths its edges; post-processing shaders run over it as over the 2D.
 - `Update`, `Snap`, `Orbit`, `Look`, `ToScreen` and `Ray` work without a window, so tests can check what the camera sees.
 
@@ -1584,7 +1619,7 @@ A web build is what a phone plays, so a game meant for one is a game meant for t
 | Positional sound: louder on the side it comes from | Planned with 3D (M7, stage 6) | `Sound.PlayWith` at a lower volume for what is far away |
 | Physics | Planned with 3D (M7, stage 6): collisions and a character controller in Go, then rigid bodies with Jolt | Simple movement and `Rectangle` overlap checks in the game |
 | Trigger pressure, vibration | Not on the roadmap yet | Triggers read as buttons |
-| 3D lights of a game's own, shadows, FBX files, skeletal animation, collisions against a model's meshes, and hiding or reading one part of a model | Planned (M7, stages 3 to 7): see [docs/roadmap.md](../docs/roadmap.md#m7-3d-planned) | Models, textures and materials work under a fixed sun; for solid level geometry, mark it with empties and custom properties, as [games/hopper](../games/hopper) does, and check collisions in the game |
+| 3D shadows, FBX files, skeletal animation, collisions against a model's meshes, and hiding or reading one part of a model | Planned (M7, stages 3 to 7): see [docs/roadmap.md](../docs/roadmap.md#m7-3d-planned) | Models, materials, lights and fog work; a dark disc under a character stands in for its shadow; for solid level geometry, mark it with empties and custom properties, as [games/hopper](../games/hopper) does, and check collisions in the game |
 | `.qoa`, `.xm` and `.mod` in a browser | Not planned: browsers cannot decode them | Save the sound as `.wav`, `.ogg` or `.mp3`. For music, put that file next to the `.xm` under the same name: a web build plays it, and the desktop keeps playing the module |
 
 When a game needs one of these, say so to the user and point to [docs/roadmap.md](../docs/roadmap.md), as [AGENTS.md](../AGENTS.md) asks, instead of building an engine to fill the gap.

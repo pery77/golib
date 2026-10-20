@@ -88,3 +88,37 @@ func TestCamera3DPlaces(t *testing.T) {
 		t.Errorf("a shake of half a second still moves the view after a second: %v", camera.shakeOffset)
 	}
 }
+
+func TestCamera3DFollows(t *testing.T) {
+	camera := NewCamera3D(800, 600)
+	target := Vector3{}
+	// Running towards +X, the camera swings round behind, towards yaw 90.
+	for range 120 {
+		target = target.Add(Vector3{X: 0.1})
+		camera.Follow(target, Vector3{X: 6}, 5, -20, 1.0/60)
+	}
+	if camera.Heading < 85 || camera.Heading > 91 {
+		t.Errorf("after two seconds running towards +X, Heading is %v, want about 90", camera.Heading)
+	}
+	if !near3(camera.Target, target) || camera.Position.X >= target.X {
+		t.Errorf("the camera is at %v looking at %v, want behind the runner at %v", camera.Position, camera.Target, target)
+	}
+	// Running back towards the camera leaves it where it is.
+	heading := camera.Heading
+	for range 60 {
+		camera.Follow(target, Vector3{X: -6}, 5, -20, 1.0/60)
+	}
+	if camera.Heading != heading {
+		t.Errorf("running back towards the camera turned it from %v to %v", heading, camera.Heading)
+	}
+	// Forward on the stick is away from the camera, flat on the ground.
+	if got := camera.Direction(1, 0); !near3(got, Vector3{X: 1}) && got.X < 0.99 {
+		t.Errorf("Direction(1, 0) = %v, want away from the camera, +X", got)
+	}
+	if got := camera.Direction(1, 1); got.Length() > 1.0001 {
+		t.Errorf("pushing diagonally gives %v, longer than 1", got)
+	}
+	if got := shortestTurn(170, -170); got != 20 {
+		t.Errorf("the short way from 170 to -170 is %v, want 20", got)
+	}
+}

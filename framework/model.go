@@ -170,13 +170,20 @@ func (m *Model) load() error {
 	materials := make([]*material3D, len(doc.Materials))
 	for i, mat := range doc.Materials {
 		out := &material3D{
-			baseColor:       mat.BaseColor,
-			baseTexture:     texture(mat.BaseColorTexture, false),
-			emissive:        mat.Emissive,
-			emissiveTexture: texture(mat.EmissiveTexture, false),
-			alphaCutoff:     mat.AlphaCutoff,
-			twoSided:        mat.DoubleSided,
-			unlit:           mat.Unlit,
+			baseColor:         mat.BaseColor,
+			baseTexture:       texture(mat.BaseColorTexture, false),
+			emissive:          mat.Emissive,
+			emissiveTexture:   texture(mat.EmissiveTexture, false),
+			metallic:          mat.Metallic,
+			roughness:         mat.Roughness,
+			metalRoughTexture: texture(mat.MetallicRoughnessTexture, true),
+			normalTexture:     texture(mat.NormalTexture, true),
+			normalScale:       mat.NormalTexture.Scale,
+			occlusionTexture:  texture(mat.OcclusionTexture, true),
+			occlusionStrength: mat.OcclusionTexture.Scale,
+			alphaCutoff:       mat.AlphaCutoff,
+			twoSided:          mat.DoubleSided,
+			unlit:             mat.Unlit,
 		}
 		switch mat.AlphaMode {
 		case "MASK":
