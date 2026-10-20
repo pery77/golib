@@ -45,9 +45,10 @@ type Material struct {
 	EmissionStrength float32
 
 	// Unlit shows Color, or the texture, as it is, with no light or shadow:
-	// a sky dome, a sign, a cartoon outline. As everywhere in the 3D, only
-	// the brightest colors, above about 225 of 255, are softened a little
-	// by the tonemapper.
+	// a sky dome, a sign, a cartoon outline. As everywhere in the 3D,
+	// Environment.Exposure brightens or darkens it, and only the brightest
+	// colors, above about 225 of 255, are softened a little by the
+	// tonemapper.
 	Unlit bool
 
 	// TwoSided draws the back of each triangle too, for leaves, flags and

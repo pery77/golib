@@ -21,11 +21,13 @@ import (
 type Environment struct {
 	// SunDirection is the way the sunlight travels: straight down is
 	// golib.Vector3{Y: -1}. Zero: high behind and to the right of a camera
-	// facing +Z.
+	// facing +Z, or, with an HDRI, from its picture's sun.
 	SunDirection Vector3
 
-	// SunColor is the sunlight's color. The zero Color is a soft white;
-	// Black, with A 255, is no sun at all, for a night lit by lamps.
+	// SunColor is the sunlight's color. The zero Color is a soft white, or,
+	// with an HDRI, its picture's sun, as bright as it is there, or none
+	// for a picture without one. Black, with A 255, is no sun at all, for a
+	// night lit by lamps.
 	SunColor Color
 
 	// SunStrength multiplies the sunlight: 1, as 0 counts, shows a color
@@ -52,6 +54,11 @@ type Environment struct {
 	// and Ground; with SkyBackground, it shows behind everything. See
 	// [NewHDRI].
 	HDRI *HDRI
+
+	// HDRITurn turns the HDRI's panorama round, in degrees, as Yaw turns a
+	// model: a larger one turns it left. Its sun turns with it. The middle
+	// of the picture faces +Z before it is turned.
+	HDRITurn float32
 
 	// FogColor and FogDistance fade the world into fog: things FogDistance
 	// meters away are gone in it, and the fog starts at a tenth of that. 0
@@ -204,7 +211,8 @@ type environmentUniforms struct {
 	shadows         bool
 	shadowDistance  float32
 	hdri            *HDRI
-	bloom           float32 // 0 for none
+	hdriTurn        [4]float32 // the turn's cosine and sine, to turn a direction back onto the picture
+	bloom           float32    // 0 for none
 }
 
 // The default light: a sun high behind and to the right of a camera facing
@@ -229,6 +237,17 @@ func (e Environment) uniforms() environmentUniforms {
 		sunDirection: defaultSunDirection, sun: defaultSun,
 		sky: defaultSky, ground: defaultGround, exposure: 1,
 		background: e.SkyBackground,
+	}
+	if h := e.HDRI; h != nil && h.Err() == nil {
+		// The picture's sun, taken out of its light, shines from where it
+		// was; a picture without one has no sun.
+		turn := Rotation{Yaw: e.HDRITurn}
+		u.sun = h.sun
+		if h.toSun != (Vector3{}) {
+			u.sunDirection = h.toSun.Rotate(turn).Scale(-1)
+		}
+		radians := float64(e.HDRITurn) * math.Pi / 180
+		u.hdriTurn = [4]float32{float32(math.Cos(radians)), float32(math.Sin(radians))}
 	}
 	if d := e.SunDirection.Normalize(); d != (Vector3{}) {
 		u.sunDirection = d

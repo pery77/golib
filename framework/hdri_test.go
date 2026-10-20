@@ -102,3 +102,80 @@ func TestHDRILightsEvenly(t *testing.T) {
 		t.Errorf("a missing HDRI reported %v", err)
 	}
 }
+
+func TestHDRIGivesUpItsSun(t *testing.T) {
+	const width, height = 64, 32
+	sky := func() []float32 {
+		pixels := make([]float32, width*height*3)
+		for i := range pixels {
+			pixels[i] = 1
+		}
+		return pixels
+	}
+	energy := func(pixels []float32) (sum float64) {
+		for y := 0; y < height; y++ {
+			v := (float64(y) + 0.5) / height
+			solid := 2 * math.Pi / width * math.Pi / height * math.Sin(v*math.Pi)
+			for x := 0; x < width; x++ {
+				sum += float64(pixels[(y*width+x)*3]) * solid
+			}
+		}
+		return sum
+	}
+
+	if sun, toSun := takeSun(sky(), width, height); sun != ([4]float32{}) || toSun != (Vector3{}) {
+		t.Errorf("an even sky gave up a sun of %v towards %v, want none", sun, toSun)
+	}
+
+	// A sun of two by two pixels, 45 degrees up, to the -X side: right of
+	// the middle.
+	pixels := sky()
+	for _, at := range [][2]int{{47, 7}, {48, 7}, {47, 8}, {48, 8}} {
+		for c := range 3 {
+			pixels[(at[1]*width+at[0])*3+c] = 10000
+		}
+	}
+	before := energy(pixels)
+	sun, toSun := takeSun(pixels, width, height)
+	if want := panoramaDirection(0.75, 0.25); toSun.Dot(want) < 0.999 {
+		t.Errorf("the sun is towards %v, want %v", toSun, want)
+	}
+	for i, p := range pixels {
+		if p > 16 {
+			t.Fatalf("pixel %d is still %v after the sun was taken out", i/3, p)
+		}
+	}
+	// Taken out, not lost: what the sun gives a surface facing it, times
+	// pi, is what the picture lost.
+	if after := energy(pixels) + float64(sun[0])*math.Pi; math.Abs(after-before) > before*1e-4 {
+		t.Errorf("the panorama and its sun hold %v, want the %v the picture held", after, before)
+	}
+	if sun[0] < 1 || sun[0] != sun[1] || sun[3] != 1 {
+		t.Errorf("a white sun of 10000 on four pixels gave %v", sun)
+	}
+}
+
+func TestHDRISunLightsTheEnvironment(t *testing.T) {
+	toSun := Vector3{X: -1, Y: 1}.Normalize()
+	sky := &HDRI{read: true, sun: [4]float32{3, 2, 1, 1}, toSun: toSun}
+	u := Environment{HDRI: sky}.uniforms()
+	if u.sun != sky.sun || !near3(u.sunDirection, toSun.Scale(-1)) || !u.shadows {
+		t.Errorf("an HDRI's sun gives a sun of %v along %v, want %v along %v, casting shadows", u.sun, u.sunDirection, sky.sun, toSun.Scale(-1))
+	}
+	// Turned left a quarter, as Yaw 90 turns a model: what was to the -X
+	// side is ahead, along +Z.
+	turned := Environment{HDRI: sky, HDRITurn: 90}.uniforms()
+	if want := (Vector3{Y: -1, Z: -1}).Normalize(); !near3(turned.sunDirection, want) {
+		t.Errorf("HDRITurn 90 sends the sun along %v, want %v", turned.sunDirection, want)
+	}
+	if turned.hdriTurn[0] > 1e-6 || turned.hdriTurn[1] != 1 {
+		t.Errorf("HDRITurn 90 gives the shaders %v, want its cosine and sine, 0 and 1", turned.hdriTurn)
+	}
+	own := Environment{HDRI: sky, SunColor: White, SunStrength: 2, SunDirection: Vector3{Y: -1}}.uniforms()
+	if own.sun[0] != 2 || !near3(own.sunDirection, Vector3{Y: -1}) {
+		t.Errorf("a game's own sun under an HDRI gives %v along %v, want White twice along -Y", own.sun, own.sunDirection)
+	}
+	if dark := (Environment{HDRI: &HDRI{read: true}}).uniforms(); dark.sun != ([4]float32{}) || dark.shadows {
+		t.Errorf("an HDRI without a sun gives a sun of %v, want none and no shadows", dark.sun)
+	}
+}

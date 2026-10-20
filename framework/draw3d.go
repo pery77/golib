@@ -342,6 +342,7 @@ uniform vec4 fog;
 uniform sampler2D environmentMap;
 uniform int hasEnvironment;
 uniform float environmentLevels;
+uniform vec2 environmentTurn;
 uniform vec4 irradiance[9];
 uniform sampler2DShadow shadowMap;
 uniform int hasShadows;
@@ -397,9 +398,11 @@ vec3 shade(vec3 n, vec3 v, vec3 l, vec3 radiance, vec3 albedo, float metal, floa
     return (diffuse + specular * PI) * radiance * nl;
 }
 
-// Where a direction is on an equirectangular panorama.
+// Where a direction of the world is on the HDRI's equirectangular
+// panorama, turned back by HDRITurn, its cosine and sine.
 vec2 panorama(vec3 d)
 {
+    d = vec3(d.x * environmentTurn.x - d.z * environmentTurn.y, d.y, d.x * environmentTurn.y + d.z * environmentTurn.x);
     return vec2(0.5 - atan(d.x, d.z) / 6.2831853, acos(clamp(d.y, -1.0, 1.0)) / 3.14159265);
 }
 
@@ -407,6 +410,7 @@ vec2 panorama(vec3 d)
 // harmonics.
 vec3 surrounding(vec3 n)
 {
+    n = vec3(n.x * environmentTurn.x - n.z * environmentTurn.y, n.y, n.x * environmentTurn.y + n.z * environmentTurn.x);
     return max(irradiance[0].rgb * 0.282095
         + irradiance[1].rgb * 0.488603 * n.y + irradiance[2].rgb * 0.488603 * n.z + irradiance[3].rgb * 0.488603 * n.x
         + irradiance[4].rgb * 1.092548 * n.x * n.y + irradiance[5].rgb * 1.092548 * n.y * n.z
@@ -570,6 +574,7 @@ uniform vec3 skyBottom;
 uniform vec4 fog;
 uniform sampler2D environmentMap;
 uniform int hasEnvironment;
+uniform vec2 environmentTurn;
 out vec4 fragColor;
 
 void main()
@@ -580,7 +585,9 @@ void main()
         ? mix(horizon, skyTop, pow(direction.y, 0.6))
         : mix(horizon, skyBottom, pow(-direction.y, 0.4));
     if (hasEnvironment == 1) {
-        vec2 uv = vec2(0.5 - atan(direction.x, direction.z) / 6.2831853, acos(clamp(direction.y, -1.0, 1.0)) / 3.14159265);
+        vec3 d = direction;
+        d = vec3(d.x * environmentTurn.x - d.z * environmentTurn.y, d.y, d.x * environmentTurn.y + d.z * environmentTurn.x);
+        vec2 uv = vec2(0.5 - atan(d.x, d.z) / 6.2831853, acos(clamp(d.y, -1.0, 1.0)) / 3.14159265);
         color = textureLod(environmentMap, uv, 0.0).rgb;
     }
     if (fog.w > 0.0) color = mix(color, fog.rgb, 1.0 - smoothstep(0.0, 0.25, abs(direction.y)));
@@ -719,6 +726,7 @@ type litProgram struct {
 	shadowMap, hasShadows                       int32
 	environmentMap, hasEnvironment              int32
 	environmentLevels, irradiance               int32
+	environmentTurn                             int32
 	shadowMatrices                              [shadowCascades]int32
 	shadowSplits, shadowTexels, viewForward     int32
 }
@@ -735,6 +743,7 @@ type skyProgram struct {
 	inverseViewProjection, eye      int32
 	skyTop, horizon, skyBottom, fog int32
 	environmentMap, hasEnvironment  int32
+	environmentTurn                 int32
 }
 
 // composeProgram puts a pass over the 2D.
@@ -838,6 +847,7 @@ func (r *state3D) load() error {
 		baseOpacity: at(shadow, "baseOpacity"), cutout: at(shadow, "cutout"), alphaCutoff: at(shadow, "alphaCutoff"),
 	}
 	r.sky.environmentMap, r.sky.hasEnvironment = at(sky, "environmentMap"), at(sky, "hasEnvironment")
+	r.sky.environmentTurn = at(sky, "environmentTurn")
 	r.loaded = true
 	return nil
 }
@@ -862,7 +872,7 @@ func locateLit(program device.Program) litProgram {
 		lightPositions: at("lightPositions"), lightColors: at("lightColors"), lightDirection: at("lightDirections"),
 		shadowMap: at("shadowMap"), hasShadows: at("hasShadows"),
 		environmentMap: at("environmentMap"), hasEnvironment: at("hasEnvironment"),
-		environmentLevels: at("environmentLevels"), irradiance: at("irradiance"),
+		environmentLevels: at("environmentLevels"), irradiance: at("irradiance"), environmentTurn: at("environmentTurn"),
 		shadowSplits: at("shadowSplits"), shadowTexels: at("shadowTexels"), viewForward: at("viewForward"),
 	}
 	for k := range shadowCascades {
@@ -1101,6 +1111,7 @@ func (r *state3D) draw(pass *pass3D) {
 		if hasEnvironment {
 			device.SetUniform(lit.environmentLevels, 1, [4]float32{float32(len(env.hdri.levels) - 1)})
 			device.SetUniformVec4s(lit.irradiance, irradiance)
+			device.SetUniform(lit.environmentTurn, 2, env.hdriTurn)
 		}
 		device.SetUniformInt(lit.shadowMap, shadowUnit)
 		device.SetUniformInt(lit.hasShadows, boolInt(shadows))
@@ -1188,6 +1199,7 @@ func (r *state3D) draw(pass *pass3D) {
 		device.SetUniform(sky.fog, 4, env.fog)
 		device.SetUniformInt(sky.environmentMap, environmentUnit)
 		device.SetUniformInt(sky.hasEnvironment, boolInt(hasEnvironment))
+		device.SetUniform(sky.environmentTurn, 2, env.hdriTurn)
 		device.SetCulling(false)
 		device.DrawFullscreen()
 		device.SetCulling(true)

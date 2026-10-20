@@ -21,13 +21,22 @@ uniform vec2 texel;
 uniform int first;
 out vec4 fragColor;
 
+// A sample, and, from the pass's own picture, no brighter than 16: a sun
+// thousands of times brighter than white would flood the screen with glow.
+vec3 sampled(vec2 at)
+{
+    vec3 c = texture(source, at).rgb;
+    float bright = max(c.r, max(c.g, c.b));
+    return first == 1 && bright > 16.0 ? c * (16.0 / bright) : c;
+}
+
 void main()
 {
     // Four smoothed samples: sixteen texels, averaged.
-    vec3 c = (texture(source, texcoord + texel * vec2(-1.0, -1.0)).rgb
-        + texture(source, texcoord + texel * vec2(1.0, -1.0)).rgb
-        + texture(source, texcoord + texel * vec2(-1.0, 1.0)).rgb
-        + texture(source, texcoord + texel * vec2(1.0, 1.0)).rgb) * 0.25;
+    vec3 c = (sampled(texcoord + texel * vec2(-1.0, -1.0))
+        + sampled(texcoord + texel * vec2(1.0, -1.0))
+        + sampled(texcoord + texel * vec2(-1.0, 1.0))
+        + sampled(texcoord + texel * vec2(1.0, 1.0))) * 0.25;
     if (first == 1) {
         // Only what is brighter than white glows, starting softly from 0.8.
         float bright = max(c.r, max(c.g, c.b));

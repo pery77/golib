@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -22,11 +23,16 @@ import (
 //
 //	var park = golib.NewHDRI("skies/park.hdr")
 //
-//	screen.SetEnvironment(golib.Environment{HDRI: park, SkyBackground: true, SunDirection: golib.Vector3{X: -1, Y: -1.2, Z: 0.4}})
+//	screen.SetEnvironment(golib.Environment{HDRI: park, SkyBackground: true})
 //
-// The sun in the picture lights things but casts no shadow: point the
-// Environment's own sun the same way, for shadows that agree with it. The
-// file is read the first time the HDRI is used.
+// The middle of the picture faces +Z, as a zero [Rotation] does, and its
+// right half is to the -X side; Environment.HDRITurn turns it round.
+// The picture's sun becomes the Environment's: as the HDRI loads, its disc,
+// thousands of times brighter than the sky, is taken out of the panorama's
+// light, and shines instead from the same place as GoLib's sun, which casts
+// the shadows: it would otherwise light everything twice. SunDirection,
+// SunColor and SunStrength still change it. The file is read the first time
+// the HDRI is used.
 type HDRI struct {
 	name string
 
@@ -37,6 +43,8 @@ type HDRI struct {
 	height     int
 	levels     [][]uint16    // RGBA half floats, each mipmap half the size of the last
 	irradiance [9][4]float32 // the light all around, as spherical harmonics, ready for the lit shader
+	sun        [4]float32    // the sun taken out of the picture, as the lit shader's sunColor
+	toSun      Vector3       // the way to it, length 1
 	texture    texture3D
 }
 
@@ -83,6 +91,7 @@ func (h *HDRI) load(data []byte) error {
 		pixels, width, height = halve(pixels, width, height)
 	}
 	h.width, h.height = width, height
+	h.sun, h.toSun = takeSun(pixels, width, height)
 	h.irradiance = sphericalHarmonics(pixels, width, height)
 	level, w, ht := pixels, width, height
 	for {
@@ -224,6 +233,56 @@ func readFull(reader *bufio.Reader, out []byte) (int, error) {
 		}
 	}
 	return n, nil
+}
+
+// takeSun takes the sun out of a panorama: every pixel far brighter than its
+// sky is brought down to the sky's brightest, and the light taken away is
+// returned as the sun's, as the lit shader's sunColor wants it, the light a
+// surface facing it gets divided by pi, with the way to it. A panorama
+// without a sun returns none.
+func takeSun(pixels []float32, width, height int) (sun [4]float32, toSun Vector3) {
+	peak := func(at int) float32 { return max(pixels[at], pixels[at+1], pixels[at+2]) }
+	step := max(1, width*height/65536)
+	var sample []float32
+	for i := 0; i < width*height; i += step {
+		sample = append(sample, peak(i*3))
+	}
+	slices.Sort(sample)
+	// The sky's brightest: well above most of the sky, and twice what all
+	// but a hundredth of it is. The sun's disc is a hundred thousandth of a
+	// panorama, and its glow around it not much more.
+	limit := max(16*sample[len(sample)/2], 2*sample[len(sample)*99/100])
+	if limit <= 0 {
+		return sun, toSun
+	}
+	var light [3]float64
+	var way Vector3
+	for y := 0; y < height; y++ {
+		v := (float64(y) + 0.5) / float64(height)
+		solid := 2 * math.Pi / float64(width) * math.Pi / float64(height) * math.Sin(v*math.Pi)
+		for x := 0; x < width; x++ {
+			at := (y*width + x) * 3
+			brightest := peak(at)
+			if brightest <= limit {
+				continue
+			}
+			keep := limit / brightest
+			for c := range 3 {
+				light[c] += float64(pixels[at+c]*(1-keep)) * solid
+				pixels[at+c] *= keep
+			}
+			d := panoramaDirection((float64(x)+0.5)/float64(width), v)
+			way = way.Add(d.Scale(float32(float64(brightest-limit) * solid)))
+		}
+	}
+	if way == (Vector3{}) {
+		return sun, toSun
+	}
+	for c := range 3 {
+		sun[c] = float32(light[c] / math.Pi)
+	}
+	sun[3] = 1
+	return sun, way.Normalize()
 }
 
 // halve returns pixels at half the width and height, each the average of the
