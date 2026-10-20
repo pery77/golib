@@ -277,11 +277,13 @@ func (r *renderer) pass(i int) device.Target {
 }
 
 // close frees the textures and the shaders the renderer loaded, and the
-// sprites and pictures the game drew.
+// sprites, pictures and meshes the game drew.
 func (r *renderer) close() {
 	loadedSprites.unloadAll()
 	loadedImages.unloadAll()
 	loadedFonts.unloadAll()
+	loadedMeshes.unloadAll()
+	renderer3D.unload()
 	r.unloadScene()
 	for _, pass := range r.passes {
 		device.UnloadTarget(pass)

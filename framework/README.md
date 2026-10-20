@@ -18,6 +18,7 @@ For AI agents writing game code with GoLib, and for anyone who wants the whole f
 | Move, aim and chase | `golib.Vector2` and its `Add`, `Scale`, `Normalize`, `MoveTowards` | [Vectors, rectangles and collisions](#vectors-rectangles-and-collisions) |
 | Check collisions | `golib.Rectangle` and its `Overlaps`; `Vector2.Distance` for circles | [Vectors, rectangles and collisions](#vectors-rectangles-and-collisions) |
 | Scroll a world larger than the screen | `golib.NewCamera`, `screen.SetCamera` | [Camera](#camera) |
+| Draw a 3D world | `golib.NewCamera3D`, `screen.Begin3D`, `screen.DrawMesh`, `golib.NewBoxMesh`, `golib.Vector3`, `golib.Transform` | [3D](#3d) |
 | Move between title, play, pause and game over | `golib.SwitchScene` | [Scenes](#scenes) |
 | Roll dice | `golib.RandomInt`, `golib.RandomFloat` | [Random numbers](#random-numbers) |
 | Play sound effects | `golib.NewSound`, `golib.Laser` and the other recipes, `golib.NewSoundFile` for sound files and sounds designed in jfxr, `golib.NewSoundJfxr` for jfxr settings in code | [Sound effects](#sound-effects) |
@@ -80,7 +81,7 @@ func main() {
 4. **Pressed happens once, Down lasts.** `KeyPressed`, `MousePressed` and `GamepadPressed` are true in exactly one update per press: use them for jumping, firing and menus. `KeyDown`, `MouseDown` and `GamepadDown` stay true while held: use them for walking and thrust.
 5. **Use `Input` only in `Update`, and `Screen` only in `Draw`.** Don't keep them in the game's state.
 6. **Draw in screen pixels, or through a camera.** By default the screen is `Config.Width` by `Config.Height` pixels, with 0, 0 at the top-left corner and y growing downwards, whatever the window's size. With `Config.WindowScale` it follows the window instead: use `Config.OnScreenResize` to update the layout and camera. With `Config.FillWindow` it takes the window's shape, so there are no bars; `screen.Width()` and `screen.Height()` say its size. `WindowScale` takes precedence when both are set. `Run` scales the screen to the window and reports the mouse in the same pixels. After `screen.SetCamera(camera)`, positions are in the world instead, until `screen.SetCamera(nil)`.
-7. **Make sprites, maps, fonts, sounds, music and shaders once, and keep them.** Create them as package variables or in `main`, never in `Update`, in `Draw` or in a scene that is made again for every new game: each one loads the first time it is used and stays loaded until `Run` returns.
+7. **Make sprites, maps, fonts, meshes, sounds, music and shaders once, and keep them.** Create them as package variables or in `main`, never in `Update`, in `Draw` or in a scene that is made again for every new game: each one loads the first time it is used and stays loaded until `Run` returns.
 8. **Random numbers come from `RandomInt` and `RandomFloat`**, never from `math/rand`: `golib shot` starts them from the same seed, so its screenshots repeat.
 9. **No key quits on its own, not even Esc.** Call `Quit` when the game should end; the game decides what Esc does.
 10. **`SwitchScene` and `Quit` don't stop the current update.** The code after them still runs, so `return` right after unless that is what you want.
@@ -798,6 +799,116 @@ func (s *playScene) Draw(screen *golib.Screen) {
 - The shake uses `RandomFloat`, so call `Shake` and `Update` from `Update`, never from `Draw`: `golib shot` repeats it.
 - `Update`, `Snap`, `View`, `ToWorld` and `ToScreen` work without a window, so tests can check what the camera shows.
 
+## 3D
+
+A 3D world, seen through a `Camera3D`, drawn between `screen.Begin3D` and `screen.End3D` in the same `Draw` as the 2D: the score and the menus go over it. In meters, with Y up; a model's front faces +Z. For now GoLib draws the basic shapes in solid colors, lit by a fixed sun and sky; models from Blender, textures, lights of the game's own, shadows and animation come in the next stages of M7 (see [docs/roadmap.md](../docs/roadmap.md#m7-3d-planned)).
+
+### Points, turns and places
+
+| Name | What it does |
+| --- | --- |
+| `Vector3` | `golib.Vector3{X: 1, Y: 2, Z: 3}`, with `Vector3.X`, `Vector3.Y` and `Vector3.Z`: a point or a direction in meters. X and Z go across the ground, Y up. |
+| `Vector3.Add`, `Vector3.Sub`, `Vector3.Scale` | As for `Vector2`: `target.Sub(from)` is the way from `from` to `target`. |
+| `Vector3.Length`, `Vector3.Distance`, `Vector3.Dot` | As for `Vector2`. |
+| `Vector3.Cross` | `Cross(other Vector3) Vector3`: at right angles to both, such as the up of a surface from two of its sides. |
+| `Vector3.Normalize`, `Vector3.ClampLength`, `Vector3.MoveTowards`, `Vector3.Lerp` | As for `Vector2`. |
+| `Vector3.Rotate` | `Rotate(rotation Rotation) Vector3`: a direction turned as a model turned by `rotation` turns it. |
+| `Rotation` | How something is turned, in degrees: `golib.Rotation{Yaw: 90}`. The zero `Rotation` faces +Z. |
+| `Rotation.Yaw` | Left and right around the world's up: 0 faces +Z, 90 faces +X, 180 faces -Z. |
+| `Rotation.Pitch` | The front tilted up, positive, or down, negative: 90 faces straight up. |
+| `Rotation.Roll` | Banking around the front: positive lowers the right side, as a plane rolls right. |
+| `Rotation.Forward`, `Rotation.Right`, `Rotation.Up` | `Forward() Vector3` and the others: which way the front, the right side and the top point once turned, length 1. Move a ship with `position.Add(rotation.Forward().Scale(speed * dt))`. |
+| `RotationTowards` | `RotationTowards(direction Vector3) Rotation`: the Yaw and Pitch that face `direction`, to aim a turret or turn a character to where it walks. |
+| `Transform` | Where a mesh is drawn: `Transform.Position`, `Transform.Rotation`, and `Transform.Scale`, which multiplies its size each way. A zero `Scale` counts as 1, 1, 1. |
+
+### Meshes and drawing
+
+| Name | What it does |
+| --- | --- |
+| `Mesh` | A shape made of triangles. Make each once and keep it; draw it as many times as needed. |
+| `NewBoxMesh` | `NewBoxMesh() *Mesh`: a box one meter each way, centered on 0, 0, 0. Scale it into walls, floors, crates and platforms. |
+| `NewSphereMesh` | `NewSphereMesh() *Mesh`: a ball one meter across. |
+| `NewCylinderMesh` | `NewCylinderMesh() *Mesh`: a closed cylinder one meter across and one high, standing on Y, centered on 0, 0, 0. |
+| `NewPlaneMesh` | `NewPlaneMesh() *Mesh`: a flat square one meter a side, on the ground, facing up and seen from below too. Scale X and Z into a floor. |
+| `Screen.Begin3D` | `Begin3D(camera *Camera3D)`: starts drawing the 3D world through `camera`, over what `Draw` has drawn so far. The 3D is drawn at `End3D`, so 2D drawn before `End3D` ends up under it. |
+| `Screen.End3D` | `End3D()`: draws the 3D and goes back to 2D; what follows goes over it. `Run` ends a pass left open at the end of `Draw`. |
+| `Screen.DrawMesh` | `DrawMesh(mesh *Mesh, transform Transform, color Color)`: the mesh, lit. A color with `A` below 255 is see-through. |
+| `Screen.DrawWireframe` | `DrawWireframe(mesh *Mesh, transform Transform, color Color)`: only its edges, one pixel wide, unlit: the box a game checks collisions with, while testing. |
+| `Screen.DrawLine3D` | `DrawLine3D(from, to Vector3, color Color)`: a line one pixel wide, unlit, hidden by what is in front of it. |
+| `Screen.DrawGrid` | `DrawGrid(slices int, spacing float32, color Color)`: a square grid on the ground around 0, 0, 0, `slices` squares a side, `spacing` meters apart. |
+| `Screen.DrawAxes` | `DrawAxes(position Vector3, length float32)`: X in red, Y in green and Z in blue, from `position`, to see which way is which. |
+
+### The 3D camera
+
+| Name | What it does |
+| --- | --- |
+| `Camera3D` | The eye the world is seen through. Make one per scene with `NewCamera3D`, and keep it in the scene. |
+| `NewCamera3D` | `NewCamera3D(width, height float32) *Camera3D`: a camera for the screen's size, the one in `Config`, 4 meters up and 8 back from 0, 0, 0, looking at it towards +Z, the way the zero `Rotation` faces. |
+| `Camera3D.Position`, `Camera3D.Target` | Where the eye is, and the point it looks at. |
+| `Camera3D.Orbit` | `Orbit(center Vector3, yaw, pitch, distance float32)`: `distance` meters from `center`, looking at it, facing `yaw` and `pitch` as a `Rotation` does. The yaw a player faces puts the camera behind them; a negative pitch looks down from above. The third-person camera. |
+| `Camera3D.Look` | `Look(position Vector3, yaw, pitch float32)`: the eye at `position`, looking `yaw` and `pitch`. The first-person camera. |
+| `Camera3D.FieldOfView` | Degrees seen from the bottom of the screen to the top: 60, the default, is usual; less zooms in. With `Orthographic`, meters seen from bottom to top instead. |
+| `Camera3D.Orthographic` | No perspective: far things are as large as near ones, for isometric and top-down games. |
+| `Camera3D.Near`, `Camera3D.Far` | The closest and the farthest the camera draws. 0 counts as 0.1 and 1000 meters. |
+| `Camera3D.Lag` | Seconds of smoothing towards `Position` and `Target`, as for the 2D camera. 0, the default, follows them exactly. |
+| `Camera3D.Update` | `Update(dt float32)`: moves the view by `Lag` and moves the shake on. Call it in every `Update` when the camera has `Lag` or shakes. |
+| `Camera3D.Snap` | `Snap()`: the view on `Position` and `Target` at once, without `Lag`. |
+| `Camera3D.Shake` | `Shake(strength, seconds float32)`: shakes the view by up to `strength` meters, fading out. Call it from `Update`. |
+| `Camera3D.Forward`, `Camera3D.Right` | `Forward() Vector3`: where it looks; `Right() Vector3`: the screen's right, flat on the ground. Both length 1: walk where the camera looks with them. |
+| `Camera3D.ToScreen` | `ToScreen(point Vector3) (Vector2, bool)`: where a point of the world is on the screen, to draw a name or a health bar over it; false when it is behind the camera. |
+| `Camera3D.Ray` | `Ray(x, y float32) (origin, direction Vector3)`: the line from the camera through a point of the screen, such as `camera.Ray(input.MousePosition())`, to find what the player clicks on. |
+
+```go
+type playScene struct {
+	camera         *golib.Camera3D
+	ground, sphere *golib.Mesh
+	ballAt         golib.Vector3
+	yaw            float32 // where the player faces
+}
+
+func newPlayScene() *playScene {
+	s := &playScene{
+		camera: golib.NewCamera3D(screenWidth, screenHeight),
+		ground: golib.NewPlaneMesh(),
+		sphere: golib.NewSphereMesh(),
+	}
+	s.camera.Lag = 0.2
+	s.camera.Orbit(s.ballAt, s.yaw, -20, 8)
+	s.camera.Snap() // ready to draw before the first update
+	return s
+}
+
+func (s *playScene) Update(input *golib.Input, dt float32) {
+	if input.KeyDown(golib.KeyLeft) {
+		s.yaw -= 120 * dt
+	}
+	if input.KeyDown(golib.KeyRight) {
+		s.yaw += 120 * dt
+	}
+	if input.KeyDown(golib.KeyUp) {
+		s.ballAt = s.ballAt.Add(golib.Rotation{Yaw: s.yaw}.Forward().Scale(5 * dt))
+	}
+	s.camera.Orbit(s.ballAt, s.yaw, -20, 8) // behind the ball, looking down at it
+	s.camera.Update(dt)
+}
+
+func (s *playScene) Draw(screen *golib.Screen) {
+	screen.Clear(golib.SkyBlue)
+	screen.Begin3D(s.camera)
+	screen.DrawMesh(s.ground, golib.Transform{Scale: golib.Vector3{X: 40, Z: 40}}, golib.DarkGreen)
+	screen.DrawMesh(s.sphere, golib.Transform{Position: s.ballAt.Add(golib.Vector3{Y: 0.5})}, golib.Orange)
+	screen.End3D()
+	screen.DrawText("Arrows to roll", 10, 10, 20, golib.White)
+}
+```
+
+- **Positions are the rules; the camera is only the view.** Keep the world in `Vector3`s in the rules and in the tests, as in 2D. Many 3D games play on the ground, so their rules can stay in X and Z.
+- **Meshes are one meter across, centered.** A box standing on the ground at `p` with height `h` is drawn at `p.Add(golib.Vector3{Y: h / 2})` with `Scale` Y `h`.
+- **Check what the camera sees with `golib shot`.** A camera looking the wrong way shows only the background color. While testing, `screen.DrawAxes(golib.Vector3{}, 1)` and `screen.DrawGrid(20, 1, golib.Gray)` show where the world is and which way is which.
+- The light is fixed for now: a sun high behind and to the right of a camera facing +Z, as `NewCamera3D`'s does, and a soft light from the sky. A side facing away from the sun shows its color at about half its brightness.
+- `Config.PixelArt` draws the 3D at the screen's size and scales it up, the look of the first 3D consoles; `Config.Antialias` smooths its edges; post-processing shaders run over it as over the 2D.
+- `Update`, `Snap`, `Orbit`, `Look`, `ToScreen` and `Ray` work without a window, so tests can check what the camera sees.
+
 ## Scenes
 
 A scene is any value that implements `Game`. Make each screen a scene (title, play, pause, game over), pass the first one to `Run`, and switch between them from `Update`.
@@ -1416,7 +1527,7 @@ A web build is what a phone plays, so a game meant for one is a game meant for t
 | Positional sound: louder on the side it comes from | Planned with 3D (M7, stage 6) | `Sound.PlayWith` at a lower volume for what is far away |
 | Physics | Planned with 3D (M7, stage 6): collisions and a character controller in Go, then rigid bodies with Jolt | Simple movement and `Rectangle` overlap checks in the game |
 | Trigger pressure, vibration | Not on the roadmap yet | Triggers read as buttons |
-| 3D | Planned (M7): a full engine, see [docs/roadmap.md](../docs/roadmap.md#m7-3d-planned) | None |
+| 3D models from Blender and FBX, textures, materials, lights, shadows and animation | Planned (M7, stages 2 to 9): see [docs/roadmap.md](../docs/roadmap.md#m7-3d-planned) | The basic shapes of [3D](#3d), in colors, scaled and placed with `Transform` |
 | `.qoa`, `.xm` and `.mod` in a browser | Not planned: browsers cannot decode them | Save the sound as `.wav`, `.ogg` or `.mp3`. For music, put that file next to the `.xm` under the same name: a web build plays it, and the desktop keeps playing the module |
 
 When a game needs one of these, say so to the user and point to [docs/roadmap.md](../docs/roadmap.md), as [AGENTS.md](../AGENTS.md) asks, instead of building an engine to fill the gap.
