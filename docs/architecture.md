@@ -2,7 +2,7 @@
 
 How GoLib keeps the framework apart from the games made with it, and where game content comes from.
 
-> **Status:** the framework and game split exists since M1, with `framework/` and the example game, `games/platformer`. Tiled maps, Aseprite files, PNG images, fonts, sound files and jfxr sounds load since M4, and 3D, a full engine with glTF and FBX models, comes in M7, which is planned and not started (see [roadmap.md](roadmap.md#m7-3d-planned)).
+> **Status:** the framework and game split exists since M1, with `framework/` and the example game, `games/platformer`. Tiled maps, Aseprite files, PNG images, fonts, sound files and jfxr sounds load since M4, and 3D is being built in M7: glTF models, with their textures and materials, since stage 2; FBX, lights, shadows and animation are still ahead (see [roadmap.md](roadmap.md#m7-3d-planned)).
 
 ## Framework and games
 
