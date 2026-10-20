@@ -110,3 +110,65 @@ func TestLightingInAWindow(t *testing.T) {
 		t.Errorf("AddLight outside a pass reported %v", err)
 	}
 }
+
+func TestCascadesCoverTheView(t *testing.T) {
+	camera := NewCamera3D(800, 600)
+	c := cascadesFor(camera, Vector3{X: 0.3, Y: -1}.Normalize(), 50)
+	for k := 1; k < shadowCascades; k++ {
+		if c.splits[k] <= c.splits[k-1] || c.texels[k] < c.texels[k-1] {
+			t.Errorf("slice %d ends at %v with texels of %v, after %v and %v: want each farther and coarser", k, c.splits[k], c.texels[k], c.splits[k-1], c.texels[k-1])
+		}
+	}
+	if c.splits[shadowCascades-1] < 49.9 || c.splits[shadowCascades-1] > 50.1 {
+		t.Errorf("the last slice ends at %v, want the shadow distance, 50", c.splits[shadowCascades-1])
+	}
+	// What the camera looks at is inside the nearest slice's view.
+	p := c.viewProjections[0].transformPoint(camera.Target)
+	if p.X < -1 || p.X > 1 || p.Y < -1 || p.Y > 1 || p.Z < -1 || p.Z > 1 {
+		t.Errorf("the camera's target is at %v in the first slice, want inside it", p)
+	}
+}
+
+func TestShadowsInAWindow(t *testing.T) {
+	screen, capture := openTestWindow(t, 64, 64)
+	takeError()
+	camera := NewCamera3D(64, 64)
+	camera.Position, camera.Target = Vector3{Y: 6, Z: -0.01}, Vector3{} // looking down
+	ground, box := NewPlaneMesh(), NewBoxMesh()
+	scene := func(environment Environment) func() {
+		return func() {
+			screen.Begin3D(camera)
+			screen.SetEnvironment(environment)
+			screen.DrawMesh(ground, Transform{Scale: Vector3{X: 20, Z: 20}}, White)
+			screen.DrawMesh(box, Transform{Position: Vector3{Y: 2}, Scale: Vector3{X: 0.6, Y: 0.2, Z: 0.6}}, White)
+			screen.End3D()
+		}
+	}
+	// A sun from the side casts the box's shadow 2 meters across the
+	// ground, where the camera, looking down, sees it beside the box.
+	slant := Vector3{X: 1, Y: -1}
+	shaded := capture(scene(Environment{SunDirection: slant}))
+	plain := capture(scene(Environment{SunDirection: slant, NoShadows: true}))
+	if err := takeError(); err != nil {
+		t.Fatal(err)
+	}
+	brightness := func(x, y int, img func(int, int) (uint8, uint8, uint8)) int {
+		r, g, b := img(x, y)
+		return int(r) + int(g) + int(b)
+	}
+	edge := func(x, y int) (uint8, uint8, uint8) { c := shaded.NRGBAAt(x, y); return c.R, c.G, c.B }
+	flat := func(x, y int) (uint8, uint8, uint8) { c := plain.NRGBAAt(x, y); return c.R, c.G, c.B }
+	// The far corner is in sun either way.
+	if brightness(2, 2, edge) < brightness(2, 2, flat)-12 {
+		t.Errorf("the far corner is %d with shadows and %d without, want both in full sun", brightness(2, 2, edge), brightness(2, 2, flat))
+	}
+	dark := 0
+	for x := 0; x < 64; x++ {
+		if brightness(x, 32, edge) < brightness(x, 32, flat)-60 {
+			dark++
+		}
+	}
+	if dark == 0 {
+		t.Error("no pixel across the middle is darker with shadows: the box casts none")
+	}
+}

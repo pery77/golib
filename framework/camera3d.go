@@ -218,16 +218,22 @@ func (c *Camera3D) Right() Vector3 {
 	return right
 }
 
-// matrices returns the view and the projection the camera draws with.
-func (c *Camera3D) matrices() (view, projection matrix) {
-	eye, look := c.view()
-	near, far := c.Near, c.Far
+// depthRange returns Near and Far, with their defaults.
+func (c *Camera3D) depthRange() (near, far float32) {
+	near, far = c.Near, c.Far
 	if near <= 0 {
 		near = 0.1
 	}
 	if far <= near {
 		far = max(1000, near*2)
 	}
+	return near, far
+}
+
+// matrices returns the view and the projection the camera draws with.
+func (c *Camera3D) matrices() (view, projection matrix) {
+	eye, look := c.view()
+	near, far := c.depthRange()
 	fov := c.FieldOfView
 	aspect := c.width / c.height
 	if c.Orthographic {

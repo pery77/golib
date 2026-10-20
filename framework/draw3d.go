@@ -323,6 +323,14 @@ uniform vec3 sunColor;
 uniform vec3 skyColor;
 uniform vec3 groundColor;
 uniform vec4 fog;
+uniform sampler2DShadow shadowMap;
+uniform int hasShadows;
+uniform mat4 shadowMatrix0;
+uniform mat4 shadowMatrix1;
+uniform mat4 shadowMatrix2;
+uniform vec4 shadowSplits;
+uniform vec4 shadowTexels;
+uniform vec3 viewForward;
 uniform int lightCount;
 uniform vec4 lightPositions[8];
 uniform vec4 lightColors[8];
@@ -369,6 +377,38 @@ vec3 shade(vec3 n, vec3 v, vec3 l, vec3 radiance, vec3 albedo, float metal, floa
     return (diffuse + specular * PI) * radiance * nl;
 }
 
+// How much of the sun reaches the surface: 1 in full sun, 0 in shadow,
+// smoothed over 3 by 3 texels, and fading to sun where the shadows end.
+float sunShadow(vec3 n)
+{
+    if (hasShadows == 0) return 1.0;
+    float depth = dot(worldPosition - eye, viewForward);
+    if (depth > shadowSplits.z) return 1.0;
+    int slice = depth < shadowSplits.x ? 0 : (depth < shadowSplits.y ? 1 : 2);
+    float texel = slice == 0 ? shadowTexels.x : (slice == 1 ? shadowTexels.y : shadowTexels.z);
+    // Moved off the surface along its normal, more where the sun grazes it,
+    // so a surface doesn't shade itself.
+    float facing = clamp(dot(n, -sunDirection), 0.0, 1.0);
+    vec3 p = worldPosition + n * texel * (1.0 + 2.0 * (1.0 - facing));
+    mat4 m = slice == 0 ? shadowMatrix0 : (slice == 1 ? shadowMatrix1 : shadowMatrix2);
+    vec4 s = m * vec4(p, 1.0);
+    vec3 uvz = s.xyz / s.w * 0.5 + 0.5;
+    if (uvz.x < 0.0 || uvz.x > 1.0 || uvz.y < 0.0 || uvz.y > 1.0 || uvz.z > 1.0) return 1.0;
+    vec2 step = vec2(1.0 / (3.0 * shadowTexels.w), 1.0 / shadowTexels.w);
+    float left = (float(slice) + 0.5 / shadowTexels.w) / 3.0;
+    float right = (float(slice) + 1.0 - 0.5 / shadowTexels.w) / 3.0;
+    float lit = 0.0;
+    for (int x = -1; x <= 1; x++) {
+        for (int y = -1; y <= 1; y++) {
+            vec2 uv = vec2((uvz.x + float(slice)) / 3.0, uvz.y) + vec2(float(x), float(y)) * step;
+            uv.x = clamp(uv.x, left, right);
+            lit += texture(shadowMap, vec3(uv, uvz.z - 0.0003));
+        }
+    }
+    lit /= 9.0;
+    return mix(lit, 1.0, smoothstep(shadowSplits.z * 0.85, shadowSplits.z, depth));
+}
+
 void main()
 {
     vec4 albedo = baseColor * color;
@@ -403,7 +443,7 @@ void main()
     vec3 v = normalize(eye - worldPosition);
     vec3 f0 = mix(vec3(0.04), albedo.rgb, metal);
 
-    vec3 light = shade(n, v, -sunDirection, sunColor, albedo.rgb, metal, rough, f0);
+    vec3 light = shade(n, v, -sunDirection, sunColor * sunShadow(n), albedo.rgb, metal, rough, f0);
     for (int i = 0; i < 8; i++) {
         if (i >= lightCount) break;
         vec3 toLight = lightPositions[i].xyz - worldPosition;
@@ -559,6 +599,9 @@ type litProgram struct {
 	sunDirection, sunColor, skyColor, ground    int32
 	fog, lightCount                             int32
 	lightPositions, lightColors, lightDirection int32
+	shadowMap, hasShadows                       int32
+	shadowMatrices                              [shadowCascades]int32
+	shadowSplits, shadowTexels, viewForward     int32
 }
 
 // lineProgram is the program lines and wireframes are drawn with.
@@ -588,6 +631,8 @@ type state3D struct {
 	lines     lineProgram
 	sky       skyProgram
 	compose   composeProgram
+	shadow    shadowProgram
+	shadowMap device.ShadowMap
 	lineMesh  device.Mesh
 	instances []float32 // the instances of the draw being built
 }
@@ -635,6 +680,10 @@ func (r *state3D) load() error {
 	if err != nil {
 		return err
 	}
+	shadow, err := build("shadow", shadowVertexShader, shadowFragmentShader)
+	if err != nil {
+		return err
+	}
 	at := func(p device.Program, name string) int32 { return device.UniformLocation(p, name) }
 	r.lit = litProgram{
 		program: lit, viewProjection: at(lit, "viewProjection"), eye: at(lit, "eye"),
@@ -656,6 +705,16 @@ func (r *state3D) load() error {
 		skyTop: at(sky, "skyTop"), horizon: at(sky, "horizon"), skyBottom: at(sky, "skyBottom"), fog: at(sky, "fog"),
 	}
 	r.compose = composeProgram{program: compose, picture: at(compose, "picture"), exposure: at(compose, "exposure")}
+	r.shadow = shadowProgram{
+		program: shadow, lightViewProjection: at(shadow, "lightViewProjection"),
+		baseTexture: at(shadow, "baseTexture"), hasBaseTexture: at(shadow, "hasBaseTexture"),
+		baseOpacity: at(shadow, "baseOpacity"), cutout: at(shadow, "cutout"), alphaCutoff: at(shadow, "alphaCutoff"),
+	}
+	r.lit.shadowMap, r.lit.hasShadows = at(lit, "shadowMap"), at(lit, "hasShadows")
+	for k := range shadowCascades {
+		r.lit.shadowMatrices[k] = at(lit, fmt.Sprintf("shadowMatrix%d", k))
+	}
+	r.lit.shadowSplits, r.lit.shadowTexels, r.lit.viewForward = at(lit, "shadowSplits"), at(lit, "shadowTexels"), at(lit, "viewForward")
 	r.loaded = true
 	return nil
 }
@@ -666,12 +725,17 @@ func (r *state3D) unload() {
 	if !r.loaded {
 		return
 	}
-	for _, p := range []device.Program{r.lit.program, r.lines.program, r.sky.program, r.compose.program} {
+	for _, p := range []device.Program{r.lit.program, r.lines.program, r.sky.program, r.compose.program, r.shadow.program} {
 		device.UnloadProgram(p)
 	}
+	device.UnloadShadowMap(r.shadowMap)
 	device.UnloadMesh(r.lineMesh)
 	*r = state3D{}
 }
+
+// shadowUnit is the texture unit the sun's shadow map is bound to, past the
+// five a material uses.
+const shadowUnit = 5
 
 // colorFloats returns c as four numbers from 0 to 1, as it is: sRGB.
 func colorFloats(c Color) [4]float32 {
@@ -771,6 +835,25 @@ func (r *state3D) draw(pass *pass3D) {
 
 	device.Begin3D()
 
+	// Each group's instances, built once for the shadows and the picture.
+	built := make([]shadowGroup, len(groups))
+	for k, g := range groups {
+		var data []float32
+		for _, i := range g.items {
+			item := &pass.items[i]
+			tint := colorFloats(item.tint)
+			data = append(data, item.model[:]...)
+			data = append(data, tint[:]...)
+		}
+		built[k] = shadowGroup{gpu: g.gpu, material: g.material, instances: data}
+	}
+	shadows := env.shadows && len(built) > 0
+	var sunViews cascades
+	if shadows {
+		sunViews = cascadesFor(pass.camera, env.sunDirection, env.shadowDistance)
+		r.drawShadows(&sunViews, built)
+	}
+
 	lit := r.lit
 	device.UseProgram(lit.program)
 	device.SetUniformMatrix(lit.viewProjection, &viewProjection)
@@ -788,6 +871,22 @@ func (r *state3D) draw(pass *pass3D) {
 	}
 	for unit, at := range []int32{lit.baseTexture, lit.emissiveTexture, lit.metalRoughTexture, lit.normalTexture, lit.occlusionTexture} {
 		device.SetUniformInt(at, int32(unit))
+	}
+	device.SetUniformInt(lit.hasShadows, boolInt(shadows))
+	// The shadow sampler keeps a unit of its own even without shadows: two
+	// kinds of sampler on one unit stop the draw.
+	device.SetUniformInt(lit.shadowMap, shadowUnit)
+	if shadows {
+		device.BindShadowMap(shadowUnit, r.shadowMap)
+		for k := range shadowCascades {
+			m := [16]float32(sunViews.viewProjections[k])
+			device.SetUniformMatrix(lit.shadowMatrices[k], &m)
+		}
+		device.SetUniform(lit.shadowSplits, 4, sunViews.splits)
+		texels := sunViews.texels
+		texels[3] = shadowResolution
+		device.SetUniform(lit.shadowTexels, 4, texels)
+		device.SetUniform(lit.viewForward, 3, vec3(pass.camera.Forward()))
 	}
 	var current *material3D
 	culling := true
@@ -828,13 +927,9 @@ func (r *state3D) draw(pass *pass3D) {
 		tint := colorFloats(item.tint)
 		r.instances = append(r.instances, tint[:]...)
 	}
-	for _, g := range groups {
+	for _, g := range built {
 		use(g.material)
-		r.instances = r.instances[:0]
-		for _, i := range g.items {
-			instance(&pass.items[i])
-		}
-		device.DrawMeshInstanced(g.gpu, r.instances)
+		device.DrawMeshInstanced(g.gpu, g.instances)
 	}
 
 	if env.background {

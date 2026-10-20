@@ -57,6 +57,13 @@ type Environment struct {
 	// Exposure brightens or darkens the whole picture, as a camera's would:
 	// 1, as 0 counts, is as it is; 2 is twice as bright.
 	Exposure float32
+
+	// The sun casts shadows, from everything solid onto everything, up to
+	// ShadowDistance meters from the camera: 0 counts as 50. Shadows are
+	// sharpest near the camera. NoShadows turns them off, for a game that
+	// needs every frame it can get, or wants the flat look.
+	ShadowDistance float32
+	NoShadows      bool
 }
 
 // SetEnvironment sets how the 3D pass begun last is lit, and what shows
@@ -182,6 +189,8 @@ type environmentUniforms struct {
 	background      bool
 	fog             [4]float32 // color, then its distance in w; 0 for none
 	exposure        float32
+	shadows         bool
+	shadowDistance  float32
 }
 
 // The default light: a sun high behind and to the right of a camera facing
@@ -251,6 +260,11 @@ func (e Environment) uniforms() environmentUniforms {
 	}
 	if e.Exposure > 0 {
 		u.exposure = e.Exposure
+	}
+	u.shadows = !e.NoShadows && (u.sun[0] > 0 || u.sun[1] > 0 || u.sun[2] > 0)
+	u.shadowDistance = 50
+	if e.ShadowDistance > 0 {
+		u.shadowDistance = e.ShadowDistance
 	}
 	return u
 }

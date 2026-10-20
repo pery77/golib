@@ -801,7 +801,7 @@ func (s *playScene) Draw(screen *golib.Screen) {
 
 ## 3D
 
-A 3D world, seen through a `Camera3D`, drawn between `screen.Begin3D` and `screen.End3D` in the same `Draw` as the 2D: the score and the menus go over it. In meters, with Y up; a model's front faces +Z. GoLib draws models from glTF files, as Blender exports them, with their textures and materials, and shapes made in code, lit physically by a sun, the sky's soft light and lamps of the game's own, with fog and a sky behind; shadows, FBX files and animation come in the next stages of M7 (see [docs/roadmap.md](../docs/roadmap.md#m7-3d-planned)).
+A 3D world, seen through a `Camera3D`, drawn between `screen.Begin3D` and `screen.End3D` in the same `Draw` as the 2D: the score and the menus go over it. In meters, with Y up; a model's front faces +Z. GoLib draws models from glTF files, as Blender exports them, with their textures and materials, and shapes made in code, lit physically by a sun that casts shadows, the sky's soft light and lamps of the game's own, with fog and a sky behind; FBX files and animation come in the next stages of M7 (see [docs/roadmap.md](../docs/roadmap.md#m7-3d-planned)).
 
 ### Points, turns and places
 
@@ -906,6 +906,7 @@ A pass is lit by a sun and by the soft light of the sky and the ground; `Screen.
 | `Environment.SkyBackground`, `Environment.Horizon` | Draws the sky behind everything, fading from `Sky` overhead to `Horizon` at eye level, a paler `Sky` when zero, and to `Ground` below. Without it, what `Draw` drew before `Begin3D` shows behind the 3D. |
 | `Environment.FogColor`, `Environment.FogDistance` | Fog that starts at a tenth of `FogDistance` meters and hides everything at `FogDistance`; 0 is no fog. The color defaults to the horizon's. |
 | `Environment.Exposure` | Brightens or darkens the whole picture: 1 when zero, 2 twice as bright. |
+| `Environment.ShadowDistance`, `Environment.NoShadows` | The sun casts shadows from everything solid onto everything, up to `ShadowDistance` meters from the camera, 50 when zero, sharpest near it. `NoShadows` turns them off. Lamps cast none yet. |
 | `Light` | A lamp: `Light.Position`, `Light.Color` (white when zero), `Light.Intensity` (1 when zero: lights what faces it a meter away as brightly as the sun, fading with the square of the distance), `Light.Range` (meters it reaches, 10 when zero). With `Light.Direction`, a spotlight lighting a cone `Light.Cone` degrees across, 45 when zero. |
 | `Screen.AddLight` | `AddLight(light Light)`: adds a lamp to the pass begun last, lighting everything it draws. A pass uses the 8 lamps nearest to the camera. |
 
@@ -1619,7 +1620,7 @@ A web build is what a phone plays, so a game meant for one is a game meant for t
 | Positional sound: louder on the side it comes from | Planned with 3D (M7, stage 6) | `Sound.PlayWith` at a lower volume for what is far away |
 | Physics | Planned with 3D (M7, stage 6): collisions and a character controller in Go, then rigid bodies with Jolt | Simple movement and `Rectangle` overlap checks in the game |
 | Trigger pressure, vibration | Not on the roadmap yet | Triggers read as buttons |
-| 3D shadows, FBX files, skeletal animation, collisions against a model's meshes, and hiding or reading one part of a model | Planned (M7, stages 3 to 7): see [docs/roadmap.md](../docs/roadmap.md#m7-3d-planned) | Models, materials, lights and fog work; a dark disc under a character stands in for its shadow; for solid level geometry, mark it with empties and custom properties, as [games/hopper](../games/hopper) does, and check collisions in the game |
+| 3D shadows from lamps, FBX files, skeletal animation, collisions against a model's meshes, and hiding or reading one part of a model | Planned (M7, stages 3 to 7): see [docs/roadmap.md](../docs/roadmap.md#m7-3d-planned) | Models, materials, lights, the sun's shadows and fog work; for solid level geometry, mark it with empties and custom properties, as [games/hopper](../games/hopper) does, and check collisions in the game |
 | `.qoa`, `.xm` and `.mod` in a browser | Not planned: browsers cannot decode them | Save the sound as `.wav`, `.ogg` or `.mp3`. For music, put that file next to the `.xm` under the same name: a web build plays it, and the desktop keeps playing the module |
 
 When a game needs one of these, say so to the user and point to [docs/roadmap.md](../docs/roadmap.md), as [AGENTS.md](../AGENTS.md) asks, instead of building an engine to fill the gap.
