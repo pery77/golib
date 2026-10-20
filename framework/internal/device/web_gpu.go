@@ -295,6 +295,25 @@ func wrapMode(clamp, mirror bool) int {
 	return 0
 }
 
+// NewHDRTexture puts a picture brighter than white on the graphics card, in
+// half floats, RGBA, with the mipmaps given: levels[0] is width by height,
+// each next one half as large, down to one texel, the top row first. It is
+// smoothed between texels and mipmaps, repeated across and clamped down,
+// as a panorama of the sky wants.
+func NewHDRTexture(width, height int, levels [][]uint16) Texture3D {
+	if len(levels) == 0 {
+		return Texture3D{}
+	}
+	flush()
+	var all []uint16
+	for _, level := range levels {
+		all = append(all, level...)
+	}
+	bytes := unsafe.Slice((*byte)(unsafe.Pointer(&all[0])), len(all)*2)
+	id := js_().Call("newHDRTexture", width, height, jsBytes(bytes), len(levels)).Int()
+	return Texture3D{ID: uint32(id), Width: width, Height: height}
+}
+
 // UnloadTexture3D frees a texture.
 func UnloadTexture3D(texture Texture3D) {
 	if texture.ID == 0 {

@@ -785,6 +785,37 @@ void main() {
 			}, function () { done(-1, 0, 0); });
 	}
 
+	// newHDRTexture puts a panorama brighter than white on the graphics
+	// card, in half floats, with the mipmaps package golib made, one after
+	// another in bytes: WebGL can't make them for a format it can't render
+	// into without an extension.
+	function newHDRTexture(width, height, bytes, levels) {
+		const halves = new Uint16Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 2);
+		const id = nextID++;
+		const made = gl.createTexture();
+		gl.activeTexture(gl.TEXTURE7);
+		gl.bindTexture(gl.TEXTURE_2D, made);
+		gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+		let w = width, h = height, at = 0;
+		for (let level = 0; level < levels; level++) {
+			const size = w * h * 4;
+			gl.texImage2D(gl.TEXTURE_2D, level, gl.RGBA16F, w, h, 0, gl.RGBA, gl.HALF_FLOAT, halves.subarray(at, at + size));
+			at += size;
+			w = Math.max(1, w >> 1);
+			h = Math.max(1, h >> 1);
+		}
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAX_LEVEL, levels - 1);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+		gl.bindTexture(gl.TEXTURE_2D, null);
+		gl.activeTexture(gl.TEXTURE0);
+		textures.set(id, made);
+		boundTexture = -1;
+		return id;
+	}
+
 	// newTexture3D puts a decoded picture on the graphics card, with
 	// mipmaps, its top row first, as WebGL and glTF both want it.
 	function newTexture3D(bitmapID, linear, nearest, nearestMipmaps, wrapS, wrapT) {
@@ -1997,7 +2028,7 @@ void main() {
 		postPicture: postPicture,
 		newShader: newShader, unloadShader: unloadShader, shaderLocation: shaderLocation,
 		newMesh: newMesh, updateMesh: updateMesh, unloadMesh: unloadMesh,
-		decodeImage: decodeImage, newTexture3D: newTexture3D,
+		decodeImage: decodeImage, newTexture3D: newTexture3D, newHDRTexture: newHDRTexture,
 		newShadowMap: newShadowMap, unloadShadowMap: unloadShadowMap,
 		newProgram3D: newProgram3D, unloadProgram3D: unloadProgram3D, location3D: location3D,
 		readFont: readFont,

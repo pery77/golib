@@ -79,6 +79,7 @@ const (
 	glCompareRefToTex    = 0x884E
 	glCompareFunc        = 0x884D
 	glNone               = 0
+	glTextureMaxLevel    = 0x813D
 	glColor              = 0x1800
 	glDepth              = 0x1801
 )
@@ -676,6 +677,37 @@ func wrap(clamp, mirror bool) uintptr {
 		return glMirroredRepeat
 	}
 	return glRepeat
+}
+
+// NewHDRTexture puts a picture brighter than white on the graphics card, in
+// half floats, RGBA, with the mipmaps given: levels[0] is width by height,
+// each next one half as large, down to one texel, the top row first. It is
+// smoothed between texels and mipmaps, repeated across and clamped down,
+// as a panorama of the sky wants.
+func NewHDRTexture(width, height int, levels [][]uint16) Texture3D {
+	if len(levels) == 0 {
+		return Texture3D{}
+	}
+	loadGL()
+	var id uint32
+	glCall(gl.GenTextures, 1, uintptr(unsafe.Pointer(&id)))
+	glCall(gl.ActiveTexture, glTexture0+scratchUnit)
+	glCall(gl.BindTexture, glTexture2D, uintptr(id))
+	glCall(gl.PixelStorei, glUnpackAlignment, 1)
+	w, h := width, height
+	for level, data := range levels {
+		glCall(gl.TexImage2D, glTexture2D, uintptr(level), glRGBA16F, uintptr(w), uintptr(h), 0, glRGBA, glHalfFloat, uintptr(unsafe.Pointer(&data[0])))
+		runtime.KeepAlive(data)
+		w, h = max(1, w/2), max(1, h/2)
+	}
+	glCall(gl.TexParameteri, glTexture2D, glTextureMaxLevel, uintptr(len(levels)-1))
+	glCall(gl.TexParameteri, glTexture2D, glTextureMinFilter, glLinearMipLinear)
+	glCall(gl.TexParameteri, glTexture2D, glTextureMagFilter, glLinear)
+	glCall(gl.TexParameteri, glTexture2D, glTextureWrapS, glRepeat)
+	glCall(gl.TexParameteri, glTexture2D, glTextureWrapT, glClampToEdge)
+	glCall(gl.BindTexture, glTexture2D, 0)
+	glCall(gl.ActiveTexture, glTexture0)
+	return Texture3D{ID: id, Width: width, Height: height}
 }
 
 // UnloadTexture3D frees a texture.
