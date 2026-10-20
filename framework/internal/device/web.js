@@ -21,7 +21,8 @@ window.golib = (function () {
 	const BEGIN_3D = 20, END_3D = 21, USE_PROGRAM = 22, UNIFORM_MATRIX = 23,
 		UNIFORM = 24, UNIFORM_INT = 25, DEPTH_WRITE = 26, BLEND_3D = 27,
 		CULLING = 28, DRAW_MESH = 29, DRAW_INSTANCED = 30, BIND_TEXTURE_3D = 31,
-		DRAW_FULLSCREEN = 32, UNIFORM_VEC4S = 33;
+		DRAW_FULLSCREEN = 32, UNIFORM_VEC4S = 33, BEGIN_SHADOW = 34, END_SHADOW = 35,
+		BIND_SHADOW_MAP = 36;
 
 	// The vertex layouts of 3D meshes, as gpu.go defines them, and how many
 	// floats an instance of a lit mesh takes: its matrix and its tint.
@@ -375,6 +376,28 @@ void main() {
 					const count = c[i + 1];
 					gl.uniform4fv(locations3D[c[i]], c, i + 2, count * 4);
 					i += 2 + count * 4;
+					break;
+				}
+				case BEGIN_SHADOW: {
+					const map = shadowMaps.get(c[i]);
+					if (map) {
+						gl.bindFramebuffer(gl.FRAMEBUFFER, map.framebuffer);
+						gl.viewport(c[i + 1], c[i + 2], c[i + 3], c[i + 4]);
+						gl.depthMask(true);
+						if (c[i + 5] !== 0) gl.clearBufferfv(gl.DEPTH, 0, [1]);
+					}
+					i += 6;
+					break;
+				}
+				case END_SHADOW:
+					gl.bindFramebuffer(gl.FRAMEBUFFER, pass3D.framebuffer);
+					gl.viewport(0, 0, pass3D.width, pass3D.height);
+					break;
+				case BIND_SHADOW_MAP: {
+					const map = shadowMaps.get(c[i + 1]);
+					gl.activeTexture(gl.TEXTURE0 + c[i]);
+					gl.bindTexture(gl.TEXTURE_2D, map ? map.texture : null);
+					i += 2;
 					break;
 				}
 				case DRAW_FULLSCREEN:
@@ -919,6 +942,44 @@ void main() {
 		gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, pass3D.color, 0);
 		gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, pass3D.depth);
 		boundTexture = -1;
+	}
+
+	// Shadow maps: depth textures sampled with comparison, each with a
+	// framebuffer that draws only depth into it.
+	const shadowMaps = new Map(); // id -> { framebuffer, texture }
+
+	function newShadowMap(width, height) {
+		const id = nextID++;
+		const texture = gl.createTexture();
+		gl.activeTexture(gl.TEXTURE7);
+		gl.bindTexture(gl.TEXTURE_2D, texture);
+		gl.texImage2D(gl.TEXTURE_2D, 0, gl.DEPTH_COMPONENT24, width, height, 0, gl.DEPTH_COMPONENT, gl.UNSIGNED_INT, null);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_COMPARE_MODE, gl.COMPARE_REF_TO_TEXTURE);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_COMPARE_FUNC, gl.LEQUAL);
+		gl.bindTexture(gl.TEXTURE_2D, null);
+		gl.activeTexture(gl.TEXTURE0);
+		const framebuffer = gl.createFramebuffer();
+		gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+		gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.TEXTURE_2D, texture, 0);
+		gl.drawBuffers([gl.NONE]);
+		gl.readBuffer(gl.NONE);
+		const target = boundTarget === 0 ? null : targets.get(boundTarget);
+		gl.bindFramebuffer(gl.FRAMEBUFFER, target ? target.framebuffer : null);
+		shadowMaps.set(id, { framebuffer: framebuffer, texture: texture });
+		boundTexture = -1;
+		return id;
+	}
+
+	function unloadShadowMap(id) {
+		const map = shadowMaps.get(id);
+		if (!map) return;
+		gl.deleteFramebuffer(map.framebuffer);
+		gl.deleteTexture(map.texture);
+		shadowMaps.delete(id);
 	}
 
 	function begin3D() {
@@ -1937,6 +1998,7 @@ void main() {
 		newShader: newShader, unloadShader: unloadShader, shaderLocation: shaderLocation,
 		newMesh: newMesh, updateMesh: updateMesh, unloadMesh: unloadMesh,
 		decodeImage: decodeImage, newTexture3D: newTexture3D,
+		newShadowMap: newShadowMap, unloadShadowMap: unloadShadowMap,
 		newProgram3D: newProgram3D, unloadProgram3D: unloadProgram3D, location3D: location3D,
 		readFont: readFont,
 		openAudio: openAudio, closeAudio: closeAudio, setMasterVolume: setMasterVolume,

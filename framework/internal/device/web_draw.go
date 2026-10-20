@@ -50,6 +50,9 @@ const (
 	opBindTexture3D
 	opDrawFullscreen
 	opUniformVec4s
+	opBeginShadow
+	opEndShadow
+	opBindShadowMap
 )
 
 // The blend modes, for opBlend.

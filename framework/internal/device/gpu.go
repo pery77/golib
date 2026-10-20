@@ -57,6 +57,16 @@ type Texture3D struct {
 	Width, Height int
 }
 
+// ShadowMap is a depth picture of the world seen from a light, which lit
+// surfaces compare their own depth with to know whether they are in shadow.
+// Sampled with comparison, smoothed between texels. Portable fields: ID, 0
+// for none, Width and Height.
+type ShadowMap struct {
+	ID            uint32
+	texture       uint32 // the raylib backend's depth texture
+	Width, Height int
+}
+
 // TextureOptions say how a Texture3D is stored and sampled. The zero value
 // is a color picture, smoothed, repeated both ways.
 type TextureOptions struct {

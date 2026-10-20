@@ -74,6 +74,11 @@ const (
 	glDepthComponent24   = 0x81A6
 	glRGBA16F            = 0x881A
 	glHalfFloat          = 0x140B
+	glDepthComponent     = 0x1902
+	glCompareMode        = 0x884C
+	glCompareRefToTex    = 0x884E
+	glCompareFunc        = 0x884D
+	glNone               = 0
 	glColor              = 0x1800
 	glDepth              = 0x1801
 )
@@ -111,6 +116,7 @@ var gl struct {
 	FramebufferTexture2D, GenRenderbuffers, BindRenderbuffer                 uintptr
 	RenderbufferStorage, FramebufferRenderbuffer, DeleteRenderbuffers        uintptr
 	Viewport, ClearBufferfv, BlendFuncSeparate, DrawArrays                   uintptr
+	DrawBuffer, ReadBuffer                                                   uintptr
 
 	// empty is a vertex array with nothing in it, for a triangle over the
 	// whole view whose corners the vertex shader works out.
@@ -162,6 +168,7 @@ func loadGL() {
 		{&gl.FramebufferRenderbuffer, "glFramebufferRenderbuffer"}, {&gl.DeleteRenderbuffers, "glDeleteRenderbuffers"},
 		{&gl.Viewport, "glViewport"}, {&gl.ClearBufferfv, "glClearBufferfv"},
 		{&gl.BlendFuncSeparate, "glBlendFuncSeparate"}, {&gl.DrawArrays, "glDrawArrays"},
+		{&gl.DrawBuffer, "glDrawBuffer"}, {&gl.ReadBuffer, "glReadBuffer"},
 	} {
 		*f.to = uintptr(rl.GetProcAddress(f.name))
 		if *f.to == 0 {
@@ -444,6 +451,66 @@ func End3D(compose Program) {
 	glCall(gl.Enable, glCullFace)
 	glCall(gl.BlendFunc, glSrcAlpha, glOneMinusSrcAlpha)
 	glCall(gl.UseProgram, 0)
+}
+
+// NewShadowMap makes a shadow map width by height texels, which a pass can
+// draw several views into, side by side.
+func NewShadowMap(width, height int) ShadowMap {
+	loadGL()
+	m := ShadowMap{Width: width, Height: height}
+	glCall(gl.GenTextures, 1, uintptr(unsafe.Pointer(&m.texture)))
+	glCall(gl.ActiveTexture, glTexture0+scratchUnit)
+	glCall(gl.BindTexture, glTexture2D, uintptr(m.texture))
+	glCall(gl.TexImage2D, glTexture2D, 0, glDepthComponent24, uintptr(width), uintptr(height), 0, glDepthComponent, glUnsignedInt, 0)
+	glCall(gl.TexParameteri, glTexture2D, glTextureMinFilter, glLinear)
+	glCall(gl.TexParameteri, glTexture2D, glTextureMagFilter, glLinear)
+	glCall(gl.TexParameteri, glTexture2D, glTextureWrapS, glClampToEdge)
+	glCall(gl.TexParameteri, glTexture2D, glTextureWrapT, glClampToEdge)
+	glCall(gl.TexParameteri, glTexture2D, glCompareMode, glCompareRefToTex)
+	glCall(gl.TexParameteri, glTexture2D, glCompareFunc, glLEqual)
+	glCall(gl.BindTexture, glTexture2D, 0)
+	glCall(gl.ActiveTexture, glTexture0)
+	glCall(gl.GenFramebuffers, 1, uintptr(unsafe.Pointer(&m.ID)))
+	glCall(gl.BindFramebuffer, glFramebuffer, uintptr(m.ID))
+	glCall(gl.FramebufferTexture2D, glFramebuffer, glDepthAttachment, glTexture2D, uintptr(m.texture), 0)
+	glCall(gl.DrawBuffer, glNone)
+	glCall(gl.ReadBuffer, glNone)
+	glCall(gl.BindFramebuffer, glFramebuffer, uintptr(target3D.fbo))
+	return m
+}
+
+// UnloadShadowMap frees a shadow map.
+func UnloadShadowMap(m ShadowMap) {
+	if m.ID == 0 {
+		return
+	}
+	glCall(gl.DeleteFramebuffers, 1, uintptr(unsafe.Pointer(&m.ID)))
+	glCall(gl.DeleteTextures, 1, uintptr(unsafe.Pointer(&m.texture)))
+}
+
+// BeginShadow draws what follows into the part of m from x, y, width by
+// height texels, depth only, clearing the whole map first when clear is
+// true. EndShadow goes back to the pass.
+func BeginShadow(m ShadowMap, x, y, width, height int, clear bool) {
+	glCall(gl.BindFramebuffer, glFramebuffer, uintptr(m.ID))
+	glCall(gl.Viewport, uintptr(x), uintptr(y), uintptr(width), uintptr(height))
+	glCall(gl.DepthMask, 1)
+	if clear {
+		far := float32(1)
+		glCall(gl.ClearBufferfv, glDepth, 0, uintptr(unsafe.Pointer(&far)))
+	}
+}
+
+// EndShadow goes back to drawing the pass, after BeginShadow.
+func EndShadow() {
+	glCall(gl.BindFramebuffer, glFramebuffer, uintptr(target3D.fbo))
+	glCall(gl.Viewport, 0, 0, uintptr(target3D.width), uintptr(target3D.height))
+}
+
+// BindShadowMap makes m the one a shadow sampler uniform set to unit reads.
+func BindShadowMap(unit int, m ShadowMap) {
+	glCall(gl.ActiveTexture, glTexture0+uintptr(unit))
+	glCall(gl.BindTexture, glTexture2D, uintptr(m.texture))
 }
 
 // DrawFullscreen draws one triangle over the whole view with the program in

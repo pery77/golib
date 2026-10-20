@@ -4,6 +4,7 @@ package device
 
 import (
 	"errors"
+	"strings"
 	"syscall/js"
 	"unsafe"
 )
@@ -67,11 +68,18 @@ func UnloadMesh(mesh Mesh) {
 // as on the desktop, and links them, or says why it couldn't. Both are turned
 // into GLSL ES 3.00 first, which is what browsers compile.
 func NewProgram(vertex, fragment string) (Program, error) {
-	result := js_().Call("newProgram3D", ESShader(vertex), ESShader(fragment))
+	result := js_().Call("newProgram3D", es3D(vertex), es3D(fragment))
 	if id := result.Index(0).Int(); id >= 0 {
 		return Program{ID: uint32(id)}, nil
 	}
 	return Program{}, shaderError(result.Index(1).String())
+}
+
+// es3D turns a 3D shader into GLSL ES as ESShader does, and gives shadow
+// samplers the precision GLSL ES asks every sampler but sampler2D to declare.
+func es3D(source string) string {
+	es := ESShader(source)
+	return strings.Replace(es, "precision highp float;\n", "precision highp float;\nprecision highp sampler2DShadow;\n", 1)
 }
 
 // shaderError is what the browser said about a shader that didn't compile.
@@ -110,6 +118,40 @@ func Begin3D() {
 // leaves WebGL as the 2D expects it.
 func End3D(compose Program) {
 	push(opEnd3D, float32(compose.ID))
+}
+
+// NewShadowMap makes a shadow map width by height texels, which a pass can
+// draw several views into, side by side.
+func NewShadowMap(width, height int) ShadowMap {
+	flush()
+	id := js_().Call("newShadowMap", width, height).Int()
+	return ShadowMap{ID: uint32(id), Width: width, Height: height}
+}
+
+// UnloadShadowMap frees a shadow map.
+func UnloadShadowMap(m ShadowMap) {
+	if m.ID == 0 {
+		return
+	}
+	flush()
+	js_().Call("unloadShadowMap", int(m.ID))
+}
+
+// BeginShadow draws what follows into the part of m from x, y, width by
+// height texels, depth only, clearing the whole map first when clear is
+// true. EndShadow goes back to the pass.
+func BeginShadow(m ShadowMap, x, y, width, height int, clear bool) {
+	push(opBeginShadow, float32(m.ID), float32(x), float32(y), float32(width), float32(height), onOff(clear))
+}
+
+// EndShadow goes back to drawing the pass, after BeginShadow.
+func EndShadow() {
+	push(opEndShadow)
+}
+
+// BindShadowMap makes m the one a shadow sampler uniform set to unit reads.
+func BindShadowMap(unit int, m ShadowMap) {
+	push(opBindShadowMap, float32(unit), float32(m.ID))
 }
 
 // DrawFullscreen draws one triangle over the whole view with the program in
