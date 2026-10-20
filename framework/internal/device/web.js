@@ -17,6 +17,14 @@ window.golib = (function () {
 		END_SHADER = 15, SHADER_VALUES = 16, BEGIN_FRAME = 17, END_FRAME = 18,
 		DRAW_SIZE = 19;
 
+	// The 3D commands, as web_gpu.go writes them.
+	const BEGIN_3D = 20, END_3D = 21, USE_PROGRAM = 22, UNIFORM_MATRIX = 23,
+		UNIFORM = 24, UNIFORM_INT = 25, DEPTH_WRITE = 26, BLEND_3D = 27,
+		CULLING = 28, DRAW_MESH = 29;
+
+	// The vertex layouts of 3D meshes, as gpu.go defines them.
+	const LAYOUT_LIT = 0, LAYOUT_COLORED = 1;
+
 	const BLEND_NORMAL = 0, BLEND_ADD = 1, BLEND_COPY = 2, BLEND_PREMULTIPLIED = 3;
 
 	// How many vertices a batch holds before it goes to the graphics card.
@@ -354,6 +362,59 @@ void main() {
 					setShaderValues(c[i], c[i + 1], c[i + 2], c[i + 3], c[i + 4], c[i + 5], c[i + 6]);
 					i += 7;
 					break;
+				case BEGIN_3D:
+					begin3D();
+					break;
+				case END_3D:
+					end3D();
+					break;
+				case USE_PROGRAM:
+					gl.useProgram(programs3D.get(c[i]) || null);
+					i += 1;
+					break;
+				case UNIFORM_MATRIX:
+					gl.uniformMatrix4fv(locations3D[c[i]], false, c, i + 1, 16);
+					i += 17;
+					break;
+				case UNIFORM: {
+					const where = locations3D[c[i]], count = c[i + 1];
+					if (count === 1) gl.uniform1f(where, c[i + 2]);
+					else if (count === 2) gl.uniform2f(where, c[i + 2], c[i + 3]);
+					else if (count === 3) gl.uniform3f(where, c[i + 2], c[i + 3], c[i + 4]);
+					else gl.uniform4f(where, c[i + 2], c[i + 3], c[i + 4], c[i + 5]);
+					i += 6;
+					break;
+				}
+				case UNIFORM_INT:
+					gl.uniform1i(locations3D[c[i]], c[i + 1]);
+					i += 2;
+					break;
+				case DEPTH_WRITE:
+					gl.depthMask(c[i] !== 0);
+					i += 1;
+					break;
+				case BLEND_3D:
+					if (c[i] !== 0) {
+						gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+						gl.enable(gl.BLEND);
+					} else {
+						gl.disable(gl.BLEND);
+					}
+					i += 1;
+					break;
+				case CULLING:
+					if (c[i] !== 0) gl.enable(gl.CULL_FACE); else gl.disable(gl.CULL_FACE);
+					i += 1;
+					break;
+				case DRAW_MESH: {
+					const mesh = meshes.get(c[i]);
+					if (mesh) {
+						gl.bindVertexArray(mesh.vao);
+						gl.drawElements(mesh.lines ? gl.LINES : gl.TRIANGLES, mesh.count, gl.UNSIGNED_INT, 0);
+					}
+					i += 1;
+					break;
+				}
 				default:
 					// A command this file doesn't know means the two halves
 					// have drifted apart. Stopping says so loudly.
@@ -645,6 +706,128 @@ void main() {
 		used = 0;
 	}
 
+	// -------------------------------------------------------------------- 3D
+
+	// The 3D's own objects. Meshes and programs share nextID with the rest;
+	// uniform locations are numbered in one list for every program.
+	const meshes = new Map();     // id -> { vao, vbo, ibo, count, lines }
+	const programs3D = new Map(); // id -> WebGLProgram
+	const locations3D = [];       // number -> WebGLUniformLocation
+	const locationsByName = new Map(); // "program name" -> number, or -1
+
+	function newMesh(layout, vertexBytes, indexBytes, lines) {
+		const id = nextID++;
+		const vao = gl.createVertexArray();
+		gl.bindVertexArray(vao);
+		const vbo = gl.createBuffer();
+		gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+		const ibo = gl.createBuffer();
+		gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
+		if (layout === LAYOUT_LIT) {
+			bindAttribute(0, 3, 0, 32);
+			bindAttribute(1, 3, 12, 32);
+			bindAttribute(2, 2, 24, 32);
+		} else {
+			bindAttribute(0, 3, 0, 28);
+			bindAttribute(3, 4, 12, 28);
+		}
+		const mesh = { vao: vao, vbo: vbo, ibo: ibo, count: 0, lines: lines };
+		fillMesh(mesh, vertexBytes, indexBytes);
+		meshes.set(id, mesh);
+		backTo2D();
+		return id;
+	}
+
+	// fillMesh puts the bytes into a mesh whose vertex array is bound.
+	function fillMesh(mesh, vertexBytes, indexBytes) {
+		gl.bindBuffer(gl.ARRAY_BUFFER, mesh.vbo);
+		gl.bufferData(gl.ARRAY_BUFFER, vertexBytes, gl.STATIC_DRAW);
+		gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indexBytes, gl.STATIC_DRAW);
+		mesh.count = indexBytes.length / 4;
+	}
+
+	function updateMesh(id, vertexBytes, indexBytes) {
+		const mesh = meshes.get(id);
+		if (!mesh) return;
+		gl.bindVertexArray(mesh.vao);
+		fillMesh(mesh, vertexBytes, indexBytes);
+		backTo2D();
+	}
+
+	function unloadMesh(id) {
+		const mesh = meshes.get(id);
+		if (!mesh) return;
+		gl.deleteVertexArray(mesh.vao);
+		gl.deleteBuffer(mesh.vbo);
+		gl.deleteBuffer(mesh.ibo);
+		meshes.delete(id);
+		backTo2D();
+	}
+
+	// backTo2D binds what the 2D's batch draws with again.
+	function backTo2D() {
+		gl.bindVertexArray(vertexArray);
+		gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
+	}
+
+	function newProgram3D(vertexSource, fragmentSource) {
+		const built = linkProgram(vertexSource, fragmentSource);
+		if (built.error) return [-1, (built.error || 'the graphics card gave no reason').trim()];
+		const id = nextID++;
+		programs3D.set(id, built.program);
+		return [id, ''];
+	}
+
+	function unloadProgram3D(id) {
+		const made = programs3D.get(id);
+		if (!made) return;
+		gl.deleteProgram(made);
+		programs3D.delete(id);
+		useCurrentProgram();
+	}
+
+	function location3D(id, name) {
+		const key = id + ' ' + name;
+		if (locationsByName.has(key)) return locationsByName.get(key);
+		const made = programs3D.get(id);
+		const found = made ? gl.getUniformLocation(made, name) : null;
+		let at = -1;
+		if (found) {
+			at = locations3D.length;
+			locations3D.push(found);
+		}
+		locationsByName.set(key, at);
+		return at;
+	}
+
+	function begin3D() {
+		flush();
+		gl.enable(gl.DEPTH_TEST);
+		gl.depthFunc(gl.LEQUAL);
+		gl.depthMask(true);
+		gl.clear(gl.DEPTH_BUFFER_BIT);
+		gl.enable(gl.CULL_FACE);
+		gl.cullFace(gl.BACK);
+		gl.frontFace(gl.CCW);
+		gl.disable(gl.BLEND);
+	}
+
+	// end3D leaves WebGL as the 2D expects it: no depth testing or culling,
+	// blending as it was, and the 2D's program, batch and texture unit.
+	function end3D() {
+		gl.disable(gl.DEPTH_TEST);
+		gl.depthMask(true);
+		gl.disable(gl.CULL_FACE);
+		gl.enable(gl.BLEND);
+		const mode = boundBlend;
+		boundBlend = -1;
+		setBlend(mode < 0 ? BLEND_NORMAL : mode);
+		gl.activeTexture(gl.TEXTURE0);
+		boundTexture = -1;
+		backTo2D();
+		useCurrentProgram();
+	}
+
 	// -------------------------------------------------------------- pictures
 
 	// newTexture loads a picture, unsmoothed as raylib loads one, or smoothed
@@ -693,8 +876,14 @@ void main() {
 		const framebuffer = gl.createFramebuffer();
 		gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
 		gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, made, 0);
+		// A depth buffer, for the 3D drawn into the target, as raylib's
+		// render textures have one.
+		const depth = gl.createRenderbuffer();
+		gl.bindRenderbuffer(gl.RENDERBUFFER, depth);
+		gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, width, height);
+		gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, depth);
 		gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-		targets.set(id, { framebuffer: framebuffer, texture: made, textureID: textureID, width: width, height: height });
+		targets.set(id, { framebuffer: framebuffer, depth: depth, texture: made, textureID: textureID, width: width, height: height });
 		boundTexture = -1;
 		boundTarget = -1;
 		bindCanvas();
@@ -705,6 +894,7 @@ void main() {
 		const target = targets.get(id);
 		if (!target) return;
 		gl.deleteFramebuffer(target.framebuffer);
+		gl.deleteRenderbuffer(target.depth);
 		gl.deleteTexture(target.texture);
 		textures.delete(target.textureID);
 		targets.delete(id);
@@ -1607,6 +1797,8 @@ void main() {
 		showError: showError,
 		postPicture: postPicture,
 		newShader: newShader, unloadShader: unloadShader, shaderLocation: shaderLocation,
+		newMesh: newMesh, updateMesh: updateMesh, unloadMesh: unloadMesh,
+		newProgram3D: newProgram3D, unloadProgram3D: unloadProgram3D, location3D: location3D,
 		readFont: readFont,
 		openAudio: openAudio, closeAudio: closeAudio, setMasterVolume: setMasterVolume,
 		decodeSound: decodeSound, unloadWave: unloadWave,

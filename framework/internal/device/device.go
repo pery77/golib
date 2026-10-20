@@ -27,8 +27,9 @@
 //     their ID, Width and Height fields are portable; nothing above this
 //     package reads anything else.
 //   - The functions in raylib.go, raylib_draw.go, raylib_audio.go,
-//     raylib_input.go, raylib_other.go and language_other.go, with the same
-//     behavior.
+//     raylib_input.go, raylib_gpu.go, raylib_other.go and language_other.go,
+//     with the same behavior. raylib_gpu.go is the 3D's layer, at the level
+//     of a graphics card, with its types in gpu.go (see docs/3d.md).
 //
 // The numbers below are the same on every backend, so a game reads the same
 // key wherever it runs. They are GLFW's key codes, which raylib passes on;
