@@ -10,9 +10,8 @@ import (
 // The meshes, made once: every shape in the game is one of these, scaled,
 // turned and colored by a golib.Transform.
 var (
-	boxMesh      = golib.NewBoxMesh()
-	sphereMesh   = golib.NewSphereMesh()
-	cylinderMesh = golib.NewCylinderMesh()
+	boxMesh    = golib.NewBoxMesh()
+	sphereMesh = golib.NewSphereMesh()
 )
 
 // How things look; the rules don't need these.
@@ -132,15 +131,6 @@ func drawPlatform(screen *golib.Screen) {
 	}
 }
 
-// drawShadow draws a dark disc on the platform under something, since GoLib
-// has no shadows yet.
-func drawShadow(screen *golib.Screen, at golib.Vector3, size float32) {
-	if offPlatform(at) {
-		return
-	}
-	screen.DrawMesh(cylinderMesh, golib.Transform{Position: golib.Vector3{X: at.X, Y: 0.01, Z: at.Z}, Scale: golib.Vector3{X: size, Y: 0.01, Z: size}}, shadowColor)
-}
-
 // drawGem draws a gem as a diamond that bobs and spins, in a faint glow.
 func drawGem(screen *golib.Screen, g gem, time float32) {
 	t := time + g.phase
@@ -148,7 +138,6 @@ func drawGem(screen *golib.Screen, g gem, time float32) {
 	turn := cornerUp
 	turn.Yaw = t * gemSpinSpeed
 	size := golib.Vector3{X: gemSize, Y: gemSize, Z: gemSize}
-	drawShadow(screen, g.position, 0.6)
 	screen.DrawMesh(boxMesh, golib.Transform{Position: at, Rotation: turn, Scale: size}, gemColor)
 	screen.DrawMesh(sphereMesh, golib.Transform{Position: at, Scale: size.Scale(2)}, gemGlowColor)
 }
@@ -168,9 +157,6 @@ func drawCube(screen *golib.Screen, c cube, marbleAt golib.Vector3) {
 // drawMarble draws the marble with six dots on it that roll with it: the
 // sphere is one color, so without them it wouldn't look like it rolls.
 func drawMarble(screen *golib.Screen, m marble) {
-	if !m.falling {
-		drawShadow(screen, m.position, 0.9)
-	}
 	screen.DrawMesh(sphereMesh, golib.Transform{Position: m.position, Scale: golib.Vector3{X: 2 * marbleRadius, Y: 2 * marbleRadius, Z: 2 * marbleRadius}}, marbleColor)
 	a, b := m.axes[0], m.axes[1]
 	c := a.Cross(b)

@@ -43,7 +43,6 @@ var (
 	cubeColor       = golib.Color{R: 220, G: 44, B: 44, A: 255}
 	eyeColor        = golib.White
 	pupilColor      = golib.Color{R: 30, G: 20, B: 20, A: 255}
-	shadowColor     = golib.Color{R: 0, G: 0, B: 0, A: 70}
 	textColor       = golib.White
 	textShadowColor = golib.Color{R: 20, G: 30, B: 60, A: 200}
 	accentColor     = golib.Gold

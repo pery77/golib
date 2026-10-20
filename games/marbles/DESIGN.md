@@ -35,7 +35,7 @@ All in `world.go`, at the top: platform 28 m; marble acceleration 11 m/s², drag
 - Arrows at the screen's edge pointing to gems out of sight.
 - Gems worth more the faster the cubes are; a gem that slows the cubes for a while.
 - Platforms with holes, ramps and moving parts, as Blender levels once GoLib loads models (M7).
-- A shadow from GoLib's own lights (M7) instead of the dark disc under each thing.
 
 ## Changelog
+- 0.1.1: the marble, the gems and the cubes cast real shadows from GoLib's sun, in place of the dark disc drawn under each.
 - 0.1.0: first version: rolling, gems, chasing cubes, lives, levels, title, pause and game over. The platform grew from 20 to 28 meters and the marble slowed from 10 to 9 m/s after the first shots: at first it crossed the platform in under two seconds.
