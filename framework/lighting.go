@@ -47,6 +47,12 @@ type Environment struct {
 	// paler Sky.
 	Horizon Color
 
+	// HDRI lights the world as the place in the panorama would, with soft
+	// light from all around and reflections in shiny things, in place of Sky
+	// and Ground; with SkyBackground, it shows behind everything. See
+	// [NewHDRI].
+	HDRI *HDRI
+
 	// FogColor and FogDistance fade the world into fog: things FogDistance
 	// meters away are gone in it, and the fog starts at a tenth of that. 0
 	// is no fog. A FogColor like the background's hides where the world
@@ -191,6 +197,7 @@ type environmentUniforms struct {
 	exposure        float32
 	shadows         bool
 	shadowDistance  float32
+	hdri            *HDRI
 }
 
 // The default light: a sun high behind and to the right of a camera facing
@@ -261,6 +268,7 @@ func (e Environment) uniforms() environmentUniforms {
 	if e.Exposure > 0 {
 		u.exposure = e.Exposure
 	}
+	u.hdri = e.HDRI
 	u.shadows = !e.NoShadows && (u.sun[0] > 0 || u.sun[1] > 0 || u.sun[2] > 0)
 	u.shadowDistance = 50
 	if e.ShadowDistance > 0 {

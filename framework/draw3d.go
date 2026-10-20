@@ -323,6 +323,10 @@ uniform vec3 sunColor;
 uniform vec3 skyColor;
 uniform vec3 groundColor;
 uniform vec4 fog;
+uniform sampler2D environmentMap;
+uniform int hasEnvironment;
+uniform float environmentLevels;
+uniform vec4 irradiance[9];
 uniform sampler2DShadow shadowMap;
 uniform int hasShadows;
 uniform mat4 shadowMatrix0;
@@ -375,6 +379,23 @@ vec3 shade(vec3 n, vec3 v, vec3 l, vec3 radiance, vec3 albedo, float metal, floa
     vec3 specular = d * g * f / (4.0 * nv * nl + 1e-4);
     vec3 diffuse = (1.0 - f) * (1.0 - metal) * albedo;
     return (diffuse + specular * PI) * radiance * nl;
+}
+
+// Where a direction is on an equirectangular panorama.
+vec2 panorama(vec3 d)
+{
+    return vec2(0.5 - atan(d.x, d.z) / 6.2831853, acos(clamp(d.y, -1.0, 1.0)) / 3.14159265);
+}
+
+// The soft light a surface facing n gets from the HDRI, from its spherical
+// harmonics.
+vec3 surrounding(vec3 n)
+{
+    return max(irradiance[0].rgb * 0.282095
+        + irradiance[1].rgb * 0.488603 * n.y + irradiance[2].rgb * 0.488603 * n.z + irradiance[3].rgb * 0.488603 * n.x
+        + irradiance[4].rgb * 1.092548 * n.x * n.y + irradiance[5].rgb * 1.092548 * n.y * n.z
+        + irradiance[6].rgb * 0.315392 * (3.0 * n.z * n.z - 1.0) + irradiance[7].rgb * 1.092548 * n.x * n.z
+        + irradiance[8].rgb * 0.546274 * (n.x * n.x - n.y * n.y), vec3(0.0));
 }
 
 // How much of the sun reaches the surface: 1 in full sun, 0 in shadow,
@@ -464,10 +485,17 @@ void main()
     // reflection fading as the surface roughens.
     float occlusion = 1.0;
     if (hasOcclusionTexture == 1) occlusion = mix(1.0, texture(occlusionTexture, texcoord).r, occlusionStrength);
-    vec3 around = mix(groundColor, skyColor, n.y * 0.5 + 0.5);
     vec3 r = reflect(-v, n);
-    // A rough surface blurs its reflection into the light all around it.
-    vec3 mirrored = mix(mix(groundColor, skyColor, smoothstep(-0.2, 0.2, r.y)), around, rough);
+    vec3 around;
+    vec3 mirrored;
+    if (hasEnvironment == 1) {
+        around = surrounding(n);
+        mirrored = textureLod(environmentMap, panorama(r), rough * environmentLevels).rgb;
+    } else {
+        around = mix(groundColor, skyColor, n.y * 0.5 + 0.5);
+        // A rough surface blurs its reflection into the light all around it.
+        mirrored = mix(mix(groundColor, skyColor, smoothstep(-0.2, 0.2, r.y)), around, rough);
+    }
     float nv = max(dot(n, v), 0.0);
     vec3 fresnel = f0 + (max(vec3(1.0 - rough), f0) - f0) * pow(1.0 - nv, 5.0);
     vec3 ambient = (1.0 - fresnel) * (1.0 - metal) * albedo.rgb * around + fresnel * mirrored;
@@ -501,6 +529,8 @@ uniform vec3 skyTop;
 uniform vec3 horizon;
 uniform vec3 skyBottom;
 uniform vec4 fog;
+uniform sampler2D environmentMap;
+uniform int hasEnvironment;
 out vec4 fragColor;
 
 void main()
@@ -510,6 +540,10 @@ void main()
     vec3 color = direction.y > 0.0
         ? mix(horizon, skyTop, pow(direction.y, 0.6))
         : mix(horizon, skyBottom, pow(-direction.y, 0.4));
+    if (hasEnvironment == 1) {
+        vec2 uv = vec2(0.5 - atan(direction.x, direction.z) / 6.2831853, acos(clamp(direction.y, -1.0, 1.0)) / 3.14159265);
+        color = textureLod(environmentMap, uv, 0.0).rgb;
+    }
     if (fog.w > 0.0) color = mix(color, fog.rgb, 1.0 - smoothstep(0.0, 0.25, abs(direction.y)));
     fragColor = vec4(color, 1.0);
 }
@@ -600,6 +634,8 @@ type litProgram struct {
 	fog, lightCount                             int32
 	lightPositions, lightColors, lightDirection int32
 	shadowMap, hasShadows                       int32
+	environmentMap, hasEnvironment              int32
+	environmentLevels, irradiance               int32
 	shadowMatrices                              [shadowCascades]int32
 	shadowSplits, shadowTexels, viewForward     int32
 }
@@ -615,6 +651,7 @@ type skyProgram struct {
 	program                         device.Program
 	inverseViewProjection, eye      int32
 	skyTop, horizon, skyBottom, fog int32
+	environmentMap, hasEnvironment  int32
 }
 
 // composeProgram puts a pass over the 2D.
@@ -711,6 +748,9 @@ func (r *state3D) load() error {
 		baseOpacity: at(shadow, "baseOpacity"), cutout: at(shadow, "cutout"), alphaCutoff: at(shadow, "alphaCutoff"),
 	}
 	r.lit.shadowMap, r.lit.hasShadows = at(lit, "shadowMap"), at(lit, "hasShadows")
+	r.lit.environmentMap, r.lit.hasEnvironment = at(lit, "environmentMap"), at(lit, "hasEnvironment")
+	r.lit.environmentLevels, r.lit.irradiance = at(lit, "environmentLevels"), at(lit, "irradiance")
+	r.sky.environmentMap, r.sky.hasEnvironment = at(sky, "environmentMap"), at(sky, "hasEnvironment")
 	for k := range shadowCascades {
 		r.lit.shadowMatrices[k] = at(lit, fmt.Sprintf("shadowMatrix%d", k))
 	}
@@ -734,8 +774,11 @@ func (r *state3D) unload() {
 }
 
 // shadowUnit is the texture unit the sun's shadow map is bound to, past the
-// five a material uses.
-const shadowUnit = 5
+// five a material uses, and environmentUnit the HDRI's.
+const (
+	shadowUnit      = 5
+	environmentUnit = 6
+)
 
 // colorFloats returns c as four numbers from 0 to 1, as it is: sRGB.
 func colorFloats(c Color) [4]float32 {
@@ -872,6 +915,28 @@ func (r *state3D) draw(pass *pass3D) {
 	for unit, at := range []int32{lit.baseTexture, lit.emissiveTexture, lit.metalRoughTexture, lit.normalTexture, lit.occlusionTexture} {
 		device.SetUniformInt(at, int32(unit))
 	}
+	// The HDRI, when there is one, lights the pass in place of Sky and
+	// Ground.
+	var environment device.Texture3D
+	if env.hdri != nil {
+		texture, err := env.hdri.upload()
+		if err != nil {
+			reportError(err)
+		}
+		environment = texture
+	}
+	hasEnvironment := environment.ID != 0
+	device.SetUniformInt(lit.environmentMap, environmentUnit)
+	device.SetUniformInt(lit.hasEnvironment, boolInt(hasEnvironment))
+	if hasEnvironment {
+		device.BindTexture3D(environmentUnit, environment)
+		device.SetUniform(lit.environmentLevels, 1, [4]float32{float32(len(env.hdri.levels) - 1)})
+		var sh []float32
+		for _, c := range env.hdri.irradiance {
+			sh = append(sh, c[:]...)
+		}
+		device.SetUniformVec4s(lit.irradiance, sh)
+	}
 	device.SetUniformInt(lit.hasShadows, boolInt(shadows))
 	// The shadow sampler keeps a unit of its own even without shadows: two
 	// kinds of sampler on one unit stop the draw.
@@ -947,6 +1012,8 @@ func (r *state3D) draw(pass *pass3D) {
 		device.SetUniform(sky.horizon, 3, env.horizon)
 		device.SetUniform(sky.skyBottom, 3, env.skyBottom)
 		device.SetUniform(sky.fog, 4, env.fog)
+		device.SetUniformInt(sky.environmentMap, environmentUnit)
+		device.SetUniformInt(sky.hasEnvironment, boolInt(hasEnvironment))
 		device.SetCulling(false)
 		device.DrawFullscreen()
 		device.SetCulling(true)
