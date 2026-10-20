@@ -67,6 +67,16 @@ type ShadowMap struct {
 	Width, Height int
 }
 
+// WorkTarget is a picture a pass draws into and reads back from on the way
+// to the screen, such as the steps of a glow: colors in half floats where
+// the browser allows, smoothed when sampled, clamped at its edges. Portable
+// fields: ID, 0 for none, Width and Height.
+type WorkTarget struct {
+	ID            uint32
+	texture       uint32 // the raylib backend's color texture
+	Width, Height int
+}
+
 // TextureOptions say how a Texture3D is stored and sampled. The zero value
 // is a color picture, smoothed, repeated both ways.
 type TextureOptions struct {

@@ -53,6 +53,11 @@ const (
 	opBeginShadow
 	opEndShadow
 	opBindShadowMap
+	opBeginWork
+	opEndWork
+	opBindWorkTarget
+	opBindPassPicture
+	opAdditive3D
 )
 
 // The blend modes, for opBlend.

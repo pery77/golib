@@ -149,6 +149,51 @@ func EndShadow() {
 	push(opEndShadow)
 }
 
+// NewWorkTarget makes a work target width by height.
+func NewWorkTarget(width, height int) WorkTarget {
+	flush()
+	id := js_().Call("newWorkTarget", width, height).Int()
+	return WorkTarget{ID: uint32(id), Width: width, Height: height}
+}
+
+// UnloadWorkTarget frees a work target.
+func UnloadWorkTarget(t WorkTarget) {
+	if t.ID == 0 {
+		return
+	}
+	flush()
+	js_().Call("unloadWorkTarget", int(t.ID))
+}
+
+// BeginWork draws what follows into t, with no depth testing, clearing it
+// to nothing first when clear is true. EndWork goes back to the pass.
+func BeginWork(t WorkTarget, clear bool) {
+	push(opBeginWork, float32(t.ID), onOff(clear))
+}
+
+// EndWork goes back to drawing the pass, after BeginWork, with depth
+// testing.
+func EndWork() {
+	push(opEndWork)
+}
+
+// BindWorkTarget makes t's picture the one a sampler set to unit reads.
+func BindWorkTarget(unit int, t WorkTarget) {
+	push(opBindWorkTarget, float32(unit), float32(t.ID))
+}
+
+// BindPassPicture makes what the pass has drawn so far the picture a
+// sampler set to unit reads, while drawing into a work target.
+func BindPassPicture(unit int) {
+	push(opBindPassPicture, float32(unit))
+}
+
+// SetAdditive3D says whether what is drawn next adds its color to what is
+// there, as glows pile up, rather than replacing it.
+func SetAdditive3D(on bool) {
+	push(opAdditive3D, onOff(on))
+}
+
 // BindShadowMap makes m the one a shadow sampler uniform set to unit reads.
 func BindShadowMap(unit int, m ShadowMap) {
 	push(opBindShadowMap, float32(unit), float32(m.ID))

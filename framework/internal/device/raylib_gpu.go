@@ -222,8 +222,10 @@ func prepareTarget3D(width, height int32) {
 	glCall(gl.ActiveTexture, glTexture0+scratchUnit)
 	glCall(gl.BindTexture, glTexture2D, uintptr(target3D.color))
 	glCall(gl.TexImage2D, glTexture2D, 0, glRGBA16F, uintptr(width), uintptr(height), 0, glRGBA, glHalfFloat, 0)
-	glCall(gl.TexParameteri, glTexture2D, glTextureMinFilter, glNearest)
-	glCall(gl.TexParameteri, glTexture2D, glTextureMagFilter, glNearest)
+	// Smoothed, for what reads between its texels: the glow's first step,
+	// and the compose shader smoothing edges.
+	glCall(gl.TexParameteri, glTexture2D, glTextureMinFilter, glLinear)
+	glCall(gl.TexParameteri, glTexture2D, glTextureMagFilter, glLinear)
 	glCall(gl.TexParameteri, glTexture2D, glTextureWrapS, glClampToEdge)
 	glCall(gl.TexParameteri, glTexture2D, glTextureWrapT, glClampToEdge)
 	glCall(gl.BindTexture, glTexture2D, 0)
@@ -506,6 +508,80 @@ func BeginShadow(m ShadowMap, x, y, width, height int, clear bool) {
 func EndShadow() {
 	glCall(gl.BindFramebuffer, glFramebuffer, uintptr(target3D.fbo))
 	glCall(gl.Viewport, 0, 0, uintptr(target3D.width), uintptr(target3D.height))
+}
+
+// NewWorkTarget makes a work target width by height.
+func NewWorkTarget(width, height int) WorkTarget {
+	loadGL()
+	t := WorkTarget{Width: width, Height: height}
+	glCall(gl.GenTextures, 1, uintptr(unsafe.Pointer(&t.texture)))
+	glCall(gl.ActiveTexture, glTexture0+scratchUnit)
+	glCall(gl.BindTexture, glTexture2D, uintptr(t.texture))
+	glCall(gl.TexImage2D, glTexture2D, 0, glRGBA16F, uintptr(width), uintptr(height), 0, glRGBA, glHalfFloat, 0)
+	glCall(gl.TexParameteri, glTexture2D, glTextureMinFilter, glLinear)
+	glCall(gl.TexParameteri, glTexture2D, glTextureMagFilter, glLinear)
+	glCall(gl.TexParameteri, glTexture2D, glTextureWrapS, glClampToEdge)
+	glCall(gl.TexParameteri, glTexture2D, glTextureWrapT, glClampToEdge)
+	glCall(gl.BindTexture, glTexture2D, 0)
+	glCall(gl.ActiveTexture, glTexture0)
+	glCall(gl.GenFramebuffers, 1, uintptr(unsafe.Pointer(&t.ID)))
+	glCall(gl.BindFramebuffer, glFramebuffer, uintptr(t.ID))
+	glCall(gl.FramebufferTexture2D, glFramebuffer, glColorAttachment0, glTexture2D, uintptr(t.texture), 0)
+	glCall(gl.BindFramebuffer, glFramebuffer, uintptr(target3D.fbo))
+	return t
+}
+
+// UnloadWorkTarget frees a work target.
+func UnloadWorkTarget(t WorkTarget) {
+	if t.ID == 0 {
+		return
+	}
+	glCall(gl.DeleteFramebuffers, 1, uintptr(unsafe.Pointer(&t.ID)))
+	glCall(gl.DeleteTextures, 1, uintptr(unsafe.Pointer(&t.texture)))
+}
+
+// BeginWork draws what follows into t, with no depth testing, clearing it
+// to nothing first when clear is true. EndWork goes back to the pass.
+func BeginWork(t WorkTarget, clear bool) {
+	glCall(gl.BindFramebuffer, glFramebuffer, uintptr(t.ID))
+	glCall(gl.Viewport, 0, 0, uintptr(t.Width), uintptr(t.Height))
+	glCall(gl.Disable, glDepthTest)
+	if clear {
+		nothing := [4]float32{}
+		glCall(gl.ClearBufferfv, glColor, 0, uintptr(unsafe.Pointer(&nothing[0])))
+	}
+}
+
+// EndWork goes back to drawing the pass, after BeginWork, with depth
+// testing.
+func EndWork() {
+	glCall(gl.BindFramebuffer, glFramebuffer, uintptr(target3D.fbo))
+	glCall(gl.Viewport, 0, 0, uintptr(target3D.width), uintptr(target3D.height))
+	glCall(gl.Enable, glDepthTest)
+}
+
+// BindWorkTarget makes t's picture the one a sampler set to unit reads.
+func BindWorkTarget(unit int, t WorkTarget) {
+	glCall(gl.ActiveTexture, glTexture0+uintptr(unit))
+	glCall(gl.BindTexture, glTexture2D, uintptr(t.texture))
+}
+
+// BindPassPicture makes what the pass has drawn so far the picture a
+// sampler set to unit reads, while drawing into a work target.
+func BindPassPicture(unit int) {
+	glCall(gl.ActiveTexture, glTexture0+uintptr(unit))
+	glCall(gl.BindTexture, glTexture2D, uintptr(target3D.color))
+}
+
+// SetAdditive3D says whether what is drawn next adds its color to what is
+// there, as glows pile up, rather than replacing it.
+func SetAdditive3D(on bool) {
+	if on {
+		glCall(gl.BlendFunc, glOne, glOne)
+		glCall(gl.Enable, glBlend)
+	} else {
+		glCall(gl.Disable, glBlend)
+	}
 }
 
 // BindShadowMap makes m the one a shadow sampler uniform set to unit reads.

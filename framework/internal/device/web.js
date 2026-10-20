@@ -22,7 +22,8 @@ window.golib = (function () {
 		UNIFORM = 24, UNIFORM_INT = 25, DEPTH_WRITE = 26, BLEND_3D = 27,
 		CULLING = 28, DRAW_MESH = 29, DRAW_INSTANCED = 30, BIND_TEXTURE_3D = 31,
 		DRAW_FULLSCREEN = 32, UNIFORM_VEC4S = 33, BEGIN_SHADOW = 34, END_SHADOW = 35,
-		BIND_SHADOW_MAP = 36;
+		BIND_SHADOW_MAP = 36, BEGIN_WORK = 37, END_WORK = 38, BIND_WORK_TARGET = 39,
+		BIND_PASS_PICTURE = 40, ADDITIVE_3D = 41;
 
 	// The vertex layouts of 3D meshes, as gpu.go defines them, and how many
 	// floats an instance of a lit mesh takes: its matrix and its tint.
@@ -400,6 +401,43 @@ void main() {
 					i += 2;
 					break;
 				}
+				case BEGIN_WORK: {
+					const work = workTargets.get(c[i]);
+					if (work) {
+						gl.bindFramebuffer(gl.FRAMEBUFFER, work.framebuffer);
+						gl.viewport(0, 0, work.width, work.height);
+						gl.disable(gl.DEPTH_TEST);
+						if (c[i + 1] !== 0) gl.clearBufferfv(gl.COLOR, 0, [0, 0, 0, 0]);
+					}
+					i += 2;
+					break;
+				}
+				case END_WORK:
+					gl.bindFramebuffer(gl.FRAMEBUFFER, pass3D.framebuffer);
+					gl.viewport(0, 0, pass3D.width, pass3D.height);
+					gl.enable(gl.DEPTH_TEST);
+					break;
+				case BIND_WORK_TARGET: {
+					const work = workTargets.get(c[i + 1]);
+					gl.activeTexture(gl.TEXTURE0 + c[i]);
+					gl.bindTexture(gl.TEXTURE_2D, work ? work.texture : null);
+					i += 2;
+					break;
+				}
+				case BIND_PASS_PICTURE:
+					gl.activeTexture(gl.TEXTURE0 + c[i]);
+					gl.bindTexture(gl.TEXTURE_2D, pass3D.color);
+					i += 1;
+					break;
+				case ADDITIVE_3D:
+					if (c[i] !== 0) {
+						gl.blendFunc(gl.ONE, gl.ONE);
+						gl.enable(gl.BLEND);
+					} else {
+						gl.disable(gl.BLEND);
+					}
+					i += 1;
+					break;
 				case DRAW_FULLSCREEN:
 					gl.bindVertexArray(emptyArray);
 					gl.drawArrays(gl.TRIANGLES, 0, 3);
@@ -962,7 +1000,9 @@ void main() {
 		gl.bindTexture(gl.TEXTURE_2D, pass3D.color);
 		if (pass3D.float) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, width, height, 0, gl.RGBA, gl.HALF_FLOAT, null);
 		else gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
-		clampAndFilter(gl.NEAREST);
+		// Smoothed, for what reads between its texels: the glow's first
+		// step, and the compose shader smoothing edges.
+		clampAndFilter(gl.LINEAR);
 		gl.bindTexture(gl.TEXTURE_2D, null);
 		gl.activeTexture(gl.TEXTURE0);
 		pass3D.depth = gl.createRenderbuffer();
@@ -1011,6 +1051,39 @@ void main() {
 		gl.deleteFramebuffer(map.framebuffer);
 		gl.deleteTexture(map.texture);
 		shadowMaps.delete(id);
+	}
+
+	// Work targets: pictures a pass draws into and reads back on the way to
+	// the screen, in half floats where the browser can render into them.
+	const workTargets = new Map(); // id -> { framebuffer, texture, width, height }
+
+	function newWorkTarget(width, height) {
+		if (pass3D.float === undefined) pass3D.float = !!gl.getExtension('EXT_color_buffer_float');
+		const id = nextID++;
+		const texture = gl.createTexture();
+		gl.activeTexture(gl.TEXTURE7);
+		gl.bindTexture(gl.TEXTURE_2D, texture);
+		if (pass3D.float) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, width, height, 0, gl.RGBA, gl.HALF_FLOAT, null);
+		else gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+		clampAndFilter(gl.LINEAR);
+		gl.bindTexture(gl.TEXTURE_2D, null);
+		gl.activeTexture(gl.TEXTURE0);
+		const framebuffer = gl.createFramebuffer();
+		gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+		gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0);
+		const target = boundTarget === 0 ? null : targets.get(boundTarget);
+		gl.bindFramebuffer(gl.FRAMEBUFFER, target ? target.framebuffer : null);
+		workTargets.set(id, { framebuffer: framebuffer, texture: texture, width: width, height: height });
+		boundTexture = -1;
+		return id;
+	}
+
+	function unloadWorkTarget(id) {
+		const work = workTargets.get(id);
+		if (!work) return;
+		gl.deleteFramebuffer(work.framebuffer);
+		gl.deleteTexture(work.texture);
+		workTargets.delete(id);
 	}
 
 	function begin3D() {
@@ -2030,6 +2103,7 @@ void main() {
 		newMesh: newMesh, updateMesh: updateMesh, unloadMesh: unloadMesh,
 		decodeImage: decodeImage, newTexture3D: newTexture3D, newHDRTexture: newHDRTexture,
 		newShadowMap: newShadowMap, unloadShadowMap: unloadShadowMap,
+		newWorkTarget: newWorkTarget, unloadWorkTarget: unloadWorkTarget,
 		newProgram3D: newProgram3D, unloadProgram3D: unloadProgram3D, location3D: location3D,
 		readFont: readFont,
 		openAudio: openAudio, closeAudio: closeAudio, setMasterVolume: setMasterVolume,
