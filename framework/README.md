@@ -1,6 +1,6 @@
 # GoLib API guide
 
-For AI agents writing game code with GoLib, and for anyone who wants the whole framework on one page. It covers every exported name in package `golib`, the Go code in this folder, grouped by what a game needs, with the rules the names don't tell you. The doc comments in the `.go` files have the full details, and [games/platformer](../games/platformer) and [games/asteroids](../games/asteroids) show all of it in real games.
+For AI agents writing game code with GoLib, and for anyone who wants the whole framework on one page. It covers every exported name in package `golib`, the Go code in this folder, grouped by what a game needs, with the rules the names don't tell you. The doc comments in the `.go` files have the full details, and [games/platformer](../games/platformer) and [games/asteroids](../games/asteroids) show the 2D in real games, and [games/marbles](../games/marbles) the 3D.
 
 `golib test` checks this page against the code: it fails when an exported name is missing here, or when this page names one that doesn't exist (see `apiguide_test.go`). Change both together.
 
@@ -813,13 +813,13 @@ A 3D world, seen through a `Camera3D`, drawn between `screen.Begin3D` and `scree
 | `Vector3.Cross` | `Cross(other Vector3) Vector3`: at right angles to both, such as the up of a surface from two of its sides. |
 | `Vector3.Normalize`, `Vector3.ClampLength`, `Vector3.MoveTowards`, `Vector3.Lerp` | As for `Vector2`. |
 | `Vector3.Rotate` | `Rotate(rotation Rotation) Vector3`: a direction turned as a model turned by `rotation` turns it. |
-| `Rotation` | How something is turned, in degrees: `golib.Rotation{Yaw: 90}`. The zero `Rotation` faces +Z. |
-| `Rotation.Yaw` | Left and right around the world's up: 0 faces +Z, 90 faces +X, 180 faces -Z. |
+| `Rotation` | How something is turned, in degrees: `golib.Rotation{Yaw: 90}`. The zero `Rotation` faces +Z. The turns happen Roll first, then Pitch, then Yaw: a cube stood on a corner is `golib.Rotation{Roll: 45, Pitch: 35.26}`. |
+| `Rotation.Yaw` | Left and right around the world's up: 0 faces +Z, 90 faces +X, 180 faces -Z. Seen from behind, a larger Yaw turns left, because facing +Z the left side is +X: steer right with `yaw -= turnSpeed * dt`. |
 | `Rotation.Pitch` | The front tilted up, positive, or down, negative: 90 faces straight up. |
 | `Rotation.Roll` | Banking around the front: positive lowers the right side, as a plane rolls right. |
 | `Rotation.Forward`, `Rotation.Right`, `Rotation.Up` | `Forward() Vector3` and the others: which way the front, the right side and the top point once turned, length 1. Move a ship with `position.Add(rotation.Forward().Scale(speed * dt))`. |
 | `RotationTowards` | `RotationTowards(direction Vector3) Rotation`: the Yaw and Pitch that face `direction`, to aim a turret or turn a character to where it walks. |
-| `Transform` | Where a mesh is drawn: `Transform.Position`, `Transform.Rotation`, and `Transform.Scale`, which multiplies its size each way. A zero `Scale` counts as 1, 1, 1. |
+| `Transform` | Where a mesh is drawn: `Transform.Position`, `Transform.Rotation`, and `Transform.Scale`, which multiplies its size each way. A part of `Scale` left at 0 counts as 1, so `Scale: golib.Vector3{X: 40, Z: 40}` stretches a plane over the ground. |
 
 ### Meshes and drawing
 
@@ -854,7 +854,7 @@ A 3D world, seen through a `Camera3D`, drawn between `screen.Begin3D` and `scree
 | `Camera3D.Update` | `Update(dt float32)`: moves the view by `Lag` and moves the shake on. Call it in every `Update` when the camera has `Lag` or shakes. |
 | `Camera3D.Snap` | `Snap()`: the view on `Position` and `Target` at once, without `Lag`. |
 | `Camera3D.Shake` | `Shake(strength, seconds float32)`: shakes the view by up to `strength` meters, fading out. Call it from `Update`. |
-| `Camera3D.Forward`, `Camera3D.Right` | `Forward() Vector3`: where it looks; `Right() Vector3`: the screen's right, flat on the ground. Both length 1: walk where the camera looks with them. |
+| `Camera3D.Forward`, `Camera3D.Right` | `Forward() Vector3`: where it looks, tilted as the camera is; `Right() Vector3`: the screen's right, flat on the ground. Both length 1. To walk where the camera looks, flatten `Forward` first: set its `Y` to 0 and `Normalize` it, or keep the yaw given to `Orbit` and use `golib.Rotation{Yaw: yaw}.Forward()`. |
 | `Camera3D.ToScreen` | `ToScreen(point Vector3) (Vector2, bool)`: where a point of the world is on the screen, to draw a name or a health bar over it; false when it is behind the camera. |
 | `Camera3D.Ray` | `Ray(x, y float32) (origin, direction Vector3)`: the line from the camera through a point of the screen, such as `camera.Ray(input.MousePosition())`, to find what the player clicks on. |
 
@@ -880,10 +880,10 @@ func newPlayScene() *playScene {
 
 func (s *playScene) Update(input *golib.Input, dt float32) {
 	if input.KeyDown(golib.KeyLeft) {
-		s.yaw -= 120 * dt
+		s.yaw += 120 * dt // a larger yaw turns left
 	}
 	if input.KeyDown(golib.KeyRight) {
-		s.yaw += 120 * dt
+		s.yaw -= 120 * dt
 	}
 	if input.KeyDown(golib.KeyUp) {
 		s.ballAt = s.ballAt.Add(golib.Rotation{Yaw: s.yaw}.Forward().Scale(5 * dt))
@@ -903,7 +903,9 @@ func (s *playScene) Draw(screen *golib.Screen) {
 ```
 
 - **Positions are the rules; the camera is only the view.** Keep the world in `Vector3`s in the rules and in the tests, as in 2D. Many 3D games play on the ground, so their rules can stay in X and Z.
+- **Turns, in short:** a zero `Rotation` faces +Z; a larger `Yaw` turns left; seen through a camera facing +Z, the screen's right is -X. Check which way things move with a test that calls `Camera3D.ToScreen`, as [games/marbles](../games/marbles/world_test.go) does, rather than by reasoning about axes.
 - **Meshes are one meter across, centered.** A box standing on the ground at `p` with height `h` is drawn at `p.Add(golib.Vector3{Y: h / 2})` with `Scale` Y `h`.
+- **Two surfaces at the same height flicker through each other**, such as a plane laid on a box's top. Lift the one on top by a centimeter, or make floors from thin boxes.
 - **Check what the camera sees with `golib shot`.** A camera looking the wrong way shows only the background color. While testing, `screen.DrawAxes(golib.Vector3{}, 1)` and `screen.DrawGrid(20, 1, golib.Gray)` show where the world is and which way is which.
 - The light is fixed for now: a sun high behind and to the right of a camera facing +Z, as `NewCamera3D`'s does, and a soft light from the sky. A side facing away from the sun shows its color at about half its brightness.
 - `Config.PixelArt` draws the 3D at the screen's size and scales it up, the look of the first 3D consoles; `Config.Antialias` smooths its edges; post-processing shaders run over it as over the 2D.

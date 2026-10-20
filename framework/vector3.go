@@ -114,7 +114,8 @@ func (v Vector3) Rotate(rotation Rotation) Vector3 {
 // own front, its own sideways line and the world's up.
 type Rotation struct {
 	// Yaw turns left and right, around the world's up: 0 faces +Z, 90 faces
-	// +X, 180 faces -Z and -90 faces -X.
+	// +X, 180 faces -Z and -90 faces -X. Seen from behind, from above, a
+	// larger Yaw turns left, because facing +Z the left side is +X.
 	Yaw float32
 
 	// Pitch tilts the front up or down: 90 faces straight up, -90 straight
@@ -160,9 +161,10 @@ func (r Rotation) Up() Vector3 {
 }
 
 // Transform places something in the world: where it is, how it is turned,
-// and how large it is. Scale multiplies each of the model's own sizes; a zero
-// Scale counts as 1, 1, 1, so a Transform with only a Position draws the
-// model as it was made.
+// and how large it is. Scale multiplies each of the model's own sizes, and a
+// part of it left at 0 counts as 1: a Transform with only a Position draws
+// the model as it was made, and Scale{X: 40, Z: 40} stretches a plane over
+// the ground. To hide something, don't draw it.
 //
 //	screen.DrawMesh(s.box, golib.Transform{Position: crate.Position, Scale: golib.Vector3{X: 2, Y: 1, Z: 1}}, golib.Brown)
 type Transform struct {
@@ -174,8 +176,10 @@ type Transform struct {
 // matrix returns the transform as a matrix: scaled, then turned, then moved.
 func (t Transform) matrix() matrix {
 	scale := t.Scale
-	if scale == (Vector3{}) {
-		scale = Vector3{X: 1, Y: 1, Z: 1}
+	for _, part := range []*float32{&scale.X, &scale.Y, &scale.Z} {
+		if *part == 0 {
+			*part = 1
+		}
 	}
 	m := t.Rotation.matrix()
 	for i := 0; i < 3; i++ {

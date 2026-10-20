@@ -86,6 +86,10 @@ func TestTransformMatrix(t *testing.T) {
 	if got := plain.matrix().transformPoint(Vector3{X: 1}); !near3(got, Vector3{X: 2, Y: 2, Z: 3}) {
 		t.Errorf("zero Scale moved X to %v, want it kept at size 1", got)
 	}
+	flat := Transform{Scale: Vector3{X: 4, Z: 2}}
+	if got := flat.matrix().transformPoint(Vector3{X: 1, Y: 1, Z: 1}); !near3(got, Vector3{X: 4, Y: 1, Z: 2}) {
+		t.Errorf("Scale with Y left at 0 put 1, 1, 1 at %v, want Y kept at size 1", got)
+	}
 	scaled := Transform{Scale: Vector3{X: 2, Y: 3, Z: 4}, Rotation: Rotation{Yaw: 90}, Position: Vector3{Y: 10}}
 	// Scaled to 0, 0, 4, turned to 4, 0, 0, moved up.
 	if got := scaled.matrix().transformPoint(Vector3{Z: 1}); !near3(got, Vector3{X: 4, Y: 10}) {
