@@ -20,7 +20,8 @@ window.golib = (function () {
 	// The 3D commands, as web_gpu.go writes them.
 	const BEGIN_3D = 20, END_3D = 21, USE_PROGRAM = 22, UNIFORM_MATRIX = 23,
 		UNIFORM = 24, UNIFORM_INT = 25, DEPTH_WRITE = 26, BLEND_3D = 27,
-		CULLING = 28, DRAW_MESH = 29, DRAW_INSTANCED = 30, BIND_TEXTURE_3D = 31;
+		CULLING = 28, DRAW_MESH = 29, DRAW_INSTANCED = 30, BIND_TEXTURE_3D = 31,
+		DRAW_FULLSCREEN = 32, UNIFORM_VEC4S = 33;
 
 	// The vertex layouts of 3D meshes, as gpu.go defines them, and how many
 	// floats an instance of a lit mesh takes: its matrix and its tint.
@@ -367,7 +368,18 @@ void main() {
 					begin3D();
 					break;
 				case END_3D:
-					end3D();
+					end3D(c[i]);
+					i += 1;
+					break;
+				case UNIFORM_VEC4S: {
+					const count = c[i + 1];
+					gl.uniform4fv(locations3D[c[i]], c, i + 2, count * 4);
+					i += 2 + count * 4;
+					break;
+				}
+				case DRAW_FULLSCREEN:
+					gl.bindVertexArray(emptyArray);
+					gl.drawArrays(gl.TRIANGLES, 0, 3);
 					break;
 				case USE_PROGRAM:
 					gl.useProgram(programs3D.get(c[i]) || null);
@@ -396,7 +408,9 @@ void main() {
 					break;
 				case BLEND_3D:
 					if (c[i] !== 0) {
-						gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+						// Opacity piles up as coverage, so end3D can put
+						// the pass over the 2D with what shows through.
+						gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
 						gl.enable(gl.BLEND);
 					} else {
 						gl.disable(gl.BLEND);
@@ -872,25 +886,76 @@ void main() {
 		return at;
 	}
 
+	// pass3D is what a 3D pass draws into: colors in half floats where the
+	// browser can render into them, a depth buffer, the size of the target
+	// the pass is drawn over. end3D puts it over that target, tonemapped.
+	const pass3D = { framebuffer: null, color: null, depth: null, width: 0, height: 0, float: undefined };
+	let emptyArray = null; // a vertex array with nothing, for a triangle over the whole view
+
+	function preparePass3D(width, height) {
+		if (pass3D.framebuffer && pass3D.width === width && pass3D.height === height) return;
+		if (pass3D.float === undefined) pass3D.float = !!gl.getExtension('EXT_color_buffer_float');
+		if (!emptyArray) emptyArray = gl.createVertexArray();
+		if (pass3D.framebuffer) {
+			gl.deleteFramebuffer(pass3D.framebuffer);
+			gl.deleteTexture(pass3D.color);
+			gl.deleteRenderbuffer(pass3D.depth);
+		}
+		pass3D.width = width;
+		pass3D.height = height;
+		pass3D.color = gl.createTexture();
+		gl.activeTexture(gl.TEXTURE7);
+		gl.bindTexture(gl.TEXTURE_2D, pass3D.color);
+		if (pass3D.float) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, width, height, 0, gl.RGBA, gl.HALF_FLOAT, null);
+		else gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+		clampAndFilter(gl.NEAREST);
+		gl.bindTexture(gl.TEXTURE_2D, null);
+		gl.activeTexture(gl.TEXTURE0);
+		pass3D.depth = gl.createRenderbuffer();
+		gl.bindRenderbuffer(gl.RENDERBUFFER, pass3D.depth);
+		gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, width, height);
+		pass3D.framebuffer = gl.createFramebuffer();
+		gl.bindFramebuffer(gl.FRAMEBUFFER, pass3D.framebuffer);
+		gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, pass3D.color, 0);
+		gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, pass3D.depth);
+		boundTexture = -1;
+	}
+
 	function begin3D() {
 		flush();
+		preparePass3D(Math.max(1, viewWidth), Math.max(1, viewHeight));
+		gl.bindFramebuffer(gl.FRAMEBUFFER, pass3D.framebuffer);
+		gl.viewport(0, 0, pass3D.width, pass3D.height);
 		gl.enable(gl.DEPTH_TEST);
 		gl.depthFunc(gl.LEQUAL);
 		gl.depthMask(true);
-		gl.clear(gl.DEPTH_BUFFER_BIT);
+		gl.clearBufferfv(gl.COLOR, 0, [0, 0, 0, 0]);
+		gl.clearBufferfv(gl.DEPTH, 0, [1]);
 		gl.enable(gl.CULL_FACE);
 		gl.cullFace(gl.BACK);
 		gl.frontFace(gl.CCW);
 		gl.disable(gl.BLEND);
 	}
 
-	// end3D leaves WebGL as the 2D expects it: no depth testing or culling,
-	// blending as it was, and the 2D's program, batch and texture unit.
-	function end3D() {
+	// end3D draws the pass's picture over the target the pass was drawn
+	// over, through the compose program, which reads it from texture unit 0
+	// and gives colors premultiplied by their opacity. Then it leaves WebGL as
+	// the 2D expects it: no depth testing or culling, blending as it was, and
+	// the 2D's program, batch and texture unit.
+	function end3D(composeID) {
+		const target = boundTarget === 0 ? null : targets.get(boundTarget);
+		gl.bindFramebuffer(gl.FRAMEBUFFER, target ? target.framebuffer : null);
+		gl.viewport(0, 0, viewWidth, viewHeight);
 		gl.disable(gl.DEPTH_TEST);
 		gl.depthMask(true);
 		gl.disable(gl.CULL_FACE);
 		gl.enable(gl.BLEND);
+		gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+		gl.useProgram(programs3D.get(composeID) || null);
+		gl.activeTexture(gl.TEXTURE0);
+		gl.bindTexture(gl.TEXTURE_2D, pass3D.color);
+		gl.bindVertexArray(emptyArray);
+		gl.drawArrays(gl.TRIANGLES, 0, 3);
 		const mode = boundBlend;
 		boundBlend = -1;
 		setBlend(mode < 0 ? BLEND_NORMAL : mode);

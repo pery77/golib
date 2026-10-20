@@ -65,6 +65,17 @@ const (
 	glMirroredRepeat     = 0x8370
 	glMaxAnisotropy      = 0x84FE
 	glUnpackAlignment    = 0x0CF5
+	glFramebuffer        = 0x8D40
+	glFramebufferBinding = 0x8CA6
+	glViewportParameter  = 0x0BA2
+	glColorAttachment0   = 0x8CE0
+	glDepthAttachment    = 0x8D00
+	glRenderbuffer       = 0x8D41
+	glDepthComponent24   = 0x81A6
+	glRGBA16F            = 0x881A
+	glHalfFloat          = 0x140B
+	glColor              = 0x1800
+	glDepth              = 0x1801
 )
 
 // anisotropy is how many samples a texture takes along a surface seen at a
@@ -96,6 +107,14 @@ var gl struct {
 	VertexAttribDivisor, DrawElementsInstanced                               uintptr
 	GenTextures, BindTexture, TexImage2D, TexParameteri, GenerateMipmap      uintptr
 	DeleteTextures, PixelStorei                                              uintptr
+	GetIntegerv, BindFramebuffer, GenFramebuffers, DeleteFramebuffers        uintptr
+	FramebufferTexture2D, GenRenderbuffers, BindRenderbuffer                 uintptr
+	RenderbufferStorage, FramebufferRenderbuffer, DeleteRenderbuffers        uintptr
+	Viewport, ClearBufferfv, BlendFuncSeparate, DrawArrays                   uintptr
+
+	// empty is a vertex array with nothing in it, for a triangle over the
+	// whole view whose corners the vertex shader works out.
+	empty uint32
 
 	// instances is the buffer every instanced draw fills with its
 	// instances' matrices and tints, attached to every lit mesh.
@@ -136,6 +155,13 @@ func loadGL() {
 		{&gl.TexImage2D, "glTexImage2D"}, {&gl.TexParameteri, "glTexParameteri"},
 		{&gl.GenerateMipmap, "glGenerateMipmap"}, {&gl.DeleteTextures, "glDeleteTextures"},
 		{&gl.PixelStorei, "glPixelStorei"},
+		{&gl.GetIntegerv, "glGetIntegerv"}, {&gl.BindFramebuffer, "glBindFramebuffer"},
+		{&gl.GenFramebuffers, "glGenFramebuffers"}, {&gl.DeleteFramebuffers, "glDeleteFramebuffers"},
+		{&gl.FramebufferTexture2D, "glFramebufferTexture2D"}, {&gl.GenRenderbuffers, "glGenRenderbuffers"},
+		{&gl.BindRenderbuffer, "glBindRenderbuffer"}, {&gl.RenderbufferStorage, "glRenderbufferStorage"},
+		{&gl.FramebufferRenderbuffer, "glFramebufferRenderbuffer"}, {&gl.DeleteRenderbuffers, "glDeleteRenderbuffers"},
+		{&gl.Viewport, "glViewport"}, {&gl.ClearBufferfv, "glClearBufferfv"},
+		{&gl.BlendFuncSeparate, "glBlendFuncSeparate"}, {&gl.DrawArrays, "glDrawArrays"},
 	} {
 		*f.to = uintptr(rl.GetProcAddress(f.name))
 		if *f.to == 0 {
@@ -145,6 +171,7 @@ func loadGL() {
 		}
 	}
 	glCall(gl.GenBuffers, 1, uintptr(unsafe.Pointer(&gl.instances)))
+	glCall(gl.GenVertexArrays, 1, uintptr(unsafe.Pointer(&gl.empty)))
 	gl.loaded = true
 }
 
@@ -152,7 +179,54 @@ func loadGL() {
 // OpenGL context, when the window closes.
 func forgetGL() {
 	gl.loaded = false
-	gl.instances = 0
+	gl.instances, gl.empty = 0, 0
+	target3D = struct {
+		fbo, color, depth uint32
+		width, height     int32
+		previous          int32
+		viewport          [4]int32
+	}{}
+}
+
+// target3D is what a 3D pass draws into: colors in half floats, brighter
+// than white where the light is, and a depth buffer, the size of the target
+// the pass is drawn over. End3D puts it over that target, tonemapped.
+var target3D struct {
+	fbo, color, depth uint32
+	width, height     int32
+	previous          int32    // the framebuffer the pass is drawn over
+	viewport          [4]int32 // and its viewport
+}
+
+// prepareTarget3D makes target3D width by height, or makes it again at a new
+// size.
+func prepareTarget3D(width, height int32) {
+	if target3D.fbo != 0 && target3D.width == width && target3D.height == height {
+		return
+	}
+	if target3D.fbo != 0 {
+		glCall(gl.DeleteFramebuffers, 1, uintptr(unsafe.Pointer(&target3D.fbo)))
+		glCall(gl.DeleteTextures, 1, uintptr(unsafe.Pointer(&target3D.color)))
+		glCall(gl.DeleteRenderbuffers, 1, uintptr(unsafe.Pointer(&target3D.depth)))
+	}
+	target3D.width, target3D.height = width, height
+	glCall(gl.GenTextures, 1, uintptr(unsafe.Pointer(&target3D.color)))
+	glCall(gl.ActiveTexture, glTexture0+scratchUnit)
+	glCall(gl.BindTexture, glTexture2D, uintptr(target3D.color))
+	glCall(gl.TexImage2D, glTexture2D, 0, glRGBA16F, uintptr(width), uintptr(height), 0, glRGBA, glHalfFloat, 0)
+	glCall(gl.TexParameteri, glTexture2D, glTextureMinFilter, glNearest)
+	glCall(gl.TexParameteri, glTexture2D, glTextureMagFilter, glNearest)
+	glCall(gl.TexParameteri, glTexture2D, glTextureWrapS, glClampToEdge)
+	glCall(gl.TexParameteri, glTexture2D, glTextureWrapT, glClampToEdge)
+	glCall(gl.BindTexture, glTexture2D, 0)
+	glCall(gl.ActiveTexture, glTexture0)
+	glCall(gl.GenRenderbuffers, 1, uintptr(unsafe.Pointer(&target3D.depth)))
+	glCall(gl.BindRenderbuffer, glRenderbuffer, uintptr(target3D.depth))
+	glCall(gl.RenderbufferStorage, glRenderbuffer, glDepthComponent24, uintptr(width), uintptr(height))
+	glCall(gl.GenFramebuffers, 1, uintptr(unsafe.Pointer(&target3D.fbo)))
+	glCall(gl.BindFramebuffer, glFramebuffer, uintptr(target3D.fbo))
+	glCall(gl.FramebufferTexture2D, glFramebuffer, glColorAttachment0, glTexture2D, uintptr(target3D.color), 0)
+	glCall(gl.FramebufferRenderbuffer, glFramebuffer, glDepthAttachment, glRenderbuffer, uintptr(target3D.depth))
 }
 
 // glCall calls an OpenGL function with integer and pointer arguments.
@@ -321,34 +395,63 @@ func UniformLocation(program Program, name string) int32 {
 	return location
 }
 
-// Begin3D starts drawing 3D into the target being drawn on, over the 2D
-// drawn there so far: it sends raylib's waiting 2D first, clears the depth,
-// and turns on depth testing and culling of back faces, with blending off.
+// Begin3D starts a 3D pass over the target being drawn on: it sends
+// raylib's waiting 2D first, and draws what follows into a target of its own,
+// in half floats, the same size, cleared to nothing, with depth testing and
+// back faces culled, blending off. End3D puts it over the 2D.
 func Begin3D() {
 	loadGL()
 	rl.DrawRenderBatchActive()
+	glCall(gl.GetIntegerv, glFramebufferBinding, uintptr(unsafe.Pointer(&target3D.previous)))
+	glCall(gl.GetIntegerv, glViewportParameter, uintptr(unsafe.Pointer(&target3D.viewport[0])))
+	prepareTarget3D(max(1, target3D.viewport[2]), max(1, target3D.viewport[3]))
+	glCall(gl.BindFramebuffer, glFramebuffer, uintptr(target3D.fbo))
+	glCall(gl.Viewport, 0, 0, uintptr(target3D.width), uintptr(target3D.height))
+	glCall(gl.DepthMask, 1)
+	nothing, far := [4]float32{}, float32(1)
+	glCall(gl.ClearBufferfv, glColor, 0, uintptr(unsafe.Pointer(&nothing[0])))
+	glCall(gl.ClearBufferfv, glDepth, 0, uintptr(unsafe.Pointer(&far)))
 	glCall(gl.Enable, glDepthTest)
 	glCall(gl.DepthFunc, glLEqual)
-	glCall(gl.DepthMask, 1)
-	glCall(gl.Clear, glDepthBufferBit)
 	glCall(gl.Enable, glCullFace)
 	glCall(gl.CullFace, glBack)
 	glCall(gl.FrontFace, glCCW)
 	glCall(gl.Disable, glBlend)
 }
 
-// End3D ends the 3D Begin3D started, and leaves OpenGL as raylib expects it
-// for the 2D drawn after: no depth testing, back faces culled, normal
-// blending on, texture unit 0, and no program or vertex array of the 3D.
-func End3D() {
-	glCall(gl.BindVertexArray, 0)
+// End3D ends the pass Begin3D started: it draws the pass's picture over the
+// target the pass was drawn over, through compose, a program whose vertex
+// shader covers the view (see DrawFullscreen) and whose fragment shader reads
+// the picture from texture unit 0 and gives colors premultiplied by their
+// opacity. Then it leaves OpenGL as raylib expects it for the 2D drawn after:
+// no depth testing, back faces culled, normal blending on, texture unit 0,
+// and no program or vertex array of the 3D.
+func End3D(compose Program) {
+	glCall(gl.BindFramebuffer, glFramebuffer, uintptr(target3D.previous))
+	v := target3D.viewport
+	glCall(gl.Viewport, uintptr(v[0]), uintptr(v[1]), uintptr(v[2]), uintptr(v[3]))
 	glCall(gl.Disable, glDepthTest)
 	glCall(gl.DepthMask, 1)
+	glCall(gl.Disable, glCullFace)
+	glCall(gl.BlendFunc, glOne, glOneMinusSrcAlpha)
+	glCall(gl.Enable, glBlend)
+	glCall(gl.UseProgram, uintptr(compose.ID))
+	glCall(gl.ActiveTexture, glTexture0)
+	glCall(gl.BindTexture, glTexture2D, uintptr(target3D.color))
+	DrawFullscreen()
+	glCall(gl.BindTexture, glTexture2D, 0)
+	glCall(gl.BindVertexArray, 0)
 	glCall(gl.Enable, glCullFace)
 	glCall(gl.BlendFunc, glSrcAlpha, glOneMinusSrcAlpha)
-	glCall(gl.Enable, glBlend)
-	glCall(gl.ActiveTexture, glTexture0)
 	glCall(gl.UseProgram, 0)
+}
+
+// DrawFullscreen draws one triangle over the whole view with the program in
+// use, whose vertex shader places its three corners from gl_VertexID: a sky
+// behind everything, or a picture put over another.
+func DrawFullscreen() {
+	glCall(gl.BindVertexArray, uintptr(gl.empty))
+	glCall(gl.DrawArrays, glTriangles, 0, 3)
 }
 
 // UseProgram draws what follows through program.
@@ -377,6 +480,16 @@ func SetUniform(location int32, count int, values [4]float32) {
 	runtime.KeepAlive(&values)
 }
 
+// SetUniformVec4s sets a uniform array of vec4 of the program in use, from
+// four values for each, as many as values holds.
+func SetUniformVec4s(location int32, values []float32) {
+	if location < 0 || len(values) < 4 {
+		return
+	}
+	glCall(gl.Uniform4fv, uintptr(location), uintptr(len(values)/4), uintptr(unsafe.Pointer(&values[0])))
+	runtime.KeepAlive(values)
+}
+
 // SetUniformInt sets an int or sampler uniform of the program in use.
 func SetUniformInt(location, value int32) {
 	if location < 0 {
@@ -395,7 +508,9 @@ func SetDepthWrite(on bool) {
 // it by its opacity, as see-through things are.
 func SetBlend3D(on bool) {
 	if on {
-		glCall(gl.BlendFunc, glSrcAlpha, glOneMinusSrcAlpha)
+		// Opacity piles up as coverage, so End3D can put the pass over the
+		// 2D with what shows through.
+		glCall(gl.BlendFuncSeparate, glSrcAlpha, glOneMinusSrcAlpha, glOne, glOneMinusSrcAlpha)
 		glCall(gl.Enable, glBlend)
 	} else {
 		glCall(gl.Disable, glBlend)

@@ -48,6 +48,8 @@ const (
 	opDrawMesh
 	opDrawInstanced
 	opBindTexture3D
+	opDrawFullscreen
+	opUniformVec4s
 )
 
 // The blend modes, for opBlend.

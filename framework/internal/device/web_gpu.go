@@ -95,16 +95,27 @@ func UniformLocation(program Program, name string) int32 {
 	return int32(js_().Call("location3D", int(program.ID), name).Int())
 }
 
-// Begin3D starts drawing 3D into the target being drawn on, over the 2D
-// drawn there so far: it clears the depth, and turns on depth testing and
-// culling of back faces, with blending off.
+// Begin3D starts a 3D pass over the target being drawn on: what follows goes
+// into a target of its own, in half floats where the browser can render into
+// them, the same size, cleared to nothing, with depth testing and back faces
+// culled, blending off. End3D puts it over the 2D.
 func Begin3D() {
 	push(opBegin3D)
 }
 
-// End3D ends the 3D Begin3D started, and leaves WebGL as the 2D expects it.
-func End3D() {
-	push(opEnd3D)
+// End3D ends the pass Begin3D started: it draws the pass's picture over the
+// target the pass was drawn over, through compose, a program whose vertex
+// shader covers the view and whose fragment shader reads the picture from
+// texture unit 0 and gives colors premultiplied by their opacity. Then it
+// leaves WebGL as the 2D expects it.
+func End3D(compose Program) {
+	push(opEnd3D, float32(compose.ID))
+}
+
+// DrawFullscreen draws one triangle over the whole view with the program in
+// use, whose vertex shader places its three corners from gl_VertexID.
+func DrawFullscreen() {
+	push(opDrawFullscreen)
 }
 
 // UseProgram draws what follows through program.
@@ -131,6 +142,19 @@ func SetUniform(location int32, count int, values [4]float32) {
 		return
 	}
 	push(opUniform, float32(location), float32(count), values[0], values[1], values[2], values[3])
+}
+
+// SetUniformVec4s sets a uniform array of vec4 of the program in use, from
+// four values for each, as many as values holds.
+func SetUniformVec4s(location int32, values []float32) {
+	count := len(values) / 4
+	if location < 0 || count == 0 {
+		return
+	}
+	push(opUniformVec4s, float32(location), float32(count))
+	for _, v := range values[:count*4] {
+		putf(v)
+	}
 }
 
 // SetUniformInt sets an int or sampler uniform of the program in use.
