@@ -146,6 +146,11 @@ func (s *Screen) addItem(mesh *Mesh, material *material3D, model matrix, tint Co
 		return // no triangles
 	}
 	mesh.bounds()
+	// The material's textures go to the graphics card now, before the pass
+	// draws anything.
+	for _, t := range []*texture3D{material.baseTexture, material.emissiveTexture} {
+		t.upload()
+	}
 	s.pass.items = append(s.pass.items, item3D{
 		gpu: gpu, material: material, model: model, tint: tint,
 		center: model.transformPoint(mesh.center), radius: mesh.radius * model.largestScale(),

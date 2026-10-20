@@ -48,7 +48,9 @@ func levelGLB(t *testing.T, paint color.NRGBA) []byte {
 		"rotation": []float32{0, float32(math.Sin(math.Pi / 4)), 0, float32(math.Cos(math.Pi / 4))}})
 	enemy := b.Add("nodes", map[string]any{"name": "Enemy", "translation": []float32{-2, 0, 0},
 		"extras": map[string]any{"kind": "slime", "speed": 1.5}})
-	b.Root(b.Add("nodes", map[string]any{"name": "Level", "translation": []float32{0, 1, 0}, "children": []any{floor, start, enemy}}))
+	bone := b.Add("nodes", map[string]any{"name": "Bone"})
+	b.Add("skins", map[string]any{"joints": []any{bone}})
+	b.Root(b.Add("nodes", map[string]any{"name": "Level", "translation": []float32{0, 1, 0}, "children": []any{floor, start, enemy, bone}}))
 	return b.GLB()
 }
 

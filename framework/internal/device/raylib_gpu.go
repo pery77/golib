@@ -71,6 +71,10 @@ const (
 // slant; graphics cards that allow fewer use their most.
 const anisotropy = 8
 
+// scratchUnit is the texture unit textures are made on, which no program
+// samples: making one mid-pass leaves the units bound for drawing alone.
+const scratchUnit = 7
+
 // gl holds the OpenGL functions this file calls, found once a window, and
 // so an OpenGL context, exists.
 var gl struct {
@@ -454,6 +458,8 @@ func NewTexture3D(img DecodedImage, options TextureOptions) Texture3D {
 	loadGL()
 	var id uint32
 	glCall(gl.GenTextures, 1, uintptr(unsafe.Pointer(&id)))
+	// A unit no program samples, so the textures bound for drawing stay.
+	glCall(gl.ActiveTexture, glTexture0+scratchUnit)
 	glCall(gl.BindTexture, glTexture2D, uintptr(id))
 	glCall(gl.PixelStorei, glUnpackAlignment, 1)
 	format := uintptr(glSRGB8Alpha8)
@@ -476,6 +482,7 @@ func NewTexture3D(img DecodedImage, options TextureOptions) Texture3D {
 	glCall(gl.TexParameteri, glTexture2D, glTextureWrapT, wrap(options.ClampT, options.MirrorT))
 	glCall(gl.TexParameteri, glTexture2D, glMaxAnisotropy, anisotropy)
 	glCall(gl.BindTexture, glTexture2D, 0)
+	glCall(gl.ActiveTexture, glTexture0)
 	return Texture3D{ID: id, Width: img.Width, Height: img.Height}
 }
 

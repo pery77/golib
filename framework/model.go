@@ -48,7 +48,7 @@ type modelPart struct {
 }
 
 // ModelMarker is a point placed in a model in Blender, as an empty, or in
-// any other node with no mesh: where a level's player starts, where enemies
+// any other node with no mesh but a character's bones: where a level's player starts, where enemies
 // appear, where a door goes. Position, Rotation and Scale are in the model's
 // own space, as Blender shows them once exported; place them with
 // [Transform.Child] when the model is drawn moved.
@@ -226,7 +226,7 @@ func (m *Model) load() error {
 					m.upmost = Vector3{X: max(m.upmost.X, p.X), Y: max(m.upmost.Y, p.Y), Z: max(m.upmost.Z, p.Z)}
 				}
 			}
-		} else {
+		} else if !n.Joint {
 			position, rotation, scale := place.decompose()
 			m.markers = append(m.markers, ModelMarker{
 				Name: n.Name, Position: position, Rotation: rotation, Scale: scale,

@@ -1529,6 +1529,7 @@ func TestJumpOnlyFromTheGround(t *testing.T) {
 
 - `Rectangle`, the random numbers, `ReadAsset`, `Animation`, a sprite's `Width`, `Height`, `Frames` and `Animation`, and everything a `Map` has but drawing work in tests; `golib test` runs them in the game's folder, so a test can check that a level has a start and the player can reach the exit.
 - `Sound.Play` and `Music.Play` play nothing in tests; `Sound.Play` still reads a sound file, so a test that plays it checks the file.
+- In 3D, `Vector3`, `Rotation`, `Transform`, `Camera3D` (`ToScreen`, `Ray`, `Orbit`, `Look`, `Update`), and a model's `Err`, `Bounds` and `Markers` work in tests: check which way a key moves a character on the screen, and that a level's markers are where they should be, as `games/hopper/level_test.go` does.
 - `Run` and `Screen` need a window: check drawing with `golib shot` instead.
 
 ## Using raylib directly
@@ -1583,7 +1584,7 @@ A web build is what a phone plays, so a game meant for one is a game meant for t
 | Positional sound: louder on the side it comes from | Planned with 3D (M7, stage 6) | `Sound.PlayWith` at a lower volume for what is far away |
 | Physics | Planned with 3D (M7, stage 6): collisions and a character controller in Go, then rigid bodies with Jolt | Simple movement and `Rectangle` overlap checks in the game |
 | Trigger pressure, vibration | Not on the roadmap yet | Triggers read as buttons |
-| 3D models from Blender and FBX, textures, materials, lights, shadows and animation | Planned (M7, stages 2 to 9): see [docs/roadmap.md](../docs/roadmap.md#m7-3d-planned) | The basic shapes of [3D](#3d), in colors, scaled and placed with `Transform` |
+| 3D lights of a game's own, shadows, FBX files, skeletal animation, collisions against a model's meshes, and hiding or reading one part of a model | Planned (M7, stages 3 to 7): see [docs/roadmap.md](../docs/roadmap.md#m7-3d-planned) | Models, textures and materials work under a fixed sun; for solid level geometry, mark it with empties and custom properties, as [games/hopper](../games/hopper) does, and check collisions in the game |
 | `.qoa`, `.xm` and `.mod` in a browser | Not planned: browsers cannot decode them | Save the sound as `.wav`, `.ogg` or `.mp3`. For music, put that file next to the `.xm` under the same name: a web build plays it, and the desktop keeps playing the module |
 
 When a game needs one of these, say so to the user and point to [docs/roadmap.md](../docs/roadmap.md), as [AGENTS.md](../AGENTS.md) asks, instead of building an engine to fill the gap.

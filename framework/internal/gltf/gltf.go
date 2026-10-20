@@ -108,6 +108,7 @@ type Node struct {
 	Children []int
 	Local    [16]float32 // column-major, relative to the parent
 	Extras   map[string]string
+	Joint    bool // a bone of a skin, which moves the mesh rather than marking a place
 }
 
 // Light is a light from KHR_lights_punctual. Its direction, for a spot and a
@@ -234,6 +235,9 @@ type rawDocument struct {
 			} `json:"KHR_lights_punctual"`
 		} `json:"extensions"`
 	} `json:"nodes"`
+	Skins []struct {
+		Joints []int `json:"joints"`
+	} `json:"skins"`
 	Meshes []struct {
 		Name       string `json:"name"`
 		Primitives []struct {
@@ -523,6 +527,14 @@ func (r *reader) document() (*Document, error) {
 			}
 		}
 		doc.Nodes = append(doc.Nodes, node)
+	}
+
+	for _, skin := range raw.Skins {
+		for _, joint := range skin.Joints {
+			if joint >= 0 && joint < len(doc.Nodes) {
+				doc.Nodes[joint].Joint = true
+			}
+		}
 	}
 
 	switch {

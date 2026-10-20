@@ -756,6 +756,8 @@ void main() {
 		bitmaps.delete(bitmapID);
 		const id = nextID++;
 		const made = gl.createTexture();
+		// A unit no program samples, so the textures bound for drawing stay.
+		gl.activeTexture(gl.TEXTURE7);
 		gl.bindTexture(gl.TEXTURE_2D, made);
 		gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
 		gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
@@ -771,6 +773,8 @@ void main() {
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, wraps[wrapT]);
 		if (anisotropy === undefined) anisotropy = gl.getExtension('EXT_texture_filter_anisotropic');
 		if (anisotropy) gl.texParameterf(gl.TEXTURE_2D, anisotropy.TEXTURE_MAX_ANISOTROPY_EXT, 8);
+		gl.bindTexture(gl.TEXTURE_2D, null);
+		gl.activeTexture(gl.TEXTURE0);
 		textures.set(id, made);
 		boundTexture = -1;
 		return id;
