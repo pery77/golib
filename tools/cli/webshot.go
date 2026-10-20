@@ -234,6 +234,12 @@ func startBrowser(browser, address string) (stop func(), err error) {
 		// behind it, where it gets no more frames and the shots never come.
 		"--disable-extensions",
 		"--disable-sync",
+		// No keychain: a new profile asks macOS for a keychain to keep its
+		// key in, which shows the person a dialog, and the browser waits
+		// for it while the page waits for the browser. A profile thrown
+		// away after one run has nothing to keep.
+		"--use-mock-keychain",
+		"--password-store=basic",
 		// Nor any other reason to slow a page down while nobody watches.
 		"--disable-background-timer-throttling",
 		"--disable-backgrounding-occluded-windows",
