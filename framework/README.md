@@ -1413,10 +1413,10 @@ A web build is what a phone plays, so a game meant for one is a game meant for t
 | --- | --- | --- |
 | Parts of an image that aren't on a grid, Aseprite slices and tilemap layers | Not on the roadmap yet | Save each part as its own PNG file, or put the parts on a grid |
 | Isometric and hexagonal maps; drawing a map's shapes and text | Not on the roadmap yet | Orthogonal maps; draw what objects stand for with sprites and shapes |
-| Positional sound: louder on the side it comes from | Not on the roadmap yet | `Sound.PlayWith` at a lower volume for what is far away |
-| Physics | Not planned: GoLib is for games, not engines | Simple movement and `Rectangle` overlap checks in the game |
+| Positional sound: louder on the side it comes from | Planned with 3D (M7, stage 6) | `Sound.PlayWith` at a lower volume for what is far away |
+| Physics | Planned with 3D (M7, stage 6): collisions and a character controller in Go, then rigid bodies with Jolt | Simple movement and `Rectangle` overlap checks in the game |
 | Trigger pressure, vibration | Not on the roadmap yet | Triggers read as buttons |
-| 3D | M7, after the web build | None |
+| 3D | Planned (M7): a full engine, see [docs/roadmap.md](../docs/roadmap.md#m7-3d-planned) | None |
 | `.qoa`, `.xm` and `.mod` in a browser | Not planned: browsers cannot decode them | Save the sound as `.wav`, `.ogg` or `.mp3`. For music, put that file next to the `.xm` under the same name: a web build plays it, and the desktop keeps playing the module |
 
 When a game needs one of these, say so to the user and point to [docs/roadmap.md](../docs/roadmap.md), as [AGENTS.md](../AGENTS.md) asks, instead of building an engine to fill the gap.

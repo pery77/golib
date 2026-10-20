@@ -51,7 +51,7 @@ The framework is still small (shapes, text and fonts, sprites, Tiled maps, keybo
 - **Your game and the framework are separate.** The framework lives in `framework/` and each game in its own folder under `games/`. You make a game without touching the framework, and a game moves to a newer GoLib by copying its folder into the newer template (see [Distribution](docs/architecture.md#distribution)).
 - **No built-in editors.** Maps are made in [Tiled](https://www.mapeditor.org), sprites in [Aseprite](https://www.aseprite.org), sound effects in [jfxr](https://jfxr.frozenfractal.com), which runs in the browser, and 3D models in [Blender](https://www.blender.org); GoLib loads their files. You only need these tools to edit content: games build and run without them.
 
-GoLib reads Tiled maps, Aseprite files, PNG images, fonts, jfxr sounds and sound files already; Blender models come with 3D in M7: see the [architecture](docs/architecture.md).
+GoLib reads Tiled maps, Aseprite files, PNG images, fonts, jfxr sounds and sound files already; 3D models from Blender, and FBX files from other tools, come with M7, a full 3D engine that is planned and not started: see the [roadmap](docs/roadmap.md#m7-3d-planned) and the [architecture](docs/architecture.md).
 
 ## Commands
 
