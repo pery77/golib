@@ -35,6 +35,14 @@ func (c *cli) test(options []string) int {
 			continue
 		}
 		test := append([]string{"test"}, c.tagsArgs()...)
+		if strings.HasPrefix(module, "games/") {
+			// A game's tests see its version in golib.GameVersion, as its
+			// builds do. A game.json with a mistake gives none: build and
+			// dist report it.
+			if info, _, err := readGameInfo(dir); err == nil {
+				test = append(test, versionArgs(info)...)
+			}
+		}
 		var env []string
 		if !isToolModule(module) {
 			// Test binaries load raylib and libffi when they start, so

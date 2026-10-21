@@ -60,7 +60,10 @@ func ReadAsset(name string) ([]byte, error) {
 //
 // The golib_dist build tag leaves the file out of debug builds, which read
 // assets from disk. golib dist stops with an error if a game has an assets
-// folder but doesn't embed it.
+// folder but doesn't embed it. A build with a tag that leaves files out, such
+// as a demo, keeps a second file instead, with //go:build golib_dist && demo
+// and a go:embed line that lists only what it needs, and assets.go says
+// //go:build golib_dist && !demo (see docs/tooling.md#build-tags).
 func EmbedAssets(files embed.FS) {
 	embeddedAssets = files
 }

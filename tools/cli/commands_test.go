@@ -904,3 +904,72 @@ func TestShotSaveAndScaleUsage(t *testing.T) {
 		}
 	}
 }
+
+// TestGameVersionInEveryBuild checks that every build golib makes gives
+// golib.GameVersion the version from game.json, and that a game without one,
+// or with a game.json that has a mistake, gets none.
+func TestGameVersionInEveryBuild(t *testing.T) {
+	const flag = "-X golib.gameVersion=1.2.0-beta"
+	for _, goos := range []string{"windows", "linux"} {
+		for _, tt := range []struct {
+			name string
+			do   func(c *cli) int
+		}{
+			{"build", func(c *cli) int { return c.build(nil) }},
+			{"run", func(c *cli) int { return c.run(nil) }},
+			{"shot", func(c *cli) int { return c.shot(nil) }},
+			{"run --dist", func(c *cli) int { return c.run([]string{"--dist"}) }},
+			{"dist", func(c *cli) int { return c.dist(nil) }},
+			{"dist --web", func(c *cli) int { return c.dist([]string{"--web"}) }},
+			{"web build", func(c *cli) int {
+				if c.buildWeb("rocks") == "" {
+					return 1
+				}
+				return 0
+			}},
+			{"test", func(c *cli) int { return c.test([]string{"rocks"}) }},
+		} {
+			t.Run(goos+" "+tt.name, func(t *testing.T) {
+				tp := newTestProject(t, goos, "rocks")
+				writeFile(t, tp.c.path("games", "rocks", gameInfoFile), `{"title": "Rocks", "version": "1.2.0-beta"}`)
+				writeFile(t, tp.c.path(".tools", "go", "lib", "wasm", wasmExecFile), "// Go's own loader\n")
+				writeFile(t, tp.c.path("framework", "internal", "device", "web.js"), "// the web backend\n")
+				if code := tt.do(tp.c); code != 0 {
+					t.Fatalf("exit code %d, output:\n%s%s", code, tp.stdout.String(), tp.stderr.String())
+				}
+				linked := 0
+				for _, call := range tp.calls {
+					if call.args[0] != "build" && call.args[0] != "test" {
+						continue
+					}
+					linked++
+					if !slices.ContainsFunc(call.args, func(arg string) bool {
+						return strings.HasPrefix(arg, "-ldflags=") && strings.Contains(arg, flag)
+					}) {
+						t.Errorf("go %s got %q, want -ldflags with %s", call.args[0], call.args, flag)
+					}
+				}
+				if linked == 0 {
+					t.Error("no go build or go test ran")
+				}
+			})
+		}
+	}
+
+	for name, content := range map[string]string{
+		"no version": `{"title": "Rocks"}`,
+		"a mistake":  `{"title": "Rocks", "version": "1.0.0", "author": "Ada\nLovelace"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			tp := newTestProject(t, "linux", "rocks")
+			writeFile(t, tp.c.path("games", "rocks", gameInfoFile), content)
+			tp.c.build(nil)
+			tp.c.test([]string{"rocks"})
+			for _, call := range tp.calls {
+				if slices.ContainsFunc(call.args, func(arg string) bool { return strings.Contains(arg, "golib.gameVersion") }) {
+					t.Errorf("go %s got %q, want no version", call.args[0], call.args)
+				}
+			}
+		})
+	}
+}

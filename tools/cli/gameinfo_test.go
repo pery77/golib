@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -70,6 +71,11 @@ func TestReadGameInfo(t *testing.T) {
 		t.Errorf("buildTags: %v, error %v", info.BuildTags, err)
 	}
 
+	info, _, err = readGameInfo(gameDir(t, `{"leaveOut": {"demo": ["assets/locale/*-full.txt", "assets/roms"]}}`))
+	if err != nil || !slices.Equal(info.LeaveOut["demo"], []string{"assets/locale/*-full.txt", "assets/roms"}) {
+		t.Errorf("leaveOut: %v, error %v", info.LeaveOut, err)
+	}
+
 	// Set-Content -Encoding UTF8 in Windows PowerShell 5.1 writes a byte order mark.
 	info, _, err = readGameInfo(gameDir(t, "\xef\xbb\xbf{\"title\": \"Pequeño\"}"))
 	if err != nil || info.Title != "Pequeño" {
@@ -81,7 +87,7 @@ func TestReadGameInfoMistakes(t *testing.T) {
 	tests := []struct {
 		name, content, want string
 	}{
-		{"unknown field", `{"verison": "1.0.0"}`, `unknown field "verison": game.json takes "title", "version", "author", "copyright", "besideExecutable" and "buildTags"`},
+		{"unknown field", `{"verison": "1.0.0"}`, `unknown field "verison": game.json takes "title", "version", "author", "copyright", "besideExecutable", "buildTags" and "leaveOut"`},
 		{"syntax error", "{\n  \"title\": \"Rocks\",\n}", "line 3: "},
 		{"number instead of text", "{\n  \"version\": 1.0\n}", `line 2: "version" must be text`},
 		{"empty file", " ", "the file is empty or cut short"},
@@ -102,6 +108,14 @@ func TestReadGameInfoMistakes(t *testing.T) {
 		{"tag's build", `{"buildTags": {"demo": "release"}}`, `"buildTags" gives demo "release": write "dist" for dist and web builds only, or "any"`},
 		{"tag's name", `{"buildTags": {"!demo": "dist"}}`, `"buildTags" has "!demo": a build tag is letters, digits, _ and .`},
 		{"GoLib's tag", `{"buildTags": {"golib_dist": "any"}}`, `"buildTags" has golib_dist, which GoLib sets itself`},
+		{"leave out a list", "{\n  \"leaveOut\": [\"assets/roms\"]\n}", `line 2: "leaveOut" must give each build tag a list of paths`},
+		{"leave out a path", "{\n  \"leaveOut\": {\"demo\": \"assets/roms\"}\n}", `line 2: "leaveOut" must give each build tag a list of paths`},
+		{"leave out's tag", `{"leaveOut": {"demo steam": ["assets/roms"]}}`, `"leaveOut" has "demo steam": a build tag is letters, digits, _ and .`},
+		{"leave out GoLib's tag", `{"leaveOut": {"golib_dist": ["assets/roms"]}}`, `"leaveOut" has golib_dist, which GoLib sets itself`},
+		{"leave out backslash", `{"leaveOut": {"demo": ["assets\\roms"]}}`, `"leaveOut" has "assets\\roms" for demo: write paths with forward slashes`},
+		{"leave out outside", `{"leaveOut": {"demo": ["../roms"]}}`, `"leaveOut" has "../roms" for demo: write a path inside the game's folder`},
+		{"leave out empty", `{"leaveOut": {"demo": [""]}}`, `"leaveOut" has "" for demo: write a path inside the game's folder`},
+		{"leave out bad pattern", `{"leaveOut": {"demo": ["assets/locale/[a-z.txt"]}}`, `"leaveOut" has "assets/locale/[a-z.txt" for demo, which isn't a pattern path.Match takes`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -113,5 +127,28 @@ func TestReadGameInfoMistakes(t *testing.T) {
 				t.Errorf("error = %v, want one containing %q", err, tt.want)
 			}
 		})
+	}
+}
+
+// TestGameVersionFlag checks the linker flag that gives golib.GameVersion
+// the version game.json says, and none without one.
+func TestGameVersionFlag(t *testing.T) {
+	for _, tt := range []struct{ content, want string }{
+		{"", ""},
+		{`{"title": "Rocks"}`, ""},
+		{`{"version": null}`, ""},
+		{`{"version": "0.0.0"}`, "-X golib.gameVersion=0.0.0"},
+		{`{"version": "1.20.3-beta.2"}`, "-X golib.gameVersion=1.20.3-beta.2"},
+	} {
+		info, _, err := readGameInfo(gameDir(t, tt.content))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := info.versionFlag(); got != tt.want {
+			t.Errorf("%s: versionFlag() = %q, want %q", tt.content, got, tt.want)
+		}
+		if info.Version == "" {
+			t.Errorf("%s: Version is empty, want 0.0.0 for the executable's details", tt.content)
+		}
 	}
 }

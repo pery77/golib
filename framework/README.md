@@ -27,6 +27,7 @@ For AI agents writing game code with GoLib, and for anyone who wants the whole f
 | Open the window as the player left it | `golib.WindowSize`, `golib.SetWindowSize`, `golib.SetMonitor` | [Window, fullscreen and screen effects](#window-fullscreen-and-screen-effects) |
 | Remember high scores, settings and progress | `golib.SaveData`, `golib.LoadData` | [Saving data](#saving-data) |
 | Start in the player's language | `golib.ChooseLanguage`, `golib.SystemLanguages` | [The player's language](#the-players-language) |
+| Show which build the player has | `golib.GameVersion` | [The game's version](#the-games-version) |
 | Read a data file | `golib.ReadAsset` | [Files: the assets folder](#files-the-assets-folder) |
 | End the game | `golib.Quit` | [Quitting](#quitting) |
 
@@ -1496,6 +1497,22 @@ func main() {
 - `golib shot` sees no system language, so its pictures are the same on every machine: shots show the game's fallback. Start a shot in another language with `--save` and the game's saved settings.
 - The built-in font draws the Latin alphabet: a language in another script needs a font from a file (see [Fonts](#fonts)).
 
+## The game's version
+
+| Name | What it does |
+| --- | --- |
+| `GameVersion` | `GameVersion() string`: the `version` of the game's `game.json`, as written there, such as `"1.2.0"` or `"1.2.0-beta"`. Every build golib makes carries it: `golib build`, `run`, `shot`, `test`, `dist` and `web`, with or without `--dist`, `--web` and `--tags`. `""` when `game.json` has no `version`, and in a program golib didn't build, such as one from `golib go run` or `golib go test`. |
+
+```go
+// In the title scene's Draw, so a player's bug report says which build it was:
+if version := golib.GameVersion(); version != "" {
+	screen.DrawText("v"+version, 4, screen.Height()-14, 10, golib.Gray)
+}
+```
+
+- It is the same in a demo and in the full game, since both come from one `game.json`: a game that tells them apart shows its own word next to it, from a constant in a file with `//go:build demo` (see [docs/tooling.md](../docs/tooling.md#build-tags)).
+- Raise `version` in `game.json` each time a build is shared; `golib dist` puts it in the zip's name too.
+
 ## Saving data
 
 Games keep high scores, settings and progress between runs with these functions. The data is JSON, in a file per name.
@@ -1563,6 +1580,8 @@ func init() { golib.EmbedAssets(assets) }
 ```
 
 The whole folder ships, so a file that `golib run` finds is in the dist build too: read files when the game starts and treat an error as the end.
+
+A build made with a tag that must leave files out, such as a demo built with `--tags demo` that ships without the full game's levels, keeps two files instead of this one: `assets.go` with `//go:build golib_dist && !demo` and `//go:embed all:assets`, and `assets_demo.go` with `//go:build golib_dist && demo`, whose `//go:embed` line lists only what the demo needs, such as `all:assets/sprites assets/locale/??.txt`. Each calls `EmbedAssets`. `game.json`'s `leaveOut` does the same for the files `golib dist` copies beside the executable. Both are in [docs/tooling.md](../docs/tooling.md#build-tags); play the demo with `golib run <game> --dist --tags demo` to see it finds every file it reads.
 
 ```go
 func main() {

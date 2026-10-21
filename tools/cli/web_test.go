@@ -33,7 +33,7 @@ func TestWebBuild(t *testing.T) {
 
 	// The game is built for the browser, with its assets inside.
 	wasm := tp.c.path("build", "rocks", "web", "rocks.wasm")
-	wantBuild := []string{"build", "-trimpath", "-tags=golib_dist", "-o", wasm, "."}
+	wantBuild := []string{"build", "-trimpath", "-tags=golib_dist", "-ldflags=-X golib.gameVersion=2.0.0", "-o", wasm, "."}
 	builds := tp.builds()
 	if len(builds) != 1 || !slices.Equal(builds[0], wantBuild) {
 		t.Fatalf("go builds = %q, want one: %q", builds, wantBuild)

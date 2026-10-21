@@ -113,13 +113,18 @@ func (c *cli) buildGame(game string) string {
 		return ""
 	}
 	removeResources := func() {}
+	var info gameInfo
 	if c.goos == "windows" {
 		var ok bool
-		_, removeResources, ok = c.addWindowsResources(game, false)
+		info, removeResources, ok = c.addWindowsResources(game, false)
 		if !ok {
 			removeResources()
 			return ""
 		}
+	} else if read, _, err := readGameInfo(dir); err == nil {
+		// A game.json with a mistake gives no version here: a debug build
+		// on this platform doesn't use the rest, and dist reports it.
+		info = read
 	}
 	// On Unix the game a golib run left open may still be running from
 	// the executable this build replaces, and linking onto a running
@@ -131,6 +136,7 @@ func (c *cli) buildGame(game string) string {
 		target = filepath.Join(outDir, "."+filepath.Base(exe)+".new")
 	}
 	args := append([]string{"build"}, c.tagsArgs()...)
+	args = append(args, versionArgs(info)...)
 	err := c.goRun(dir, append(args, "-o", target, ".")...)
 	removeResources()
 	if err != nil {

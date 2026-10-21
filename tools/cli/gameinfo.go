@@ -26,7 +26,7 @@ const gameInfoFile = "game.json"
 // gameInfo is what game.json says. Every field is optional.
 type gameInfo struct {
 	Title     string `json:"title"`     // the game's name as players see it; default: the folder name
-	Version   string `json:"version"`   // major.minor.patch, such as "1.2.0" or "1.2.0-beta"; default: "0.0.0"
+	Version   string `json:"version"`   // major.minor.patch, such as "1.2.0" or "1.2.0-beta", which golib.GameVersion returns too; default: "0.0.0", and "" for GameVersion
 	Author    string `json:"author"`    // who makes the game; default: none
 	Copyright string `json:"copyright"` // such as "Copyright 2026 Ada Lovelace"; default: none
 	// Files and folders of the game's folder that dist builds copy next to
@@ -39,8 +39,15 @@ type gameInfo struct {
 	// which build and run without --dist then refuse. The GoLib window
 	// shows a checkbox for each; default: none.
 	BuildTags map[string]string `json:"buildTags"`
+	// For each build tag, the paths of the game's folder that a dist build
+	// made with it leaves out of what "besideExecutable" copies: a file, a
+	// folder with everything in it, or a pattern, such as
+	// "assets/locale/*-full.txt", that path.Match matches against each
+	// file's and folder's path; default: none.
+	LeaveOut map[string][]string `json:"leaveOut"`
 
-	version version // Version, parsed
+	version      version // Version, parsed
+	versionGiven bool    // game.json has "version"
 }
 
 // The builds a tag of "buildTags" may go in.
@@ -76,6 +83,14 @@ func readGameInfo(dir string) (info gameInfo, found bool, err error) {
 	if decoder.More() {
 		return info, true, errors.New("the file holds more than one JSON object: keep a single { ... }")
 	}
+	// "version" left out gives 0.0.0 to the executable's details and the
+	// zip's name, and nothing to golib.GameVersion.
+	var given struct {
+		Version *string `json:"version"`
+	}
+	if json.Unmarshal(data, &given) == nil {
+		info.versionGiven = given.Version != nil
+	}
 
 	for _, field := range []struct{ name, value string }{
 		{"title", info.Title},
@@ -93,6 +108,9 @@ func readGameInfo(dir string) (info gameInfo, found bool, err error) {
 		return info, true, err
 	}
 	if err := checkBuildTags(info.BuildTags); err != nil {
+		return info, true, err
+	}
+	if err := checkLeaveOut(info.LeaveOut); err != nil {
 		return info, true, err
 	}
 	info.version, err = parseVersion(info.Version)
@@ -147,6 +165,52 @@ func checkBuildTags(tags map[string]string) error {
 	return nil
 }
 
+// checkLeaveOut reports whether each of "leaveOut" is a build tag --tags
+// takes, with paths inside the game's folder, written with forward slashes,
+// that path.Match takes as patterns.
+func checkLeaveOut(leaveOut map[string][]string) error {
+	for _, tag := range slices.Sorted(maps.Keys(leaveOut)) {
+		switch {
+		case !validTag(tag):
+			return fmt.Errorf(`"leaveOut" has %q: a build tag is letters, digits, _ and ., such as "demo"`, tag)
+		case slices.Contains(golibTags, tag):
+			return fmt.Errorf(`"leaveOut" has %s, which GoLib sets itself: take it out (see docs/tooling.md#build-tags)`, tag)
+		}
+		for _, p := range leaveOut[tag] {
+			_, patternErr := path.Match(p, "")
+			switch {
+			case strings.Contains(p, `\`):
+				return fmt.Errorf(`"leaveOut" has %q for %s: write paths with forward slashes, such as "assets/locale/en-full.txt"`, p, tag)
+			case p == "" || path.IsAbs(p) || path.Clean(p) == "." || path.Clean(p) == ".." || strings.HasPrefix(path.Clean(p), "../"):
+				return fmt.Errorf(`"leaveOut" has %q for %s: write a path inside the game's folder, such as "assets/locale/en-full.txt"`, p, tag)
+			case patternErr != nil:
+				return fmt.Errorf(`"leaveOut" has %q for %s, which isn't a pattern path.Match takes: close each [ with ], such as "assets/locale/[a-z][a-z].txt"`, p, tag)
+			}
+		}
+	}
+	return nil
+}
+
+// versionFlag returns the linker flag that gives golib.GameVersion the
+// game's "version", or "" when game.json gives none. parseVersion lets
+// through digits, letters, dots and hyphens only, so the flag needs no
+// quotes inside -ldflags.
+func (info gameInfo) versionFlag() string {
+	if !info.versionGiven {
+		return ""
+	}
+	return "-X golib.gameVersion=" + info.Version
+}
+
+// versionArgs returns the -ldflags argument that gives golib.GameVersion the
+// version info has, for a debug or web build, or none when it has none.
+func versionArgs(info gameInfo) []string {
+	if flag := info.versionFlag(); flag != "" {
+		return []string{"-ldflags=" + flag}
+	}
+	return nil
+}
+
 // explainJSONError turns an error from decoding game.json into a message that
 // says where the mistake is and how to fix it.
 func explainJSONError(data []byte, err error) error {
@@ -157,6 +221,8 @@ func explainJSONError(data []byte, err error) error {
 		return fmt.Errorf("line %d: %v: game.json must be valid JSON, such as {\"title\": \"Rocks\", \"version\": \"1.0.0\"}", lineAt(data, syntaxErr.Offset), syntaxErr)
 	case errors.As(err, &typeErr) && strings.HasPrefix(typeErr.Field, "buildTags"):
 		return fmt.Errorf(`line %d: "buildTags" must give each build tag "dist" or "any", such as {"demo": "dist"}`, lineAt(data, typeErr.Offset))
+	case errors.As(err, &typeErr) && strings.HasPrefix(typeErr.Field, "leaveOut"):
+		return fmt.Errorf(`line %d: "leaveOut" must give each build tag a list of paths, such as {"demo": ["assets/locale/en-full.txt"]}`, lineAt(data, typeErr.Offset))
 	case errors.As(err, &typeErr) && typeErr.Field == "besideExecutable":
 		return fmt.Errorf(`line %d: "besideExecutable" must be a list of paths, such as ["assets/locale"]`, lineAt(data, typeErr.Offset))
 	case errors.As(err, &typeErr):
@@ -165,7 +231,7 @@ func explainJSONError(data []byte, err error) error {
 		return errors.New(`the file is empty or cut short: game.json must be valid JSON, such as {"title": "Rocks", "version": "1.0.0"}`)
 	case strings.HasPrefix(err.Error(), "json: unknown field "):
 		field := strings.TrimPrefix(err.Error(), "json: unknown field ")
-		return fmt.Errorf(`unknown field %s: game.json takes "title", "version", "author", "copyright", "besideExecutable" and "buildTags"`, field)
+		return fmt.Errorf(`unknown field %s: game.json takes "title", "version", "author", "copyright", "besideExecutable", "buildTags" and "leaveOut"`, field)
 	}
 	return err
 }

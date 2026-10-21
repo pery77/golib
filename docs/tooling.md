@@ -191,11 +191,13 @@ It runs `go build -trimpath` with these build tags and linker flags:
 
 | Platform | Next to the executable | `-tags` | `-ldflags` |
 | --- | --- | --- | --- |
-| Windows | `raylib.dll`, and `libffi-8.dll` on amd64 | `golib_dist,raylib_no_embed,ffi_no_embed` | `-s -w -X golib.saveName=<game> -H=windowsgui` |
-| Linux | `libraylib.so.6.0.0`. Players' systems provide `libffi.so.8`, `libX11.so.6` and `libGL.so.1` | `golib_dist,raylib_no_embed,ffi_no_embed` | `-s -w -X golib.saveName=<game> -r $ORIGIN` |
-| macOS | Nothing: the executable carries both libraries, inside the app | `golib_dist` | `-s -w -X golib.saveName=<game>` |
+| Windows | `raylib.dll`, and `libffi-8.dll` on amd64 | `golib_dist,raylib_no_embed,ffi_no_embed` | `-s -w -X golib.saveName=<game> -H=windowsgui -X golib.gameVersion=<version>` |
+| Linux | `libraylib.so.6.0.0`. Players' systems provide `libffi.so.8`, `libX11.so.6` and `libGL.so.1` | `golib_dist,raylib_no_embed,ffi_no_embed` | `-s -w -X golib.saveName=<game> -r $ORIGIN -X golib.gameVersion=<version>` |
+| macOS | Nothing: the executable carries both libraries, inside the app | `golib_dist` | `-s -w -X golib.saveName=<game> -X golib.gameVersion=<version>` |
 
 `-X golib.saveName=<game>` names the folder `golib.SaveData` saves in after the game's folder in `games/`, so it stays the same when a player renames the executable.
+
+`-X golib.gameVersion=<version>` gives `golib.GameVersion` the `version` of the game's `game.json`, so a game can show which build it is, such as in a corner of its title screen, and a player's bug report says so. Every build golib makes passes it, not only dist builds: `build`, `run`, `shot` and `test` (to `go test` of a game, as `-ldflags=-X golib.gameVersion=<version>`), and the web builds of `web`, `dist --web` and `shot --web`. Without a `version` in `game.json` none is passed, and `GameVersion` returns `""`, as it does in a program golib didn't build, such as one from `golib go run` or `golib go test`. A debug build on Linux or macOS that finds a mistake in `game.json` passes none either, and `dist` reports the mistake. The version is checked to be major.minor.patch with an optional label of letters, digits, `.` and `-`, so the flag needs no quotes.
 
 `-tags` replaces the tags in `GOFLAGS`. `golib_dist` switches the framework to dist behavior and includes the game's `assets.go`, which embeds its assets folder:
 
@@ -216,7 +218,7 @@ var assets embed.FS
 func init() { golib.EmbedAssets(assets) }
 ```
 
-Debug builds leave that file out, so they never embed assets. Before building, `dist` checks with `go list` that a game with an `assets/` folder embeds `assets` or `all:assets`, and stops with a `[fail]` line otherwise: without it the executable would build and then fail on the player's machine.
+Debug builds leave that file out, so they never embed assets. Before building, `dist` checks with `go list` that a game with an `assets/` folder embeds `assets` or `all:assets`, or files in it, as a demo's may (see [Build tags](#build-tags)), and stops with a `[fail]` line otherwise: without it the executable would build and then fail on the player's machine.
 
 The libraries are the ones debug builds use: raylib from the archive for this platform in raylib-go's `libs/` folder, and libffi from the ffi module's `assets/libffi/` folder. `raylib_no_embed` and `ffi_no_embed` keep the executable from carrying its own copies, which raylib-go and ffi would otherwise write into the player's cache folder when the game first starts, and never check again: a damaged copy there would stop the game until someone deleted that folder, with no message (see [roadmap.md](roadmap.md#decisions)). Instead, the game loads the files next to it, and writes nothing on the player's machine but what it saves with `golib.SaveData`:
 
@@ -264,11 +266,12 @@ Every field of `game.json` is optional. Save it as UTF-8; the byte order mark th
 | Field | Example | Becomes |
 | --- | --- | --- |
 | `title` | `"Rocks in Space"` | The file description, which Task Manager shows, and the product name. Default: the folder name. Keep it the same as `Config.Title`. |
-| `version` | `"1.2.0"`, `"1.2.0-beta"` | The file and product version: major.minor.patch, each from 0 to 65535, optionally followed by a label after `-`, which marks a pre-release. Default: `0.0.0`. |
+| `version` | `"1.2.0"`, `"1.2.0-beta"` | The file and product version: major.minor.patch, each from 0 to 65535, optionally followed by a label after `-`, which marks a pre-release. `golib.GameVersion` returns it as written, in every build golib makes (see [Dist builds](#dist-builds)). Default: `0.0.0` for the details and the zip's name, and `""` for `golib.GameVersion`. |
 | `author` | `"Ada Lovelace"` | The company name |
 | `copyright` | `"Copyright 2026 Ada Lovelace"` | The copyright |
 | `besideExecutable` | `["assets/locale"]` | Not a detail of the executable: files and folders of the game's folder, written with forward slashes, that `dist` copies next to the executable (next to the app on macOS), each under its own name, so `assets/locale` becomes `locale/`. They are for players to see and change, such as translations a game reads from beside its executable; whatever is in `assets/` stays inside the executable too. `dist --web` leaves them out, since a browser has no folder beside the game. Default: none. |
 | `buildTags` | `{"demo": "dist"}` | Not a detail of the executable: the [build tags](#build-tags) the game is made with, each with the builds it may go in, `"any"`, or `"dist"` for dist and web builds only, such as a demo that never goes out as a debug build. `build`, and `run` without `--dist`, refuse a `"dist"` tag; the GoLib window shows a checkbox for each tag. Default: none. |
+| `leaveOut` | `{"demo": ["assets/locale/*-full.txt", "assets/roms"]}` | Not a detail of the executable: for each [build tag](#build-tags), paths of the game's folder, written with forward slashes, that a dist build made with that tag (`dist --tags demo`, `run --dist --tags demo`) leaves out of what `besideExecutable` copies. A path is a file, a folder, which stays out with everything in it, or a pattern that Go's `path.Match` matches against the path of each file and folder, from the game's folder: `*` for any part of a name, `?` for one character, `[a-z]` for one of a set. It covers only the copies beside the executable: what the executable embeds is the game's `assets.go`'s choice (see [Build tags](#build-tags)). Default: none. |
 
 ```json
 {
@@ -278,7 +281,7 @@ Every field of `game.json` is optional. Save it as UTF-8; the byte order mark th
 }
 ```
 
-A mistake in either file stops the build with a `[fail]` line that says what to fix: invalid JSON (with its line), an unknown field, a version that isn't major.minor.patch, an icon that isn't a square PNG of at least 16 pixels, a `besideExecutable` path outside the game's folder or two that would be copied under the same name, a `buildTags` tag that isn't one `--tags` takes or that isn't given `"dist"` or `"any"`. `dist` also stops when a `besideExecutable` path isn't there, or would replace a file it writes, such as `THIRD-PARTY-LICENSES.txt`. `dist` reports what it found, and checks both files on Linux too, so a mistake shows up wherever the game is built; debug builds say nothing while both files are fine, and don't check them on Linux and macOS.
+A mistake in either file stops the build with a `[fail]` line that says what to fix: invalid JSON (with its line), an unknown field, a version that isn't major.minor.patch, an icon that isn't a square PNG of at least 16 pixels, a `besideExecutable` path outside the game's folder or two that would be copied under the same name, a `buildTags` tag that isn't one `--tags` takes or that isn't given `"dist"` or `"any"`, a `leaveOut` tag that isn't one `--tags` takes, or a `leaveOut` path outside the game's folder, with a backslash, or with a `[` that isn't closed. `dist` also stops when a `besideExecutable` path isn't there, or would replace a file it writes, such as `THIRD-PARTY-LICENSES.txt`. A dist build with a tag of `leaveOut` says what it left out, `[ok]   left out assets/locale/en-full.txt and assets/roms, as game.json's "leaveOut" asks for the build tag demo`, and gives a `[warn]` line for a path of that tag that matched nothing `besideExecutable` copies, which is most likely a typo. `dist` reports what it found, and checks both files on Linux too, so a mistake shows up wherever the game is built; debug builds say nothing while both files are fine, and don't check them on Linux and macOS.
 
 How it works, in `tools/cli` (`dist.go`, `gameinfo.go`, `icon.go` and `winres.go`): golib resizes the icon to 16, 20, 24, 32, 40, 48, 64 and 256 pixels, averaging pixels to shrink and repeating them to grow, so pixel art stays sharp. It writes those images and the version information as Windows resources into a `.syso` file, the object file format the Go linker reads. The linker only picks up `.syso` files from the package's own folder, and `go build -overlay` doesn't cover them, so golib puts the file in the game's folder as `golib_windows_<arch>.syso` while it builds, then deletes it, even when the build fails. Debug and dist builds use the same name, so a file left by an interrupted build is replaced rather than linked twice, and `.gitignore` lists it. The same resources give the same file, so an unchanged game isn't linked again. The icon resource is named `GLFW_ICON`: GLFW, the library raylib opens windows with, gives an icon with that name to the game's window.
 
@@ -323,6 +326,28 @@ const demo = false
 - **What they can be.** Each tag is letters, digits, `_` and `.`, and is listed once. In PowerShell, quote a list of them, `--tags 'demo,steam'` (see [PowerShell argument splitting](#powershell-argument-splitting)). GoLib's own tags, `golib_dist`, `raylib_no_embed` and `ffi_no_embed`, are set by the commands, and `--tags` can't name them.
 - **What changes.** Only the files built, and the zip's name, which carries the tags after the version, so a demo's zip is never taken for the full game's: `rocks-1.2.0-demo-windows-amd64.zip`, `rocks-1.2.0-demo-web.zip`. The rest is the same as without them: the folders the builds go in, which a build with other tags replaces (`golib dist` empties `build/<game>/dist/` first, the zips of earlier builds included, so copy a zip elsewhere before making the other), the executable's name, the app's title, the icon and the version from `game.json`, and the folder `golib.SaveData` saves in, named after the game's folder in `games/`. A demo that should keep its saved data apart from the full game's on the same machine saves it under names of its own.
 - **Kept to dist builds.** A game that lists a tag as `"dist"` in `game.json`'s `buildTags`, such as `{"demo": "dist"}`, is never built with it as a debug build to play or hand out: `build`, and `run` without `--dist`, stop with a `[fail]` line that says to use `golib dist <game> --tags demo` or `golib run <game> --dist --tags demo` instead. `dist`, `run --dist` and `web` are dist builds and take it, and so do `shot` and `test`, which check the game without handing it to anyone.
+- **Left out of a tagged build.** A demo that must not ship the full game's files keeps them out in two places, since a dist build puts files both inside the executable and beside it. Beside it, `game.json`'s `leaveOut` lists, for the tag, what `besideExecutable` should not copy: `"leaveOut": {"demo": ["assets/locale/*-full.txt", "assets/roms"]}` (see [Icon and version information](#icon-and-version-information-windows-and-macos)). Inside it, the files are what the game's own `go:embed` lines say, which golib can't change, so such a game keeps two embedding files instead of one `assets.go`: `assets.go` with `//go:build golib_dist && !demo`, which embeds `all:assets` as usual, and `assets_demo.go` with `//go:build golib_dist && demo`, which embeds only the folders and files the demo needs, as `go:embed` patterns:
+
+  ```go
+  //go:build golib_dist && demo
+
+  package main
+
+  import (
+  	"embed"
+
+  	"golib"
+  )
+
+  // The demo's assets: everything but the full game's levels, translations and ROMs.
+  //
+  //go:embed all:assets/sprites all:assets/sounds assets/levels/demo-*.tmx assets/locale/??.txt
+  var assets embed.FS
+
+  func init() { golib.EmbedAssets(assets) }
+  ```
+
+  A `go:embed` pattern that matches no file stops the build, which is how a typo shows up. `dist` accepts a game that embeds parts of its `assets/` folder as one that embeds it all, so whether the demo has every file it reads is the game's to check: play it with `golib run <game> --dist --tags demo`, where `golib.ReadAsset`, and every loader that reads the assets folder, returns an error for a file the demo left out.
 - **Where they reach.** The GoLib window shows a checkbox for each tag in `game.json`'s `buildTags` (see [GoLib window](#golib-window)). VS Code's F5 and tasks build without tags: use the CLI.
 
 ## New games

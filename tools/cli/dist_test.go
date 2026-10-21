@@ -77,7 +77,7 @@ dist: 0 failed, 0 warning(s)
 	dir := tp.c.path("games", "rocks")
 	const tags = "-tags=golib_dist,raylib_no_embed,ffi_no_embed"
 	wantList := []string{"list", "-deps", tags, "-json=ImportPath,DepOnly,Module,EmbedPatterns", "."}
-	wantBuild := []string{"build", "-trimpath", tags, "-ldflags=-s -w -X golib.saveName=rocks -H=windowsgui", "-o", tp.c.path("build", "rocks", "dist", "rocks", "rocks.exe"), "."}
+	wantBuild := []string{"build", "-trimpath", tags, "-ldflags=-s -w -X golib.saveName=rocks -H=windowsgui -X golib.gameVersion=1.0.0", "-o", tp.c.path("build", "rocks", "dist", "rocks", "rocks.exe"), "."}
 	if len(tp.calls) != 2 || !slices.Equal(tp.calls[0].args, wantList) || !slices.Equal(tp.calls[1].args, wantBuild) {
 		t.Errorf("go calls = %+v, want %q and %q", tp.calls, wantList, wantBuild)
 	}
@@ -206,6 +206,109 @@ func TestDistBesideExecutableFailures(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestDistLeaveOut leaves out of what "besideExecutable" copies what
+// "leaveOut" gives the build's tags: a file, a pattern and a folder, and a
+// whole entry of "besideExecutable", and copies everything without the tag.
+func TestDistLeaveOut(t *testing.T) {
+	gameJSON := `{
+	"version": "1.0.0",
+	"besideExecutable": ["assets/locale", "assets/roms", "README.txt"],
+	"leaveOut": {
+		"demo": ["assets/locale/en-full.txt", "assets/locale/*-full.txt", "assets/locale/extra", "assets/roms", "assets/typo"],
+		"steam": ["README.txt"]
+	}
+}`
+	files := map[string]string{
+		"assets/locale/en.txt":           "English, demo\n",
+		"assets/locale/en-full.txt":      "English, full game\n",
+		"assets/locale/es-full.txt":      "Spanish, full game\n",
+		"assets/locale/extra/notes.txt":  "notes\n",
+		"assets/locale/fonts/readme.txt": "kept\n",
+		"assets/roms/game.rom":           "a ROM\n",
+		"README.txt":                     "How to play\n",
+	}
+	setUp := func(t *testing.T) *testProject {
+		tp := newTestProject(t, "windows", "rocks")
+		writeFile(t, tp.c.path("games", "rocks", gameInfoFile), gameJSON)
+		for name, content := range files {
+			writeFile(t, tp.c.path("games", "rocks", filepath.FromSlash(name)), content)
+		}
+		tp.embeds = []string{"all:assets"}
+		return tp
+	}
+	copied := func(tp *testProject) []string {
+		var names []string
+		folder := tp.c.path("build", "rocks", "dist", "rocks")
+		filepath.WalkDir(folder, func(name string, entry fs.DirEntry, err error) error {
+			if err == nil && !entry.IsDir() {
+				relative, _ := filepath.Rel(folder, name)
+				if relative = filepath.ToSlash(relative); strings.Contains(relative, "/") || relative == "README.txt" {
+					names = append(names, relative)
+				}
+			}
+			return nil
+		})
+		slices.Sort(names)
+		return names
+	}
+
+	t.Run("demo", func(t *testing.T) {
+		tp := setUp(t)
+		if code := tp.c.dist([]string{"--tags", "demo"}); code != 0 {
+			t.Fatalf("exit code %d, output:\n%s%s", code, tp.stdout.String(), tp.stderr.String())
+		}
+		for _, want := range []string{
+			"[ok]   copied assets/locale and README.txt next to it, as game.json's \"besideExecutable\" asks: players see them there\n",
+			"[warn] game.json's \"leaveOut\" has assets/typo for the build tag demo, which matches nothing that \"besideExecutable\" copies: check the path\n",
+			"[ok]   left out assets/locale/en-full.txt, assets/locale/es-full.txt, assets/locale/extra and assets/roms, as game.json's \"leaveOut\" asks for the build tag demo\n",
+		} {
+			if !strings.Contains(tp.stdout.String(), want) {
+				t.Errorf("output:\n%s\nwant it to contain:\n%s", tp.stdout.String(), want)
+			}
+		}
+		want := []string{"README.txt", "locale/en.txt", "locale/fonts/readme.txt"}
+		if got := copied(tp); !slices.Equal(got, want) {
+			t.Errorf("next to the executable: %q, want %q", got, want)
+		}
+		if _, err := os.Stat(tp.c.path("build", "rocks", "dist", "rocks", "roms")); err == nil {
+			t.Error("roms/ is next to the executable, want it left out")
+		}
+	})
+
+	t.Run("without the tag", func(t *testing.T) {
+		tp := setUp(t)
+		if code := tp.c.dist(nil); code != 0 {
+			t.Fatalf("exit code %d, output:\n%s%s", code, tp.stdout.String(), tp.stderr.String())
+		}
+		if strings.Contains(tp.stdout.String(), "leaveOut") {
+			t.Errorf("output:\n%s\nwant no word of \"leaveOut\"", tp.stdout.String())
+		}
+		want := []string{"README.txt", "locale/en-full.txt", "locale/en.txt", "locale/es-full.txt", "locale/extra/notes.txt", "locale/fonts/readme.txt", "roms/game.rom"}
+		if got := copied(tp); !slices.Equal(got, want) {
+			t.Errorf("next to the executable: %q, want %q", got, want)
+		}
+	})
+
+	t.Run("two tags", func(t *testing.T) {
+		tp := setUp(t)
+		if code := tp.c.run([]string{"--dist", "--tags", "steam,demo"}); code != 0 {
+			t.Fatalf("exit code %d, output:\n%s%s", code, tp.stdout.String(), tp.stderr.String())
+		}
+		for _, want := range []string{
+			"[ok]   copied assets/locale next to it, as game.json's \"besideExecutable\" asks: players see them there\n",
+			"[ok]   left out README.txt, as game.json's \"leaveOut\" asks for the build tag steam\n",
+		} {
+			if !strings.Contains(tp.stdout.String(), want) {
+				t.Errorf("output:\n%s\nwant it to contain:\n%s", tp.stdout.String(), want)
+			}
+		}
+		want := []string{"locale/en.txt", "locale/fonts/readme.txt"}
+		if got := copied(tp); !slices.Equal(got, want) {
+			t.Errorf("next to the executable: %q, want %q", got, want)
+		}
+	})
 }
 
 func TestDistWindowsWithoutGameInfoOrIcon(t *testing.T) {
@@ -586,13 +689,22 @@ func TestDistChecksAssets(t *testing.T) {
 		t.Error("go build ran for a game whose assets would be missing")
 	}
 
-	for _, patterns := range [][]string{{"assets"}, {"shaders/*.fs", "all:assets"}} {
+	// A demo's assets_demo.go embeds parts of the folder (see
+	// docs/tooling.md#build-tags).
+	for _, patterns := range [][]string{{"assets"}, {"shaders/*.fs", "all:assets"}, {"all:assets/sprites", "assets/locale/??.txt"}} {
 		tp := newTestProject(t, "windows", "rocks")
 		writeFile(t, tp.c.path("games", "rocks", "assets", "music.xm"), "music")
 		tp.embeds = patterns
 		if code := tp.c.dist(nil); code != 0 || len(tp.builds()) != 1 {
 			t.Errorf("embed patterns %q: exit code %d and %d builds, want 0 and 1; output:\n%s", patterns, code, len(tp.builds()), tp.stdout.String())
 		}
+	}
+
+	tp = newTestProject(t, "windows", "rocks")
+	writeFile(t, tp.c.path("games", "rocks", "assets", "music.xm"), "music")
+	tp.embeds = []string{"shaders/*.fs", "assets.txt"}
+	if code := tp.c.dist(nil); code != 1 {
+		t.Errorf("embed patterns outside the assets folder: exit code %d, want 1", code)
 	}
 
 	// Only the game's own package counts.

@@ -120,7 +120,7 @@ func (c *cli) buildWebInto(game, folder string) (gameInfo, bool) {
 	wasm := filepath.Join(folder, game+".wasm")
 	_, err = c.runGo(goCall{
 		dir:  dir,
-		args: []string{"build", "-trimpath", "-tags=" + tags, "-o", wasm, "."},
+		args: slices.Concat([]string{"build", "-trimpath", "-tags=" + tags}, versionArgs(info), []string{"-o", wasm, "."}),
 		env:  webEnv,
 	})
 	if err != nil {

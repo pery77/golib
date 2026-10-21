@@ -145,7 +145,7 @@ func (c *cli) distGame(game string) string {
 		titles = append(titles, n.title)
 	}
 	c.check("ok", fmt.Sprintf("wrote %s next to it, with the licenses of %s", noticesFile, joinWords(titles)))
-	if !c.copyBeside(game, folder, info.BesideExecutable) {
+	if !c.copyBeside(game, folder, info) {
 		return ""
 	}
 
@@ -174,15 +174,17 @@ func (c *cli) distGame(game string) string {
 
 // copyBeside copies the files and folders of game's folder that game.json's
 // "besideExecutable" lists into folder, next to the executable, each under
-// its own name: assets/locale becomes locale. It returns false after
-// reporting a failure.
-func (c *cli) copyBeside(game, folder string, paths []string) bool {
-	if len(paths) == 0 {
+// its own name: assets/locale becomes locale. What "leaveOut" gives the
+// build tags of this build stays out. It returns false after reporting a
+// failure.
+func (c *cli) copyBeside(game, folder string, info gameInfo) bool {
+	if len(info.BesideExecutable) == 0 {
 		return true
 	}
 	shown := "games/" + game
+	leave := c.leaveOutPatterns(info)
 	var names []string
-	for _, p := range paths {
+	for _, p := range info.BesideExecutable {
 		source := filepath.Join(c.path("games", game), filepath.FromSlash(p))
 		name := path.Base(path.Clean(p))
 		target := filepath.Join(folder, name)
@@ -194,33 +196,112 @@ func (c *cli) copyBeside(game, folder string, paths []string) bool {
 			c.check("fail", fmt.Sprintf("%s, from %s's \"besideExecutable\", would replace the %s that dist puts next to the executable: rename it", p, gameInfoFile, name))
 			return false
 		}
-		if err := copyTree(source, target); err != nil {
+		copied, err := copyTree(source, target, path.Clean(p), leave)
+		if err != nil {
 			c.check("fail", fmt.Sprintf("cannot copy %s/%s next to the executable: %v", shown, p, err))
 			return false
 		}
-		names = append(names, p)
+		if copied {
+			names = append(names, p)
+		}
 	}
-	c.check("ok", fmt.Sprintf("copied %s next to it, as %s's \"besideExecutable\" asks: players see them there", joinWords(names), gameInfoFile))
+	if len(names) > 0 {
+		c.check("ok", fmt.Sprintf("copied %s next to it, as %s's \"besideExecutable\" asks: players see them there", joinWords(names), gameInfoFile))
+	}
+	for _, l := range leave {
+		if !l.matched {
+			c.check("warn", fmt.Sprintf("%s's \"leaveOut\" has %s for the build tag %s, which matches nothing that \"besideExecutable\" copies: check the path", gameInfoFile, l.pattern, l.tag))
+		}
+	}
+	for _, tag := range strings.Split(c.tags, ",") {
+		var left []string
+		for _, l := range leave {
+			if l.tag == tag {
+				left = append(left, l.left...)
+			}
+		}
+		if len(left) > 0 {
+			slices.Sort(left)
+			c.check("ok", fmt.Sprintf("left out %s, as %s's \"leaveOut\" asks for the build tag %s", joinWords(left), gameInfoFile, tag))
+		}
+	}
 	return true
 }
 
+// leaveOut is a path of game.json's "leaveOut", the build tag it is given
+// for, the paths it kept from being copied, from the game's folder, and
+// whether it matched any, even one that another path left out first.
+type leaveOut struct {
+	pattern, tag string
+	left         []string
+	matched      bool
+}
+
+// leaveOutPatterns returns the paths of info's "leaveOut" for the build tags
+// --tags gave, in the order of the tags.
+func (c *cli) leaveOutPatterns(info gameInfo) []*leaveOut {
+	if c.tags == "" {
+		return nil
+	}
+	var patterns []*leaveOut
+	for _, tag := range strings.Split(c.tags, ",") {
+		for _, p := range info.LeaveOut[tag] {
+			patterns = append(patterns, &leaveOut{pattern: path.Clean(p), tag: tag})
+		}
+	}
+	return patterns
+}
+
+// leftOut reports whether one of leave matches name, a path from the game's
+// folder: the same path, or a pattern path.Match matches with it. It records
+// name in what the first that matches left out.
+func leftOut(name string, leave []*leaveOut) bool {
+	var first *leaveOut
+	for _, l := range leave {
+		if matched, _ := path.Match(l.pattern, name); matched || l.pattern == name {
+			l.matched = true
+			if first == nil {
+				first = l
+			}
+		}
+	}
+	if first != nil {
+		first.left = append(first.left, name)
+	}
+	return first != nil
+}
+
 // copyTree copies the file or folder at source, and everything in it, to
-// target.
-func copyTree(source, target string) error {
-	return filepath.WalkDir(source, func(name string, entry fs.DirEntry, err error) error {
+// target, apart from what leave matches. name is source's path from the
+// game's folder, with forward slashes, which leave's patterns are matched
+// against, as are the paths of what is inside it. A folder that matches
+// stays out with everything in it. copied is false when source itself stays
+// out.
+func copyTree(source, target, name string, leave []*leaveOut) (copied bool, err error) {
+	if leftOut(name, leave) {
+		return false, nil
+	}
+	err = filepath.WalkDir(source, func(file string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		relative, err := filepath.Rel(source, name)
+		relative, err := filepath.Rel(source, file)
 		if err != nil {
 			return err
+		}
+		if relative != "." && leftOut(path.Join(name, filepath.ToSlash(relative)), leave) {
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
 		}
 		to := filepath.Join(target, relative)
 		if entry.IsDir() {
 			return os.MkdirAll(to, 0o755)
 		}
-		return copyFile(name, to)
+		return copyFile(file, to)
 	})
+	return true, err
 }
 
 // buildExecutable builds game's executable into output with the build tags
@@ -252,6 +333,9 @@ func (c *cli) buildExecutable(game, tags, output string) (gameInfo, bool) {
 	}
 	if !ok {
 		return info, false
+	}
+	if flag := info.versionFlag(); flag != "" {
+		ldflags += " " + flag
 	}
 
 	// -tags replaces raylib_no_embed and ffi_no_embed from GOFLAGS, so dist
@@ -483,11 +567,18 @@ func (c *cli) listPackagesWith(dir, tags string, env []string) ([]goPackage, err
 }
 
 // embedsAssets reports whether the main package of packages embeds the
-// game's assets folder.
+// game's assets folder, or files in it, as a demo built with a tag may embed
+// only what it needs (see docs/tooling.md#build-tags).
 func embedsAssets(packages []goPackage) bool {
 	for _, p := range packages {
-		if !p.DepOnly && (slices.Contains(p.EmbedPatterns, "assets") || slices.Contains(p.EmbedPatterns, "all:assets")) {
-			return true
+		if p.DepOnly {
+			continue
+		}
+		for _, pattern := range p.EmbedPatterns {
+			pattern = strings.TrimPrefix(pattern, "all:")
+			if pattern == "assets" || strings.HasPrefix(pattern, "assets/") {
+				return true
+			}
 		}
 	}
 	return false
