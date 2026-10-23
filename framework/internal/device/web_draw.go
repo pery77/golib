@@ -58,6 +58,8 @@ const (
 	opBindWorkTarget
 	opBindPassPicture
 	opAdditive3D
+	opUpdateData
+	opBindData
 )
 
 // The blend modes, for opBlend.
@@ -87,6 +89,13 @@ func push(op int, args ...float32) {
 
 func putf(v float32) {
 	commands.bytes = binary.LittleEndian.AppendUint32(commands.bytes, math.Float32bits(v))
+}
+
+// putFloats adds values as they are in memory, which WebAssembly keeps
+// little-endian as the page reads them: many at once, such as the bones of a
+// pass, cost a copy rather than a call each.
+func putFloats(values []float32) {
+	commands.bytes = append(commands.bytes, float32Bytes(values)...)
 }
 
 // putColor adds a color as its four channels.

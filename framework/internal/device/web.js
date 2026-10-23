@@ -23,11 +23,14 @@ window.golib = (function () {
 		CULLING = 28, DRAW_MESH = 29, DRAW_INSTANCED = 30, BIND_TEXTURE_3D = 31,
 		DRAW_FULLSCREEN = 32, UNIFORM_VEC4S = 33, BEGIN_SHADOW = 34, END_SHADOW = 35,
 		BIND_SHADOW_MAP = 36, BEGIN_WORK = 37, END_WORK = 38, BIND_WORK_TARGET = 39,
-		BIND_PASS_PICTURE = 40, ADDITIVE_3D = 41;
+		BIND_PASS_PICTURE = 40, ADDITIVE_3D = 41, UPDATE_DATA = 42, BIND_DATA = 43;
 
 	// The vertex layouts of 3D meshes, as gpu.go defines them, and how many
 	// floats an instance of a lit mesh takes: its matrix and its tint.
-	const LAYOUT_LIT = 0, LAYOUT_COLORED = 1, INSTANCE_FLOATS = 20;
+	const LAYOUT_LIT = 0, LAYOUT_COLORED = 1, LAYOUT_SKINNED = 2, INSTANCE_FLOATS = 20;
+
+	// How many texels a row of a data texture holds, as gpu.go says.
+	const DATA_WIDTH = 1024;
 
 	const BLEND_NORMAL = 0, BLEND_ADD = 1, BLEND_COPY = 2, BLEND_PREMULTIPLIED = 3;
 
@@ -499,6 +502,25 @@ void main() {
 					gl.bindTexture(gl.TEXTURE_2D, textures.get(c[i + 1]) || null);
 					i += 2;
 					break;
+				case UPDATE_DATA: {
+					const made = dataTextures.get(c[i]), count = c[i + 1];
+					if (made) {
+						gl.activeTexture(gl.TEXTURE7);
+						gl.bindTexture(gl.TEXTURE_2D, made.texture);
+						fillData(made, c, i + 2, count);
+						gl.bindTexture(gl.TEXTURE_2D, null);
+						gl.activeTexture(gl.TEXTURE0);
+					}
+					i += 2 + count;
+					break;
+				}
+				case BIND_DATA: {
+					const made = dataTextures.get(c[i + 1]);
+					gl.activeTexture(gl.TEXTURE0 + c[i]);
+					gl.bindTexture(gl.TEXTURE_2D, made ? made.texture : null);
+					i += 2;
+					break;
+				}
 				case DRAW_MESH: {
 					const mesh = meshes.get(c[i]);
 					if (mesh) {
@@ -894,11 +916,16 @@ void main() {
 		gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
 		const ibo = gl.createBuffer();
 		gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
-		if (layout === LAYOUT_LIT) {
-			bindAttribute(0, 3, 0, 48);
-			bindAttribute(1, 3, 12, 48);
-			bindAttribute(2, 2, 24, 48);
-			bindAttribute(3, 4, 32, 48);
+		if (layout === LAYOUT_LIT || layout === LAYOUT_SKINNED) {
+			const stride = layout === LAYOUT_SKINNED ? 80 : 48;
+			bindAttribute(0, 3, 0, stride);
+			bindAttribute(1, 3, 12, stride);
+			bindAttribute(2, 2, 24, stride);
+			bindAttribute(3, 4, 32, stride);
+			if (layout === LAYOUT_SKINNED) {
+				bindAttribute(9, 4, 48, stride);
+				bindAttribute(10, 4, 64, stride);
+			}
 			if (!instanceBuffer) instanceBuffer = gl.createBuffer();
 			gl.bindBuffer(gl.ARRAY_BUFFER, instanceBuffer);
 			for (let k = 0; k < 5; k++) { // the matrix's four columns, then the tint
@@ -1051,6 +1078,47 @@ void main() {
 		gl.deleteFramebuffer(map.framebuffer);
 		gl.deleteTexture(map.texture);
 		shadowMaps.delete(id);
+	}
+
+	// Data textures: numbers for shaders, such as the bones of a pass, four
+	// 32-bit floats a texel, DATA_WIDTH texels a row, read with texelFetch.
+	const dataTextures = new Map(); // id -> { texture, rows }
+
+	function newDataTexture(bytes) {
+		const values = new Float32Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 4);
+		const id = nextID++;
+		const made = { texture: gl.createTexture(), rows: 0 };
+		gl.activeTexture(gl.TEXTURE7);
+		gl.bindTexture(gl.TEXTURE_2D, made.texture);
+		clampAndFilter(gl.NEAREST);
+		fillData(made, values, 0, values.length);
+		gl.bindTexture(gl.TEXTURE_2D, null);
+		gl.activeTexture(gl.TEXTURE0);
+		dataTextures.set(id, made);
+		boundTexture = -1;
+		return id;
+	}
+
+	// fillData puts count numbers of values, from at, into a data texture
+	// that is bound: into the rows it has when they fit, into new ones when
+	// they don't. A last row that isn't full is written as far as it goes.
+	function fillData(made, values, at, count) {
+		const texels = Math.floor(count / 4);
+		const rows = Math.max(1, Math.ceil(texels / DATA_WIDTH));
+		if (rows > made.rows) {
+			gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, DATA_WIDTH, rows, 0, gl.RGBA, gl.FLOAT, null);
+			made.rows = rows;
+		}
+		const full = Math.floor(texels / DATA_WIDTH), rest = texels - full * DATA_WIDTH;
+		if (full > 0) gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, DATA_WIDTH, full, gl.RGBA, gl.FLOAT, values, at);
+		if (rest > 0) gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, full, rest, 1, gl.RGBA, gl.FLOAT, values, at + full * DATA_WIDTH * 4);
+	}
+
+	function unloadDataTexture(id) {
+		const made = dataTextures.get(id);
+		if (!made) return;
+		gl.deleteTexture(made.texture);
+		dataTextures.delete(id);
 	}
 
 	// Work targets: pictures a pass draws into and reads back on the way to
@@ -2104,6 +2172,7 @@ void main() {
 		decodeImage: decodeImage, newTexture3D: newTexture3D, newHDRTexture: newHDRTexture,
 		newShadowMap: newShadowMap, unloadShadowMap: unloadShadowMap,
 		newWorkTarget: newWorkTarget, unloadWorkTarget: unloadWorkTarget,
+		newDataTexture: newDataTexture, unloadDataTexture: unloadDataTexture,
 		newProgram3D: newProgram3D, unloadProgram3D: unloadProgram3D, location3D: location3D,
 		readFont: readFont,
 		openAudio: openAudio, closeAudio: closeAudio, setMasterVolume: setMasterVolume,

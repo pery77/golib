@@ -286,9 +286,41 @@ func DrawMeshInstanced(mesh Mesh, instances []float32) {
 		return
 	}
 	push(opDrawInstanced, float32(mesh.ID), float32(count))
-	for _, v := range instances[:count*InstanceFloats] {
-		putf(v)
+	putFloats(instances[:count*InstanceFloats])
+}
+
+// NewDataTexture puts values on the graphics card as a DataTexture, four to
+// a texel, padded with zeros to whole rows.
+func NewDataTexture(values []float32) DataTexture {
+	flush()
+	id := js_().Call("newDataTexture", jsBytes(float32Bytes(values))).Int()
+	return DataTexture{ID: uint32(id)}
+}
+
+// UpdateDataTexture replaces what t holds with values, which may be more
+// than it held: what is drawn after it reads the new values. The values
+// travel in the command, so draws already given still read the old ones.
+func UpdateDataTexture(t *DataTexture, values []float32) {
+	count := len(values) / 4 * 4
+	if t.ID == 0 || count == 0 {
+		return
 	}
+	push(opUpdateData, float32(t.ID), float32(count))
+	putFloats(values[:count])
+}
+
+// UnloadDataTexture frees a data texture.
+func UnloadDataTexture(t DataTexture) {
+	if t.ID == 0 {
+		return
+	}
+	flush()
+	js_().Call("unloadDataTexture", int(t.ID))
+}
+
+// BindDataTexture makes t the one a sampler uniform set to unit reads.
+func BindDataTexture(unit int, t DataTexture) {
+	push(opBindData, float32(unit), float32(t.ID))
 }
 
 // DecodedImage is a picture the browser has decoded, ready for NewTexture3D.
