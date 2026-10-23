@@ -2,6 +2,7 @@ package golib
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"math"
 	"path"
@@ -221,11 +222,13 @@ type Sound struct {
 	err    error
 	voices []device.Sound // the same sound several times over, so it can overlap itself
 	next   int
+	pans   []float32 // each voice's side, so a plain Play puts a panned one back in the middle
 
 	looping    bool         // Loop was called, and Stop wasn't since
 	loop       device.Music // the sound as a stream, which the backend repeats without a gap
 	loopData   []byte       // raylib streams from this, so it has to stay reachable
 	loopLoaded bool
+	loopPlaced bool // LoopAt set the loop's volume and side
 }
 
 // NewSound returns the sound effect spec describes. It is made the first time
@@ -294,14 +297,84 @@ func (s *Sound) PlayWith(volume, pitch float32) {
 // play plays one copy of the sound, volume times as loud as the sound's own
 // volume and pitch times its pitch.
 func (s *Sound) play(volume, pitch float32) {
+	s.playPanned(volume, pitch, 0)
+}
+
+// playPanned plays one copy of the sound as play does, from the side pan
+// says: -1 left, 0 the middle, 1 right.
+func (s *Sound) playPanned(volume, pitch, pan float32) {
 	if !s.load() {
 		return
+	}
+	if len(s.pans) != len(s.voices) {
+		s.pans = make([]float32, len(s.voices))
 	}
 	voice := s.voices[s.next]
 	device.SetSoundVolume(voice, s.volume*volume)
 	device.SetSoundPitch(voice, pitch)
+	if s.pans[s.next] != pan {
+		device.SetSoundPan(voice, pan)
+		s.pans[s.next] = pan
+	}
 	device.PlaySound(voice)
 	s.next = (s.next + 1) % len(s.voices)
+}
+
+// PlayAt plays the sound as if it came from position in a 3D world, heard
+// from what camera looks at, its Target, turned as the camera is: quieter
+// the farther it is, silent past 50 meters, and from the left or the right.
+// An explosion, a door, an enemy's step:
+//
+//	explosion.PlayAt(barrel.position, s.camera)
+func (s *Sound) PlayAt(position Vector3, camera *Camera3D) {
+	volume, pan := heardFrom(position, camera)
+	if volume <= 0 {
+		s.load() // a mistake in the file still shows
+		return
+	}
+	s.playPanned(volume, 1, pan)
+}
+
+// LoopAt loops the sound, as Loop does, as if it came from position, as
+// PlayAt plays it: an engine, a waterfall, a fire. Call it in every update
+// the sound should go on, so its volume and its side follow it and the
+// camera; Loop puts it back in the middle, and Stop stops it.
+func (s *Sound) LoopAt(position Vector3, camera *Camera3D) {
+	volume, pan := heardFrom(position, camera)
+	if !s.startLoop() {
+		return
+	}
+	device.SetMusicVolume(s.loop, s.volume*volume)
+	device.SetMusicPan(s.loop, pan)
+	s.loopPlaced = true
+}
+
+// The distances a sound is heard over in 3D: as loud as Play within
+// soundNear meters, quieter farther away, and fading to silence over the
+// last 10 meters before soundFar.
+const (
+	soundNear = 2
+	soundFar  = 50
+)
+
+// heardFrom returns how loud a sound at position is from camera's target,
+// from 0 to 1, and from which side, from -1, left, to 1, right.
+func heardFrom(position Vector3, camera *Camera3D) (volume, pan float32) {
+	if camera == nil {
+		reportError(errors.New("golib: Sound.PlayAt and LoopAt need the camera the world is seen through"))
+		return 1, 0
+	}
+	away := position.Sub(camera.Target)
+	distance := away.Length()
+	if distance >= soundFar {
+		return 0, 0
+	}
+	volume = soundNear / max(distance, soundNear) * Clamp((soundFar-distance)/10, 0, 1)
+	if distance > 1e-4 {
+		// Never wholly in one ear, and in the middle up close.
+		pan = Clamp(away.Scale(1/distance).Dot(camera.Right()), -1, 1) * 0.8 * min(1, distance/soundNear)
+	}
+	return volume, pan
 }
 
 // The pitches PlayWith takes: two octaves down and two octaves up.
@@ -329,13 +402,27 @@ func playbackLimits(volume, pitch float32) (float32, float32) {
 // there is no sound device, under golib shot and in tests, but [Sound.Looping]
 // reports the loop all the same.
 func (s *Sound) Loop() {
+	if !s.startLoop() {
+		return
+	}
+	if s.loopPlaced {
+		device.SetMusicVolume(s.loop, s.volume)
+		device.SetMusicPan(s.loop, 0)
+		s.loopPlaced = false
+	}
+}
+
+// startLoop starts the loop if it isn't playing, and reports whether it is
+// ready.
+func (s *Sound) startLoop() bool {
 	s.looping = true
 	if !s.load() || !s.loadLoop() {
-		return
+		return false
 	}
 	if !device.MusicPlaying(s.loop) {
 		device.PlayMusic(s.loop)
 	}
+	return true
 }
 
 // Stop silences the sound: its loop, and every copy Play started.

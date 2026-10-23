@@ -802,7 +802,7 @@ func (s *playScene) Draw(screen *golib.Screen) {
 
 ## 3D
 
-A 3D world, seen through a `Camera3D`, drawn between `screen.Begin3D` and `screen.End3D` in the same `Draw` as the 2D: the score and the menus go over it. In meters, with Y up; a model's front faces +Z. GoLib draws models from glTF and FBX files, as Blender, Mixamo and most tools export them, with their textures and materials, and shapes made in code, lit physically by a sun that casts shadows, the sky's soft light and lamps of the game's own, with fog and a sky behind, and plays their animations: characters bent by their bones, shape keys, blends between animations and layers of them. Collisions come in the next stages of M7 (see [docs/roadmap.md](../docs/roadmap.md#m7-3d-planned)).
+A 3D world, seen through a `Camera3D`, drawn between `screen.Begin3D` and `screen.End3D` in the same `Draw` as the 2D: the score and the menus go over it. In meters, with Y up; a model's front faces +Z. GoLib draws models from glTF and FBX files, as Blender, Mixamo and most tools export them, with their textures and materials, and shapes made in code, lit physically by a sun that casts shadows, the sky's soft light and lamps of the game's own, with fog and a sky behind, and plays their animations: characters bent by their bones, shape keys, blends between animations and layers of them. Characters walk through it with collisions and find their way along paths; rigid bodies come in the next stages of M7 (see [docs/roadmap.md](../docs/roadmap.md#m7-3d-planned)).
 
 ### Points, turns and places
 
@@ -1014,6 +1014,76 @@ func (s *playScene) Draw(screen *golib.Screen) {
 - **Copies are still cheap.** Every animated copy of one model is drawn together, each in its own pose: 400 of Kenney's characters walking took 2 ms of each frame on the iMac of [docs/3d.md](../docs/3d.md).
 - `Update`, `Bone`, `Playing`, `Time`, `Finished` and `Moved` work without a window, so a test can check that a jump plays `"Jump"`, or where a hand is.
 
+### Collisions and paths
+
+A `PhysicsWorld` is what is solid in a 3D world, as triangles: a level from Blender, the meshes a game places. Ask it where a ray hits, for the mouse or a shadow, move a `CharacterController` through it, as a player walks, and find paths across it for enemies with a `NavMesh`. Things that fall, roll and bounce on their own, rigid bodies, are not there yet.
+
+| Name | What it does |
+| --- | --- |
+| `PhysicsWorld` | What is solid: add things once, in the scene's constructor, and ask it in `Update`. |
+| `NewPhysicsWorld` | `NewPhysicsWorld() *PhysicsWorld`: an empty one. |
+| `PhysicsWorld.AddModel` | `AddModel(model *Model, transform Transform) int`: every mesh of a model, at rest, placed by `transform`, and its number. A mesh whose object has the custom property `collide` set to `false` in Blender is left out: water, grass, leaves. |
+| `PhysicsWorld.AddMesh` | `AddMesh(mesh *Mesh, transform Transform) int`: a mesh, such as a box scaled into a wall, and its number. |
+| `PhysicsWorld.Remove` | `Remove(id int)`: takes a thing out: a door opened, a wall broken. |
+| `PhysicsWorld.SetTransform` | `SetTransform(id int, transform Transform)`: moves a thing, as a lift moves. |
+| `PhysicsWorld.Raycast` | `Raycast(origin, direction Vector3, distance float32) (RayHit, bool)`: where a ray first hits, within `distance` meters, from either side of a surface. With `Camera3D.Ray`, what the mouse points at. |
+| `PhysicsWorld.SphereCast` | `SphereCast(origin, direction Vector3, radius, distance float32) (RayHit, bool)`: the same for a ball `radius` meters across: where its center is when it first touches. |
+| `RayHit` | `RayHit.Position`, where it hits; `RayHit.Normal`, the way the surface faces there; `RayHit.Distance`, how far along; `RayHit.Body`, the number of what it hit. |
+| `CharacterController` | A character as a capsule standing on its feet, moved through a `PhysicsWorld`: it slides along walls, walks up slopes and steps up ledges, stands on the ground and stops under ceilings. Keep one in the player and in each enemy. |
+| `CharacterController.Position` | Where its feet are: draw the character's model there. |
+| `CharacterController.Height`, `CharacterController.Radius` | The capsule's height and how far it reaches from its middle: 1.8 and 0.3 meters when zero. Set them to the model's size. |
+| `CharacterController.StepHeight`, `CharacterController.MaxSlope` | The tallest ledge it steps up as it walks, 0.3 meters when zero; the steepest ground it stands and walks up on, in degrees, 45 when zero: steeper is a wall it slides down. |
+| `CharacterController.Move` | `Move(world *PhysicsWorld, motion Vector3)`: moves it by `motion`, its velocity times `dt`, as far as the world lets it. |
+| `CharacterController.OnGround`, `CharacterController.GroundNormal`, `CharacterController.OnCeiling`, `CharacterController.OnWall` | What the last `Move` ended touching: standing on the ground, which way that ground faces, its head against a ceiling, a wall in the way. |
+| `NavMesh` | Where characters of one size can walk in a `PhysicsWorld`, to find their way round what is in it. |
+| `NewNavMesh` | `NewNavMesh(world *PhysicsWorld, character CharacterController) *NavMesh`: where characters sized as `character` walk: its `Height`, `Radius`, `StepHeight` and `MaxSlope`. A grid of places `Radius` apart, on ground above ground too: make it once the world is built, which takes about half a second for 100 by 100 meters, and again when the world changes where they can go. |
+| `NavMesh.Path` | `Path(from, to Vector3) ([]Vector3, bool)`: the points to walk through in turn, straight from one to the next, from `from` to `to`; false when there is no way. |
+
+```go
+type player struct {
+	body     golib.CharacterController
+	velocity golib.Vector3
+}
+
+func newPlayScene() *playScene {
+	s := &playScene{physics: golib.NewPhysicsWorld(), camera: golib.NewCamera3D(screenWidth, screenHeight)}
+	s.physics.AddModel(level, golib.Transform{})
+	start, _ := level.Marker("Start")
+	s.player.body = golib.CharacterController{Position: start.Position, Height: 1.8, Radius: 0.3}
+	s.nav = golib.NewNavMesh(s.physics, golib.CharacterController{Height: 1.8, Radius: 0.4})
+	return s
+}
+
+func (s *playScene) Update(input *golib.Input, dt float32) {
+	p := &s.player
+	var forward, right float32
+	if input.KeyDown(golib.KeyUp) {
+		forward = 1
+	}
+	if input.KeyDown(golib.KeyRight) {
+		right = 1
+	}
+	move := s.camera.Direction(forward, right) // as the player sees it
+	p.velocity.X, p.velocity.Z = move.X*runSpeed, move.Z*runSpeed
+	p.velocity.Y -= gravity * dt
+	if p.body.OnGround && input.KeyPressed(golib.KeySpace) {
+		p.velocity.Y = jumpSpeed
+	}
+	p.body.Move(s.physics, p.velocity.Scale(dt))
+	if p.body.OnGround && p.velocity.Y < 0 || p.body.OnCeiling && p.velocity.Y > 0 {
+		p.velocity.Y = 0
+	}
+	s.camera.Follow(p.body.Position.Add(golib.Vector3{Y: 1.5}), p.velocity, 6, -20, dt)
+	s.camera.AvoidWalls(s.physics)
+	s.camera.Update(dt)
+}
+```
+
+- **Gravity and jumps are the game's.** `Move` moves by what it is given: add gravity to the velocity every update, and set the vertical speed to 0 on the ground and under a ceiling, as above.
+- **Enemies walk the same way:** a `CharacterController` each, moved towards the next point of their path. Ask for a new path every half second or so rather than every update: a path across a large level takes a few milliseconds.
+- **Picking:** `origin, direction := s.camera.Ray(input.MousePosition())` and `s.physics.Raycast(origin, direction, 100)`. Things the game moves itself every frame, such as enemies, aren't in the world: check them against the ray in the game, by their distance from it.
+- **Triangles are solid from both sides, and thin ones can be passed through** by something fast: a wall should be a box, not a plane, and a bullet a ray from where it was to where it is.
+
 ### Light, sky and fog
 
 A pass is lit by a sun and by the soft light of the sky and the ground; `Screen.SetEnvironment` changes them, and adds fog and a sky behind everything. `Screen.AddLight` adds lamps. Materials are lit physically, in light brighter than white where it is, and brought back to the screen's colors by a tonemapper that leaves a lit color as it is and softens only what is brighter: `golib.Red` facing the sun is `golib.Red`.
@@ -1063,6 +1133,7 @@ screen.End3D()
 | `Camera3D.Orbit` | `Orbit(center Vector3, yaw, pitch, distance float32)`: `distance` meters from `center`, looking at it, facing `yaw` and `pitch` as a `Rotation` does. The yaw a player faces puts the camera behind them; a negative pitch looks down from above. The third-person camera. |
 | `Camera3D.Look` | `Look(position Vector3, yaw, pitch float32)`: the eye at `position`, looking `yaw` and `pitch`. The first-person camera. |
 | `Camera3D.Follow` | `Follow(target, velocity Vector3, distance, pitch, dt float32)`: behind `target`, `distance` meters away, looking down `pitch` degrees (negative), swinging round behind the way `velocity` moves it along the ground, but not while it moves back towards the camera. The third-person camera; call it in every `Update`. |
+| `Camera3D.AvoidWalls` | `AvoidWalls(world *PhysicsWorld)`: brings the camera in front of anything solid between it and `Target`, so a wall or a block never hides what it looks at. Call it after `Follow` or `Orbit`, before `Update`. |
 | `Camera3D.Heading` | The yaw `Follow` keeps the camera behind. `Follow` turns it; a game can turn it too, such as with the right stick. |
 | `Camera3D.Direction` | `Direction(forward, right float32) Vector3`: the way to move on the ground for keys or a stick pushed `forward` and `right`, from -1 to 1, as the player sees it: forward is away from the camera. As long as the push, at most 1: a stick tilted half way gives half, for a walk rather than a run. A stick's Y grows downwards, so `Direction(-stickY, stickX)`. |
 | `Camera3D.FieldOfView` | Degrees seen from the bottom of the screen to the top: 60, the default, is usual; less zooms in. With `Orthographic`, meters seen from bottom to top instead. |
@@ -1188,6 +1259,8 @@ GoLib makes sound effects in code from a few numbers, so a game needs no sound f
 | `Sound.Play` | `Play()`: plays the sound, over any copy of it that is still playing; up to four copies at once, and a fifth cuts off the oldest. |
 | `Sound.PlayWith` | `PlayWith(volume, pitch float32)`: plays it like `Play`, but louder, quieter, higher or lower, so the same sound over and over doesn't tire the ear. `volume` is 0 to 1, under the sound's own `SetVolume`; `pitch` is 1 for the sound as it is, 2 an octave up, 0.5 an octave down, from 0.25 to 4. Both are kept inside their limits, and the next `Play` sounds as it always did. |
 | `Sound.Loop` | `Loop()`: plays the sound over and over, with no gap, until `Stop`: an engine, an alarm, rain. Calling it while it loops changes nothing, so a game can call it in every update. |
+| `Sound.PlayAt` | `PlayAt(position Vector3, camera *Camera3D)`: in a 3D game, plays it as if it came from `position`, heard from what `camera` looks at: as loud as `Play` within 2 meters, quieter farther away, silent past 50, and from the left or the right as the camera turns. |
+| `Sound.LoopAt` | `LoopAt(position Vector3, camera *Camera3D)`: loops it as `Loop` does, from `position`, as `PlayAt` plays it: a waterfall, an engine. Call it in every update, so it follows the thing and the camera; `Loop` puts it back in the middle. |
 | `Sound.Stop` | `Stop()`: silences the sound, its loop and every copy `Play` started. |
 | `Sound.Looping` | `Looping() bool`: `Loop` was called, and `Stop` wasn't since. True in tests and shots too, where nothing is heard. |
 | `Sound.SetVolume` | `SetVolume(volume float32)`: how loud this sound is, from 0 to 1, under `SetVolume`. Use it to even out sound files. |
@@ -1763,10 +1836,10 @@ A web build is what a phone plays, so a game meant for one is a game meant for t
 | --- | --- | --- |
 | Parts of an image that aren't on a grid, Aseprite slices and tilemap layers | Not on the roadmap yet | Save each part as its own PNG file, or put the parts on a grid |
 | Isometric and hexagonal maps; drawing a map's shapes and text | Not on the roadmap yet | Orthogonal maps; draw what objects stand for with sprites and shapes |
-| Positional sound: louder on the side it comes from | Planned with 3D (M7, stage 6) | `Sound.PlayWith` at a lower volume for what is far away |
-| Physics | Planned with 3D (M7, stage 6): collisions and a character controller in Go, then rigid bodies with Jolt | Simple movement and `Rectangle` overlap checks in the game |
+| Positional sound in 2D | Not on the roadmap yet: 3D has `Sound.PlayAt` | `Sound.PlayWith` at a lower volume for what is far away |
+| Physics: things that fall, roll and bounce on their own | Planned (M7, stage 6): rigid bodies with Jolt, after the collisions, the character controller and the paths in Go, which are there | In 2D, simple movement and `Rectangle` overlap checks in the game; in 3D, a `CharacterController` for what walks, and movement the game works out for what flies or rolls, checked with `SphereCast` |
 | Trigger pressure, vibration | Not on the roadmap yet | Triggers read as buttons |
-| 3D shadows from lamps, collisions against a model's meshes, inverse kinematics, and hiding or reading one part of a model | Planned (M7, stages 6 and 7): see [docs/roadmap.md](../docs/roadmap.md#m7-3d-planned); inverse kinematics isn't on the roadmap yet | Models, materials, lights, the sun's shadows and fog work; for solid level geometry, mark it with empties and custom properties, as [games/hopper](../games/hopper) does, and check collisions in the game |
+| 3D shadows from lamps, inverse kinematics, and hiding or reading one part of a model | Planned (M7, stage 7): see [docs/roadmap.md](../docs/roadmap.md#m7-3d-planned); inverse kinematics isn't on the roadmap yet | Models, materials, lights, the sun's shadows and fog work |
 | Reflections of the world in water and mirrors, a tint for each draw of one `Material`, and hiding or dimming part of an HDRI | Planned (M7, stage 7) | Shiny things reflect the HDRI or the sky; make a `Material` for each color; paint the HDRI over in a copy made offline, as [games/sunset](../games/sunset)'s `sources/skies/lakesky.go` does |
 | `.qoa`, `.xm` and `.mod` in a browser | Not planned: browsers cannot decode them | Save the sound as `.wav`, `.ogg` or `.mp3`. For music, put that file next to the `.xm` under the same name: a web build plays it, and the desktop keeps playing the module |
 

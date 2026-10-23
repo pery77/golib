@@ -299,7 +299,7 @@ func (m *Model) readTree(doc *gltf.Document) {
 	m.nodes = make([]modelNode, len(doc.Nodes))
 	for i, n := range doc.Nodes {
 		node := modelNode{
-			name: n.Name, parent: -1, local: matrix(n.Local), byMatrix: n.HasMatrix, mesh: n.Mesh >= 0,
+			name: n.Name, parent: -1, local: matrix(n.Local), byMatrix: n.HasMatrix, mesh: n.Mesh >= 0, extras: n.Extras,
 			rest: nodePose{
 				translation: Vector3{X: n.Translation[0], Y: n.Translation[1], Z: n.Translation[2]},
 				rotation:    quaternion(n.Rotation).normalize(),

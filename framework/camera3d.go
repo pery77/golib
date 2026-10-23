@@ -166,6 +166,42 @@ func (c *Camera3D) Update(dt float32) {
 	}
 }
 
+// AvoidWalls brings the camera in front of anything solid in world between
+// it and Target, so a wall, a pillar or a block never hides what it looks
+// at: a third-person camera indoors. Call it after Follow or Orbit, and
+// before Update; with Lag, the view comes in at once and goes back out
+// smoothly.
+//
+//	s.camera.Follow(p.position, p.velocity, 6, -20, dt)
+//	s.camera.AvoidWalls(s.physics)
+//	s.camera.Update(dt)
+func (c *Camera3D) AvoidWalls(world *PhysicsWorld) {
+	if world == nil {
+		return
+	}
+	away := c.Position.Sub(c.Target)
+	distance := away.Length()
+	if distance < 1e-4 {
+		return
+	}
+	// A little short of the wall, so its near side doesn't cut the view.
+	const margin = 0.25
+	hit, ok := world.Raycast(c.Target, away, distance+margin)
+	if !ok {
+		return
+	}
+	clear := max(0.1, hit.Distance-margin)
+	if clear >= distance {
+		return
+	}
+	c.Position = c.Target.Add(away.Scale(clear / distance))
+	if c.started {
+		if view := c.eye.Sub(c.look); view.Length() > clear {
+			c.eye = c.look.Add(view.Normalize().Scale(clear))
+		}
+	}
+}
+
 // Snap puts the view on Position and Target at once, without Lag: at the
 // start of a level, or after the player moves to another place.
 func (c *Camera3D) Snap() {

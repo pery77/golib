@@ -81,6 +81,7 @@ type modelNode struct {
 	byMatrix bool   // the file placed it with a matrix, which animations never move
 	mesh     bool   // it carries one of the model's meshes
 	weights  []float32
+	extras   map[string]string // its custom properties from Blender
 }
 
 // modelSkin binds meshes to bones.
