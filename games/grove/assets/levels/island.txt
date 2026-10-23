@@ -1,0 +1,31 @@
+; Grove's island, cell by cell, as seen from the start: the top line is the
+; far end of the island (+Z), and the screen's right is the right of a player
+; who looks up the page. Every cell is one of the kit's large grass blocks,
+; about 2 meters a side; a line starting with ; is a note.
+;
+;   .        the sea
+;   1 2 3    grass that many blocks high
+;
+; A letter stands on grass, one block high in lowercase, two in uppercase:
+;
+;   s  the start          f  the flag
+;   c  a coin             r  a rock with coins inside: punch it open
+;   t  a round tree       p  a pine
+;   w  flowers
+.............
+....pTPTp....
+...T2CFC2P...
+..p2C222C2t..
+..t12R2R21p..
+.p11w1c1w11t.
+.t1r1crc1r1p.
+..1c1w1w1c1..
+.pc11222c1w..
+.t1c12C21c1t.
+..w1c222r11p.
+.p1r11111c1..
+..t1c1w1c1t..
+...p11s11p...
+....t111t....
+.....p1p.....
+.............
