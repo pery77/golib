@@ -47,6 +47,17 @@ type CharacterController struct {
 	GroundNormal Vector3
 	OnCeiling    bool
 	OnWall       bool
+
+	// GroundBody is the number of what it stands on, as the PhysicsWorld's
+	// Add method returned it, or 0. A body moved with SetTransform carries
+	// what stands on it: a lift, a raft.
+	GroundBody int
+
+	// Moved is how far the last Move took it, ground carrying it included:
+	// divided by dt, the velocity it really had, for Camera3D.Follow.
+	Moved Vector3
+
+	groundMoves int // how many times GroundBody had moved, as last seen
 }
 
 func (c *CharacterController) sizes() (height, radius, step, minGround float32) {
@@ -78,16 +89,23 @@ func (c *CharacterController) Move(world *PhysicsWorld, motion Vector3) {
 	}
 	height, radius, step, minGround := c.sizes()
 	wasOnGround := c.OnGround
+	before := c.Position
+	// Standing on something the game moved since: carried with it.
+	if wasOnGround && c.GroundBody != 0 {
+		if b := world.bodies[c.GroundBody]; b != nil && b.moves != c.groundMoves {
+			c.Position = b.place.mul(b.previous.inverse()).transformPoint(c.Position)
+		}
+	}
 	start := c.Position
-	moved := c.sweep(world, start, motion, height, radius, minGround)
+	moved := c.sweep(world, start, motion, height, radius, step, minGround)
 
 	// Blocked by a wall while walking: try again a step higher, and keep
 	// that if it gets further.
 	across := Vector3{X: motion.X, Z: motion.Z}
 	if moved.wall && wasOnGround && across.Length() > 1e-6 {
-		up := c.sweep(world, start, Vector3{Y: step}, height, radius, minGround)
-		over := c.sweep(world, up.position, across, height, radius, minGround)
-		down := c.sweep(world, over.position, Vector3{Y: -step - 0.01 + min(0, motion.Y)}, height, radius, minGround)
+		up := c.sweep(world, start, Vector3{Y: step}, height, radius, step, minGround)
+		over := c.sweep(world, up.position, across, height, radius, step, minGround)
+		down := c.sweep(world, over.position, Vector3{Y: -step - 0.01 + min(0, motion.Y)}, height, radius, step, minGround)
 		if down.ground && flat(down.position.Sub(start)) > flat(moved.position.Sub(start))+1e-4 {
 			moved = down
 			moved.wall = over.wall
@@ -97,16 +115,23 @@ func (c *CharacterController) Move(world *PhysicsWorld, motion Vector3) {
 	// Walking down a slope or off a step: keep to the ground rather than
 	// leaving it for a fall of a few centimeters.
 	if wasOnGround && !moved.ground && motion.Y <= 0 {
-		down := c.sweep(world, moved.position, Vector3{Y: -step}, height, radius, minGround)
+		down := c.sweep(world, moved.position, Vector3{Y: -step}, height, radius, step, minGround)
 		if down.ground {
-			moved.position, moved.ground, moved.groundNormal = down.position, true, down.groundNormal
+			moved.position, moved.ground, moved.groundNormal, moved.groundBody = down.position, true, down.groundNormal, down.groundBody
 		}
 	}
 
 	c.Position = moved.position
+	c.Moved = c.Position.Sub(before)
 	c.OnGround, c.GroundNormal = moved.ground, moved.groundNormal
 	c.OnCeiling, c.OnWall = moved.ceiling, moved.wall
-	if !c.OnGround {
+	c.GroundBody = 0
+	if c.OnGround {
+		c.GroundBody = moved.groundBody
+		if b := world.bodies[c.GroundBody]; b != nil {
+			c.groundMoves = b.moves
+		}
+	} else {
 		c.GroundNormal = Vector3{}
 	}
 }
@@ -120,19 +145,20 @@ type moveResult struct {
 	position              Vector3
 	ground, ceiling, wall bool
 	groundNormal          Vector3
+	groundBody            int
 }
 
 // sweep moves a capsule from position by motion, a little at a time so it
 // doesn't pass through thin walls, pushing it out of whatever it overlaps
 // after each step.
-func (c *CharacterController) sweep(world *PhysicsWorld, position, motion Vector3, height, radius, minGround float32) moveResult {
+func (c *CharacterController) sweep(world *PhysicsWorld, position, motion Vector3, height, radius, step, minGround float32) moveResult {
 	r := moveResult{position: position}
 	length := motion.Length()
 	steps := max(1, int(math.Ceil(float64(length/(radius*0.5)))))
 	part := motion.Scale(1 / float32(steps))
 	for range steps {
 		r.position = r.position.Add(part)
-		c.resolve(world, &r, height, radius, minGround)
+		c.resolve(world, &r, height, radius, step, minGround)
 	}
 	return r
 }
@@ -142,7 +168,7 @@ func (c *CharacterController) sweep(world *PhysicsWorld, position, motion Vector
 // straight up, so it doesn't slide down a slope or off a ledge's edge; and
 // away from walls and ceilings. Ground goes first, so the edge of a step is
 // stood on rather than pushed away from.
-func (c *CharacterController) resolve(world *PhysicsWorld, r *moveResult, height, radius, minGround float32) {
+func (c *CharacterController) resolve(world *PhysicsWorld, r *moveResult, height, radius, step, minGround float32) {
 	var touching []*physicsTriangle
 	for range 4 {
 		bottom := r.position.Add(Vector3{Y: radius})
@@ -172,22 +198,28 @@ func (c *CharacterController) resolve(world *PhysicsWorld, r *moveResult, height
 				n = n.Scale(-1) // the triangle runs through the capsule's middle: out the way it faces
 			}
 			depth := radius - distance
+			// Ground higher above the feet than a step is a ledge: a wall.
+			low := onTriangle.Y-r.position.Y <= step+1e-3
 			switch {
-			case t.normal.Y >= minGround && onTriangle.Y <= bottom.Y+1e-4:
+			case low && t.normal.Y >= minGround && onTriangle.Y <= bottom.Y+1e-4:
 				// Raised until the bottom of the capsule just touches it.
 				across := Vector3{X: onSegment.X - onTriangle.X, Z: onSegment.Z - onTriangle.Z}.Length()
 				lift := onTriangle.Y + float32(math.Sqrt(float64(max(0, radius*radius-across*across)))) - onSegment.Y
 				r.position.Y += max(0, lift)
 				r.ground = true
-				r.groundNormal = t.normal
-			case n.Y >= minGround:
+				r.groundNormal, r.groundBody = t.normal, t.body
+			case low && n.Y >= minGround:
 				r.position.Y += depth / n.Y
 				r.ground = true
-				r.groundNormal = n
+				r.groundNormal, r.groundBody = n, t.body
 			case n.Y <= -0.7:
 				r.position = r.position.Add(n.Scale(depth))
 				r.ceiling = true
 			default:
+				// Pushed back across the ground, not up a ledge's edge.
+				if flat := (Vector3{X: n.X, Z: n.Z}); n.Y > 0 && flat.Length() > 1e-3 {
+					n = flat.Normalize()
+				}
 				r.position = r.position.Add(n.Scale(depth))
 				r.wall = true
 			}

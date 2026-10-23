@@ -169,10 +169,17 @@ func TestCameraAvoidsWalls(t *testing.T) {
 	w, _ := floorWorld()
 	w.AddMesh(NewBoxMesh(), Transform{Position: Vector3{Y: 1, Z: -3}, Scale: Vector3{X: 10, Y: 4, Z: 0.5}})
 	camera := NewCamera3D(800, 600)
-	camera.Orbit(Vector3{Y: 1}, 0, -10, 6) // behind the target, past the wall at z = -3
+	camera.Orbit(Vector3{Y: 1}, 0, -10, 6) // behind the target, past the wall at z = -3, 3 m high
 	camera.AvoidWalls(w)
-	if camera.Position.Z < -2.75 || camera.Position.Z > -2.4 {
-		t.Errorf("the camera behind a wall is at %v, want in front of the wall's face at z = -2.75", camera.Position)
+	if _, hidden := w.Raycast(camera.Target, camera.Position.Sub(camera.Target), camera.Position.Distance(camera.Target)); hidden || camera.Position.Distance(camera.Target) < 2.9 {
+		t.Errorf("the camera behind a 3 m wall is at %v, want risen over it, at least half its 6 m away, with nothing between it and its target", camera.Position)
+	}
+	// Under a ceiling it can't rise: it comes in front of the wall.
+	w.AddMesh(NewBoxMesh(), Transform{Position: Vector3{Y: 3.5}, Scale: Vector3{X: 20, Y: 1, Z: 20}})
+	camera.Orbit(Vector3{Y: 1}, 0, -10, 6)
+	camera.AvoidWalls(w)
+	if camera.Position.Z < -2.75 || camera.Position.Z > -2 {
+		t.Errorf("the camera behind a wall under a ceiling is at %v, want in front of the wall's face at z = -2.75", camera.Position)
 	}
 	camera.Orbit(Vector3{Y: 1}, 180, -10, 2)
 	before := camera.Position
@@ -235,5 +242,51 @@ func TestNavMeshFindsTheWayRound(t *testing.T) {
 	w.AddMesh(NewBoxMesh(), Transform{Position: Vector3{X: -9.5, Y: 1}, Scale: Vector3{X: 2, Y: 2, Z: 0.5}})
 	if path, ok := NewNavMesh(w, CharacterController{Radius: 0.4}).Path(from, to); ok {
 		t.Errorf("found a way %v through a wall from side to side", path)
+	}
+}
+
+func TestCharacterStepsNoHigherThanStepHeight(t *testing.T) {
+	for _, c := range []struct {
+		ledge  float32
+		climbs bool
+	}{{0.25, true}, {0.35, false}, {0.5, false}} {
+		w, _ := floorWorld()
+		w.AddMesh(NewBoxMesh(), Transform{Position: Vector3{Y: c.ledge / 2, Z: 6}, Scale: Vector3{X: 4, Y: c.ledge, Z: 10}})
+		body := &CharacterController{Radius: 0.4, StepHeight: 0.3, OnGround: true}
+		for range 120 {
+			body.Move(w, Vector3{Z: 2.0 / 60, Y: -0.05})
+		}
+		if climbed := body.Position.Y > c.ledge-0.01; climbed != c.climbs {
+			t.Errorf("a %v m ledge, step height 0.3, radius 0.4: the character ended at %v, climbing it is %v, want %v", c.ledge, body.Position, climbed, c.climbs)
+		}
+	}
+}
+
+func TestCharacterRidesALift(t *testing.T) {
+	w, _ := floorWorld()
+	lift := w.AddMesh(NewBoxMesh(), Transform{Position: Vector3{X: 3, Y: 0.25}, Scale: Vector3{X: 2, Y: 0.5, Z: 2}})
+	body := &CharacterController{Position: Vector3{X: 3, Y: 0.5}}
+	body.Move(w, Vector3{Y: -0.05})
+	if !body.OnGround || body.GroundBody != lift {
+		t.Fatalf("on the lift, ground %v on body %d, want body %d", body.OnGround, body.GroundBody, lift)
+	}
+	for frame := 1; frame <= 60; frame++ {
+		w.SetTransform(lift, Transform{Position: Vector3{X: 3, Y: 0.25 + float32(frame)*0.05}, Scale: Vector3{X: 2, Y: 0.5, Z: 2}})
+		body.Move(w, Vector3{Y: -0.05})
+	}
+	if !body.OnGround || !within(body.Position.Y, 3.5, 0.02) {
+		t.Errorf("after the lift rose 3 m the character is at %v, on ground %v, want carried up on it, at 3.5", body.Position, body.OnGround)
+	}
+	if !within(body.Moved.Y, 0.05, 0.01) {
+		t.Errorf("Moved = %v, want the lift's 5 cm a frame", body.Moved)
+	}
+}
+
+func TestNavMeshPathToAPointInTheAir(t *testing.T) {
+	w, _ := floorWorld()
+	nav := NewNavMesh(w, CharacterController{Radius: 0.4})
+	path, ok := nav.Path(Vector3{X: -3}, Vector3{X: 3, Y: 4})
+	if !ok || !within(path[len(path)-1].Y, 0, 0.01) || !within(path[len(path)-1].X, 3, 0.3) {
+		t.Errorf("a path to a point 4 m up ends at %v, %v, want on the floor under it", path, ok)
 	}
 }

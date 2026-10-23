@@ -82,7 +82,7 @@ func main() {
 4. **Pressed happens once, Down lasts.** `KeyPressed`, `MousePressed` and `GamepadPressed` are true in exactly one update per press: use them for jumping, firing and menus. `KeyDown`, `MouseDown` and `GamepadDown` stay true while held: use them for walking and thrust.
 5. **Use `Input` only in `Update`, and `Screen` only in `Draw`.** Don't keep them in the game's state.
 6. **Draw in screen pixels, or through a camera.** By default the screen is `Config.Width` by `Config.Height` pixels, with 0, 0 at the top-left corner and y growing downwards, whatever the window's size. With `Config.WindowScale` it follows the window instead: use `Config.OnScreenResize` to update the layout and camera. With `Config.FillWindow` it takes the window's shape, so there are no bars; `screen.Width()` and `screen.Height()` say its size. `WindowScale` takes precedence when both are set. `Run` scales the screen to the window and reports the mouse in the same pixels. After `screen.SetCamera(camera)`, positions are in the world instead, until `screen.SetCamera(nil)`.
-7. **Make sprites, maps, fonts, meshes, sounds, music and shaders once, and keep them.** Create them as package variables or in `main`, never in `Update`, in `Draw` or in a scene that is made again for every new game: each one loads the first time it is used and stays loaded until `Run` returns.
+7. **Make sprites, maps, fonts, meshes, sounds, music and shaders once, and keep them.** Create them as package variables or in `main`, never in `Update`, in `Draw` or in a scene that is made again for every new game: each one loads the first time it is used and stays loaded until `Run` returns. Making one reads nothing; asking it something does (`Markers`, `Bounds`, `Err`, `Animations`): ask in `main` or in a scene, never in a package variable's initializer, which runs before `assets.go` gives a dist or web build its assets, so the file isn't found there.
 8. **Random numbers come from `RandomInt` and `RandomFloat`**, never from `math/rand`: `golib shot` starts them from the same seed, so its screenshots repeat.
 9. **No key quits on its own, not even Esc.** Call `Quit` when the game should end; the game decides what Esc does.
 10. **`SwitchScene` and `Quit` don't stop the current update.** The code after them still runs, so `return` right after unless that is what you want.
@@ -737,7 +737,7 @@ width := golib.Clamp(barWidth*s.health/maxHealth, 0, barWidth)
 
 The easings take a share of the way from 0 to 1, which is usually `Timer.Progress`, and clamp anything outside it.
 
-That is all the geometry GoLib has: no physics. Pushing a player out of a wall is game code: `games/platformer/world.go` moves one axis at a time and pushes the player back out of any solid tile of the map it overlaps.
+That is all the 2D geometry GoLib has: no physics in 2D (in 3D, see [Collisions and paths](#collisions-and-paths)). Pushing a player out of a wall is game code: `games/platformer/world.go` moves one axis at a time and pushes the player back out of any solid tile of the map it overlaps.
 
 ## Camera
 
@@ -1025,7 +1025,7 @@ A `PhysicsWorld` is what is solid in a 3D world, as triangles: a level from Blen
 | `PhysicsWorld.AddModel` | `AddModel(model *Model, transform Transform) int`: every mesh of a model, at rest, placed by `transform`, and its number. A mesh whose object has the custom property `collide` set to `false` in Blender is left out: water, grass, leaves. |
 | `PhysicsWorld.AddMesh` | `AddMesh(mesh *Mesh, transform Transform) int`: a mesh, such as a box scaled into a wall, and its number. |
 | `PhysicsWorld.Remove` | `Remove(id int)`: takes a thing out: a door opened, a wall broken. |
-| `PhysicsWorld.SetTransform` | `SetTransform(id int, transform Transform)`: moves a thing, as a lift moves. |
+| `PhysicsWorld.SetTransform` | `SetTransform(id int, transform Transform)`: moves a thing, as a lift moves, and carries a `CharacterController` standing on it at its next `Move`: move a lift once each update, before the characters. |
 | `PhysicsWorld.Raycast` | `Raycast(origin, direction Vector3, distance float32) (RayHit, bool)`: where a ray first hits, within `distance` meters, from either side of a surface. With `Camera3D.Ray`, what the mouse points at. |
 | `PhysicsWorld.SphereCast` | `SphereCast(origin, direction Vector3, radius, distance float32) (RayHit, bool)`: the same for a ball `radius` meters across: where its center is when it first touches. |
 | `RayHit` | `RayHit.Position`, where it hits; `RayHit.Normal`, the way the surface faces there; `RayHit.Distance`, how far along; `RayHit.Body`, the number of what it hit. |
@@ -1035,9 +1035,11 @@ A `PhysicsWorld` is what is solid in a 3D world, as triangles: a level from Blen
 | `CharacterController.StepHeight`, `CharacterController.MaxSlope` | The tallest ledge it steps up as it walks, 0.3 meters when zero; the steepest ground it stands and walks up on, in degrees, 45 when zero: steeper is a wall it slides down. |
 | `CharacterController.Move` | `Move(world *PhysicsWorld, motion Vector3)`: moves it by `motion`, its velocity times `dt`, as far as the world lets it. |
 | `CharacterController.OnGround`, `CharacterController.GroundNormal`, `CharacterController.OnCeiling`, `CharacterController.OnWall` | What the last `Move` ended touching: standing on the ground, which way that ground faces, its head against a ceiling, a wall in the way. |
+| `CharacterController.GroundBody` | The number of what it stands on, as the `Add` method returned it, or 0: is the player on the lift? |
+| `CharacterController.Moved` | How far the last `Move` really took it, along walls and carried by a lift included: `Moved.Scale(1 / dt)` is its real velocity, the one to give `Camera3D.Follow`. |
 | `NavMesh` | Where characters of one size can walk in a `PhysicsWorld`, to find their way round what is in it. |
 | `NewNavMesh` | `NewNavMesh(world *PhysicsWorld, character CharacterController) *NavMesh`: where characters sized as `character` walk: its `Height`, `Radius`, `StepHeight` and `MaxSlope`. A grid of places `Radius` apart, on ground above ground too: make it once the world is built, which takes about half a second for 100 by 100 meters, and again when the world changes where they can go. |
-| `NavMesh.Path` | `Path(from, to Vector3) ([]Vector3, bool)`: the points to walk through in turn, straight from one to the next, from `from` to `to`; false when there is no way. |
+| `NavMesh.Path` | `Path(from, to Vector3) ([]Vector3, bool)`: the points to walk through in turn, straight from one to the next, from `from` to `to`, or to the ground under `to` when it is in the air; false when there is no way. |
 
 ```go
 type player struct {
@@ -1073,14 +1075,16 @@ func (s *playScene) Update(input *golib.Input, dt float32) {
 	if p.body.OnGround && p.velocity.Y < 0 || p.body.OnCeiling && p.velocity.Y > 0 {
 		p.velocity.Y = 0
 	}
-	s.camera.Follow(p.body.Position.Add(golib.Vector3{Y: 1.5}), p.velocity, 6, -20, dt)
+	s.camera.Follow(p.body.Position.Add(golib.Vector3{Y: 1.5}), p.body.Moved.Scale(1/dt), 6, -20, dt)
 	s.camera.AvoidWalls(s.physics)
 	s.camera.Update(dt)
 }
 ```
 
+- **Give `Follow` the movement the character really made**, `body.Moved.Scale(1 / dt)`, not the velocity the keys ask for: pushing into a wall, the character slides one way while the keys push another, and the camera would swing round the wrong way. With a `Follow` camera, a sideways key makes the character run in a circle, since the camera swings round behind it: steer by turning the camera, and in a `golib shot --input` script, by its turning keys and forward.
+
 - **Gravity and jumps are the game's.** `Move` moves by what it is given: add gravity to the velocity every update, and set the vertical speed to 0 on the ground and under a ceiling, as above.
-- **Enemies walk the same way:** a `CharacterController` each, moved towards the next point of their path. Ask for a new path every half second or so rather than every update: a path across a large level takes a few milliseconds.
+- **Enemies walk the same way:** a `CharacterController` each, moved towards the next point of their path. Ask for a new path every half second or so rather than every update: a path across a large level takes a few milliseconds. Characters don't collide with each other: keep them apart in the game, by their distance. A line of sight is a `Raycast` from eyes to eyes. Making a `NavMesh` again takes tens of milliseconds for a level of rooms: do it when a door opens, not every update.
 - **Picking:** `origin, direction := s.camera.Ray(input.MousePosition())` and `s.physics.Raycast(origin, direction, 100)`. Things the game moves itself every frame, such as enemies, aren't in the world: check them against the ray in the game, by their distance from it.
 - **Triangles are solid from both sides, and thin ones can be passed through** by something fast: a wall should be a box, not a plane, and a bullet a ray from where it was to where it is.
 
@@ -1133,7 +1137,7 @@ screen.End3D()
 | `Camera3D.Orbit` | `Orbit(center Vector3, yaw, pitch, distance float32)`: `distance` meters from `center`, looking at it, facing `yaw` and `pitch` as a `Rotation` does. The yaw a player faces puts the camera behind them; a negative pitch looks down from above. The third-person camera. |
 | `Camera3D.Look` | `Look(position Vector3, yaw, pitch float32)`: the eye at `position`, looking `yaw` and `pitch`. The first-person camera. |
 | `Camera3D.Follow` | `Follow(target, velocity Vector3, distance, pitch, dt float32)`: behind `target`, `distance` meters away, looking down `pitch` degrees (negative), swinging round behind the way `velocity` moves it along the ground, but not while it moves back towards the camera. The third-person camera; call it in every `Update`. |
-| `Camera3D.AvoidWalls` | `AvoidWalls(world *PhysicsWorld)`: brings the camera in front of anything solid between it and `Target`, so a wall or a block never hides what it looks at. Call it after `Follow` or `Orbit`, before `Update`. |
+| `Camera3D.AvoidWalls` | `AvoidWalls(world *PhysicsWorld)`: keeps anything solid from coming between the camera and `Target`, so a wall or a block never hides what it looks at: it rises over what is in the way, up to looking down from above, and comes in front of it only when rising isn't enough, never nearer than 0.6 meters. Call it after `Follow` or `Orbit`, before `Update`. |
 | `Camera3D.Heading` | The yaw `Follow` keeps the camera behind. `Follow` turns it; a game can turn it too, such as with the right stick. |
 | `Camera3D.Direction` | `Direction(forward, right float32) Vector3`: the way to move on the ground for keys or a stick pushed `forward` and `right`, from -1 to 1, as the player sees it: forward is away from the camera. As long as the push, at most 1: a stick tilted half way gives half, for a walk rather than a run. A stick's Y grows downwards, so `Direction(-stickY, stickX)`. |
 | `Camera3D.FieldOfView` | Degrees seen from the bottom of the screen to the top: 60, the default, is usual; less zooms in. With `Orthographic`, meters seen from bottom to top instead. |
@@ -1784,7 +1788,7 @@ func TestJumpOnlyFromTheGround(t *testing.T) {
 
 - `Rectangle`, the random numbers, `ReadAsset`, `Animation`, a sprite's `Width`, `Height`, `Frames` and `Animation`, and everything a `Map` has but drawing work in tests; `golib test` runs them in the game's folder, so a test can check that a level has a start and the player can reach the exit. `golib test <game> --run <TestName>` runs only that test and shows what it logs with `t.Log`.
 - `Sound.Play` and `Music.Play` play nothing in tests; `Sound.Play` still reads a sound file, so a test that plays it checks the file.
-- In 3D, `Vector3`, `Rotation`, `Transform`, `Camera3D` (`ToScreen`, `Ray`, `Orbit`, `Look`, `Update`), a model's `Err`, `Bounds`, `Markers`, `Animations`, `AnimationLength` and `Bones`, and an `Animator` (`Play`, `Update`, `Playing`, `Time`, `Bone`, `Moved`) work in tests: check which way a key moves a character on the screen, that a level's markers are where they should be, as `games/hopper/level_test.go` does, and that a jump plays the jump.
+- In 3D, `Vector3`, `Rotation`, `Transform`, `Camera3D` (`ToScreen`, `Ray`, `Orbit`, `Look`, `Follow`, `AvoidWalls`, `Direction`, `Update`), a model's `Err`, `Bounds`, `Markers`, `Animations`, `AnimationLength` and `Bones`, an `Animator` (`Play`, `Update`, `Playing`, `Time`, `Bone`, `Moved`), and a `PhysicsWorld` with its `CharacterController`s and `NavMesh` work in tests: check which way a key moves a character on the screen, that a level's markers are where they should be, as `games/hopper/level_test.go` does, that a jump plays the jump, that a wall stops the player, and that every key can be reached, as `games/crypt`'s tests do.
 - `Run` and `Screen` need a window: check drawing with `golib shot` instead.
 
 ## Using raylib directly

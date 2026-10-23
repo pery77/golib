@@ -196,8 +196,10 @@ func (n *NavMesh) nearest(p Vector3) (int32, bool) {
 
 // Path returns the way a character walks from from to to, as the points it
 // walks through in turn, on the ground: the first is from, the last is to,
-// and between them it walks straight. It is false when to can't be reached
-// from from, and the points are then nil.
+// and between them it walks straight. When to is off the ground, in the air
+// or on something the character can't stand on, the path ends on the
+// ground nearest below it. It is false when there is no way from from to
+// to, and the points are then nil.
 func (n *NavMesh) Path(from, to Vector3) ([]Vector3, bool) {
 	start, ok := n.nearest(from)
 	if !ok {
@@ -244,8 +246,14 @@ func (n *NavMesh) Path(from, to Vector3) ([]Vector3, bool) {
 	for i, j := 0, len(places)-1; i < j; i, j = i+1, j-1 {
 		places[i], places[j] = places[j], places[i]
 	}
-	places[0] = from
-	places[len(places)-1] = to
+	// The ends are from and to themselves when they stand there; one in the
+	// air, such as a jumping player, gives the ground under it.
+	if float32(math.Abs(float64(from.Y-places[0].Y))) <= n.step {
+		places[0] = from
+	}
+	if float32(math.Abs(float64(to.Y-places[len(places)-1].Y))) <= n.step {
+		places[len(places)-1] = to
+	}
 	return n.straighten(places), true
 }
 

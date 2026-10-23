@@ -34,8 +34,10 @@ type PhysicsWorld struct {
 // physicsBody is one thing added to a PhysicsWorld: its triangles, three
 // corners each, in its own space, and where it is.
 type physicsBody struct {
-	corners []Vector3
-	place   matrix
+	corners  []Vector3
+	place    matrix
+	previous matrix // where SetTransform moved it from
+	moves    int    // how many times SetTransform moved it
 }
 
 // physicsTriangle is a triangle of a body, placed in the world.
@@ -163,10 +165,12 @@ func (w *PhysicsWorld) Remove(id int) {
 
 // SetTransform moves the body numbered id to transform, as a lift or a
 // drawbridge moves: what is added with a transform is moved by this one in
-// its place.
+// its place. A CharacterController standing on it is carried along at its
+// next Move: move a lift once each update, before the characters.
 func (w *PhysicsWorld) SetTransform(id int, transform Transform) {
 	if b := w.bodies[id]; b != nil {
-		b.place = transform.matrix()
+		b.previous, b.place = b.place, transform.matrix()
+		b.moves++
 		w.dirty = true
 	}
 }
