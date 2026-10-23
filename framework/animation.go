@@ -272,6 +272,10 @@ type Animator struct {
 
 	posed bool // pose holds the animations where they are now
 	pose  modelPose
+
+	// What posing works in, kept from one frame to the next.
+	base, clip, over                      []nodePose
+	baseWeights, clipWeights, overWeights [][]float32
 }
 
 // animationLayer is the animations playing on part of a model: the whole of
@@ -671,14 +675,9 @@ func (a *Animator) posedNow() *modelPose {
 		if layer.weight == 0 {
 			continue
 		}
-		over := make([]nodePose, len(m.nodes))
+		over := growPoses(&a.over, len(m.nodes))
 		copy(over, p.locals)
-		overWeights := make([][]float32, len(m.nodes))
-		for n, w := range p.weights {
-			if w != nil {
-				overWeights[n] = append([]float32(nil), w...)
-			}
-		}
+		overWeights := copyWeights(&a.overWeights, p.weights)
 		a.blend(layer, over, overWeights)
 		for n, moves := range layer.nodes {
 			if moves {
@@ -723,20 +722,14 @@ func (a *Animator) blend(layer *animationLayer, poses []nodePose, weights [][]fl
 	if total <= 0 {
 		return
 	}
-	base := make([]nodePose, len(poses))
+	base := growPoses(&a.base, len(poses))
 	copy(base, poses)
-	var baseWeights [][]float32
-	if weights != nil {
-		baseWeights = make([][]float32, len(weights))
-		for n, w := range weights {
-			if w != nil {
-				baseWeights[n] = append([]float32(nil), w...)
-				clear(w)
-			}
-		}
+	baseWeights := copyWeights(&a.baseWeights, weights)
+	for _, w := range weights {
+		clear(w)
 	}
-	clipPoses := make([]nodePose, len(poses))
-	clipWeights := make([][]float32, len(poses))
+	clipPoses := growPoses(&a.clip, len(poses))
+	clipWeights := copyWeights(&a.clipWeights, weights)
 	var sum float32
 	for _, clip := range layer.clips {
 		if clip.weight <= 0 {
@@ -745,9 +738,7 @@ func (a *Animator) blend(layer *animationLayer, poses []nodePose, weights [][]fl
 		share := clip.weight / total
 		copy(clipPoses, base)
 		for n, w := range baseWeights {
-			if w != nil {
-				clipWeights[n] = append(clipWeights[n][:0], w...)
-			}
+			copy(clipWeights[n], w)
 		}
 		if clip.animation >= 0 {
 			m.animations[clip.animation].poseAt(clip.time, clipPoses, clipWeights)
@@ -795,6 +786,32 @@ func (a *Animator) shapesOn(layer *animationLayer, n int) bool {
 		}
 	}
 	return false
+}
+
+// growPoses returns *buffer at length n, making it again only when it is short.
+func growPoses(buffer *[]nodePose, n int) []nodePose {
+	if cap(*buffer) < n {
+		*buffer = make([]nodePose, n)
+	}
+	*buffer = (*buffer)[:n]
+	return *buffer
+}
+
+// copyWeights returns *buffer holding a copy of weights, node by node, with
+// nil where weights has nil, making its slices only when they are short.
+func copyWeights(buffer *[][]float32, weights [][]float32) [][]float32 {
+	if len(*buffer) != len(weights) {
+		*buffer = make([][]float32, len(weights))
+	}
+	out := *buffer
+	for n, w := range weights {
+		if w == nil {
+			out[n] = nil
+			continue
+		}
+		out[n] = append(out[n][:0], w...)
+	}
+	return out
 }
 
 func scaleTurn(q quaternion, by float32) quaternion {
