@@ -21,11 +21,11 @@ Download the template, run a couple of commands, describe a game to an AI agent,
 7. **Cross-platform by default.** Windows, Linux and macOS are first-class, on x86-64 and ARM64.
 8. **Games first.** GoLib covers what nearly every game needs, then gets out of the way. raylib stays reachable for everything else. A good-looking 3D game needs an engine, so GoLib builds one in, with physics, behind an API as small as the 2D one (planned, M7; see [roadmap.md](roadmap.md#m7-3d-planned)). The engine serves the games: nothing goes into it that games don't ask for.
 9. **Framework and games apart.** The framework is a library; each game is an ordinary Go program in its own folder that uses it. Anyone can make a game without touching the framework, and the framework never holds code for one particular game. See [architecture.md](architecture.md).
-10. **Established tools, no editors of our own.** Content is made in mature tools people already know: Tiled for 2D maps, Aseprite for sprites and animations, jfxr for sound effects, Blender for 3D models and levels, and FBX from any other 3D tool or store. GoLib loads the files they save. The tools are only needed to edit content: a game builds and runs without them.
+10. **Established tools, no editors of our own.** Content is made in mature tools people already know: Tiled for 2D maps, Aseprite for sprites and animations, jfxr for sound effects, Blender for 3D models and levels, and FBX from any other 3D tool or store. GoLib loads the files they save. The tools are only needed to edit content: a game builds and runs without them. GoLib itself never becomes an engine with an editor; a game may have a small tool of its own, inside it, for what only that game knows (clarified 2026-10-23).
 
 ## Non-goals
 
-- A visual editor, scene designer, level editor or asset GUI of any kind. Tiled, Aseprite, jfxr and Blender already do that job well.
+- A visual editor, scene designer, level editor or asset GUI of any kind in GoLib: it won't become Godot or Unity, and Tiled, Aseprite, jfxr and Blender already do that job well. A game's own small in-game tool for what only it knows is the game's business, not the framework's.
 - Competing with Godot, Unity or Unreal on features. GoLib's 3D aims at good-looking indie games, made in code by people and agents, with light baked in Blender rather than ray-traced in real time.
 - Hiding Go. A GoLib game is an ordinary Go program.
 

@@ -88,7 +88,7 @@ Last updated: 2026-10-21 (`golib.GameVersion`, the `version` of `game.json`, whi
 7. **Transparent over clever.** Small readable scripts, plain Go, visible folders. No hidden state, no generated code the user can't see, nothing written outside the project folder.
 8. **Nothing sensitive in the repo.** No secrets, tokens, personal data or machine-specific absolute paths. Assume every commit is public.
 9. **Framework and games stay apart.** A game lives in its own folder under `games/` and uses only the framework's exported API. The framework never contains code for one particular game. Rules in [docs/architecture.md](docs/architecture.md).
-10. **No editors of our own.** Content comes from established tools: Tiled for 2D maps, Aseprite for sprites, jfxr for sound effects, Blender for 3D models and levels (with FBX from other tools, once M7 lands). Never build a level editor, sprite editor or asset GUI, not even inside a game; load those tools' files instead.
+10. **No editors of our own.** GoLib is a framework, not an engine with an editor: it never grows a scene editor, a map editor, a pixel-art editor or any tool that an established program already is. Content comes from those tools: Tiled for 2D maps, Aseprite for sprites, jfxr for sound effects, Blender for 3D models and levels (with FBX from other tools, once M7 lands); load their files. A game may carry small tools of its own, inside the game, for what only that game knows and no established tool covers, such as tuning its sounds or its music by ear or editing one feature of its own, behind a build tag when players shouldn't see them. Never one that redoes a tool's job, such as drawing pixels or placing tiles. (Clarified 2026-10-23.)
 
 ## Commands
 
