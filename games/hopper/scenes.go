@@ -25,7 +25,6 @@ const (
 	recordName   = "record"
 	endingDelay  = 1.4 // seconds the game goes on showing after the flag or the last life
 	respawnBlink = 1.0 // seconds the character blinks after starting again
-	squashTime   = 0.18
 )
 
 func loadRecord() record {
@@ -116,7 +115,6 @@ type playScene struct {
 	looksAt   golib.Vector3 // the point the camera orbits, ahead of the character
 	record    record
 	look      look
-	squash    golib.Timer // runs after a landing
 	blink     golib.Timer // runs after starting again
 	ending    golib.Timer // runs between the flag or the last life and the end screen
 	newBest   bool
@@ -124,6 +122,7 @@ type playScene struct {
 
 func newPlayScene(r record) *playScene {
 	s := &playScene{world: newWorld(theLevel), camera: golib.NewCamera3D(screenWidth, screenHeight), record: r}
+	s.look.animator = golib.NewAnimator(characterModel)
 	s.cameraYaw = theLevel.startYaw
 	s.camera.Lag = cameraLag
 	s.placeCamera()
@@ -158,6 +157,7 @@ func (s *playScene) Update(input *golib.Input, dt float32) {
 			s.cameraYaw += 40 * dt // swing round to the character's face
 			s.placeCamera()
 		}
+		animate(s.look.animator, s.world.player, s.world.won, dt)
 		s.camera.Update(dt)
 		return
 	}
@@ -171,9 +171,7 @@ func (s *playScene) Update(input *golib.Input, dt float32) {
 	s.react(happened)
 
 	p := s.world.player
-	if p.onGround {
-		s.look.stride += golib.Vector3{X: p.velocity.X, Z: p.velocity.Z}.Length() * dt
-	}
+	animate(s.look.animator, p, false, dt)
 	if !s.world.falling() {
 		s.cameraYaw = followYaw(s.cameraYaw, p.velocity, dt)
 	}
@@ -184,12 +182,7 @@ func (s *playScene) Update(input *golib.Input, dt float32) {
 		s.camera.Snap() // the character starts again: no swoop there
 	}
 	s.camera.Update(dt)
-	s.squash.Tick(dt)
 	s.blink.Tick(dt)
-	s.look.squash = 0
-	if s.squash.Running() {
-		s.look.squash = 1 - s.squash.Progress()
-	}
 	s.look.blink = s.blink.Running() && int(s.blink.Left()/blinkInterval)%2 == 0
 	s.look.hideAll = s.world.over
 }
@@ -201,7 +194,6 @@ func (s *playScene) react(happened events) {
 	}
 	if happened.landed > 6 {
 		landSound.PlayWith(golib.Clamp(happened.landed/15, 0.3, 1), golib.RandomFloat(0.9, 1.1))
-		s.squash.Start(squashTime)
 	}
 	if happened.coins > 0 {
 		coinSound.PlayWith(1, golib.RandomFloat(0.95, 1.1))
@@ -297,6 +289,7 @@ func (s *endScene) update(input *golib.Input, dt float32) {
 		return
 	}
 	s.finished.look.time += dt
+	s.finished.look.animator.Update(dt)
 	s.yaw += 6 * dt
 	overview(s.camera, s.yaw)
 }

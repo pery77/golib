@@ -37,7 +37,6 @@ var (
 	skyTopColor     = golib.Color{R: 82, G: 150, B: 230, A: 255}
 	skyBottomColor  = golib.Color{R: 200, G: 232, B: 252, A: 255}
 	cloudColor      = golib.Color{R: 255, G: 255, B: 255, A: 210}
-	shadowColor     = golib.Color{R: 0, G: 0, B: 0, A: 80}
 	checkpointOff   = golib.Color{R: 150, G: 150, B: 160, A: 255} // a checkpoint not reached yet
 	textColor       = golib.White
 	textShadowColor = golib.Color{R: 20, G: 30, B: 60, A: 200}
