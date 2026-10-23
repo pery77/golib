@@ -509,10 +509,21 @@ test: 0 failed, 0 warning(s)
 			t.Errorf("test Snake ran go %q in %s", call.args, call.dir)
 		}
 	}
+	// --run runs only the tests it names, and shows their logs.
+	tp = newTestProject(t, "windows", "rocks", "snake")
+	if code := tp.c.test([]string{"--run", "TestJump", "snake"}); code != 0 {
+		t.Fatalf("test --run TestJump snake: exit code %d, output:\n%s%s", code, tp.stdout.String(), tp.stderr.String())
+	}
+	for _, call := range tp.calls {
+		if call.args[0] == "test" && !slices.Equal(call.args, []string{"test", "-v", "-run", "TestJump", "./..."}) {
+			t.Errorf("test --run gave go %q", call.args)
+		}
+	}
 	for _, tt := range []struct {
 		options []string
 		want    string
 	}{
+		{[]string{"--run"}, "golib: test --run needs the names of the tests to run, as a pattern, such as: golib test --run TestJump\n"},
 		{[]string{"tetris"}, "golib: no game named \"tetris\" in games/ (available: rocks, snake)\n"},
 		{[]string{"rocks", "snake"}, "golib: test takes at most one game name (got: rocks snake)\n"},
 	} {

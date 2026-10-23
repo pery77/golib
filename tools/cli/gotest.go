@@ -9,11 +9,30 @@ import (
 // test runs go vet and go test for every Go module in the project: the
 // framework, each game and GoLib's own programs. Given a game's name, it
 // tests only that game, so a game in progress elsewhere doesn't get in the
-// way. With --tags, vet and the tests see the files those tags build.
+// way. With --tags, vet and the tests see the files those tags build. With
+// --run <pattern>, only the tests whose names match run, and what they log
+// shows even when they pass: the way to read what a test prints, since
+// golib go test can't start a test that loads raylib on macOS.
 func (c *cli) test(options []string) int {
 	options, exitCode := c.takeTags("test", options)
 	if exitCode != 0 {
 		return exitCode
+	}
+	var run string
+	for i := 0; i < len(options); i++ {
+		switch option := options[i]; {
+		case option == "--run":
+			if i+1 >= len(options) || options[i+1] == "" {
+				return c.usage("test --run needs the names of the tests to run, as a pattern, such as: golib test --run TestJump")
+			}
+			run = options[i+1]
+			options = append(options[:i:i], options[i+2:]...)
+			i--
+		case strings.HasPrefix(option, "--run="):
+			run = strings.TrimPrefix(option, "--run=")
+			options = append(options[:i:i], options[i+1:]...)
+			i--
+		}
 	}
 	modules := c.modules()
 	if len(options) > 0 {
@@ -35,6 +54,9 @@ func (c *cli) test(options []string) int {
 			continue
 		}
 		test := append([]string{"test"}, c.tagsArgs()...)
+		if run != "" {
+			test = append(test, "-v", "-run", run)
+		}
 		if strings.HasPrefix(module, "games/") {
 			// A game's tests see its version in golib.GameVersion, as its
 			// builds do. A game.json with a mistake gives none: build and

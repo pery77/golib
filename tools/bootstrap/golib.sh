@@ -67,7 +67,8 @@ Commands:
                           --web takes the same shots of the web build, in a browser with no
                           window, into build/<game>/shots-web/
   test [game]             Vet and test the framework, every game and GoLib's Go tools,
-                          or only games/<game>
+                          or only games/<game>. --run <pattern> runs only the tests whose
+                          names match, and shows what they log
   web [game] [--port n]   Build games/<game> for the browser into build/<game>/web/ and serve it
                           on this machine. --no-open keeps the browser closed; --lan also
                           serves it to this network, to play on a phone or a tablet
