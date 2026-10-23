@@ -1831,7 +1831,7 @@ void main() {
 
 	function newVoice(buffer) {
 		const id = nextSoundID++;
-		voices.set(id, { buffer: buffer, volume: 1, pitch: 1, node: null, gain: null });
+		voices.set(id, { buffer: buffer, volume: 1, pitch: 1, pan: 0, node: null, gain: null, panner: null });
 		return id;
 	}
 
@@ -1852,13 +1852,36 @@ void main() {
 		const gain = audio.createGain();
 		gain.gain.value = voice.volume;
 		node.connect(gain);
-		gain.connect(master);
+		voice.panner = connectPanned(gain, voice.pan);
 		node.onended = function () {
-			if (voice.node === node) { voice.node = null; voice.gain = null; }
+			if (voice.node === node) { voice.node = null; voice.gain = null; voice.panner = null; }
 		};
 		node.start();
 		voice.node = node;
 		voice.gain = gain;
+	}
+
+	// connectPanned connects gain to the master volume through a stereo
+	// panner when pan isn't 0, and returns the panner. A sound in the
+	// middle goes without one, since a panner lowers a mono sound in the
+	// middle by a third, as no sound before panning was.
+	function connectPanned(gain, pan) {
+		if (pan === 0) {
+			gain.connect(master);
+			return null;
+		}
+		const panner = audio.createStereoPanner();
+		panner.pan.value = pan;
+		gain.connect(panner);
+		panner.connect(master);
+		return panner;
+	}
+
+	function setSoundPan(id, pan) {
+		const voice = voices.get(id);
+		if (!voice) return;
+		voice.pan = pan;
+		if (voice.panner) voice.panner.pan.value = pan;
 	}
 
 	function stopSound(id) {
@@ -1917,7 +1940,7 @@ void main() {
 		const gain = audio.createGain();
 		gain.gain.value = music.volume;
 		node.connect(gain);
-		gain.connect(master);
+		music.panner = connectPanned(gain, music.pan || 0);
 		node.onended = function () {
 			if (music.node === node && !music.looping) {
 				music.node = null;
@@ -1961,6 +1984,19 @@ void main() {
 		stopMusicNode(music);
 		music.offset = 0;
 		music.playing = false;
+	}
+
+	function setMusicPan(id, pan) {
+		const music = musics.get(id);
+		if (!music) return;
+		music.pan = pan;
+		if (music.panner) {
+			music.panner.pan.value = pan;
+		} else if (music.gain && pan !== 0) {
+			// Playing in the middle: a panner joins it now.
+			music.gain.disconnect();
+			music.panner = connectPanned(music.gain, pan);
+		}
 	}
 
 	function setMusicVolume(id, volume) {
@@ -2186,9 +2222,9 @@ void main() {
 		decodeSound: decodeSound, unloadWave: unloadWave,
 		newSound: newSound, newSoundAlias: newSoundAlias, unloadSound: unloadSound,
 		playSound: playSound, stopSound: stopSound, soundPlaying: soundPlaying,
-		setSoundVolume: setSoundVolume, setSoundPitch: setSoundPitch,
+		setSoundVolume: setSoundVolume, setSoundPitch: setSoundPitch, setSoundPan: setSoundPan,
 		newMusic: newMusic, playMusic: playMusic, pauseMusic: pauseMusic,
 		resumeMusic: resumeMusic, stopMusic: stopMusic, unloadMusic: unloadMusic,
-		setMusicVolume: setMusicVolume, musicPlaying: musicPlaying,
+		setMusicVolume: setMusicVolume, setMusicPan: setMusicPan, musicPlaying: musicPlaying,
 	};
 })();
