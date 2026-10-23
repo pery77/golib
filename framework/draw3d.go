@@ -1472,6 +1472,15 @@ func (r *state3D) draw(pass *pass3D) {
 			}
 			r.instances = r.instances[:0]
 			instance(item)
+			if item.material.alpha != alphaBlend {
+				// A solid model fading out: its depth first, so that only
+				// its front shows, not the faces inside it.
+				device.SetColorWrite(false)
+				device.SetDepthWrite(true)
+				device.DrawMeshInstanced(item.gpu, r.instances)
+				device.SetDepthWrite(false)
+				device.SetColorWrite(true)
+			}
 			device.DrawMeshInstanced(item.gpu, r.instances)
 		}
 		device.SetDepthWrite(true)

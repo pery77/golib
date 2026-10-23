@@ -938,6 +938,8 @@ A model's animations, as Blender exports its actions, play through an `Animator`
 | `Animator` | Plays a model's animations for one character, enemy or door. Make one each, keep it in the thing it moves. |
 | `NewAnimator` | `NewAnimator(model *Model) *Animator`: shows the model at rest until it plays something. |
 | `Model.Animations` | `Animations() []string`: the names of its animations, in the file's order: Blender's actions, such as `"Run"` or `"Idle"`. |
+| `Model.AnimationLength` | `AnimationLength(name string) float32`: how many seconds it lasts at its own speed, 0 for a name it doesn't have. |
+| `Model.Bones` | `Bones() []string`: the names of its bones, what `AnimationOptions.Bone` and `Animator.Bone` take. Print them from a test to learn a model's skeleton. |
 | `Animator.Play` | `Play(name string)`: fades into the animation called `name` in 0.2 seconds and loops it. Playing what already plays changes nothing, so call it every update with what should play; the first animation an Animator plays starts at once. |
 | `Animator.PlayWith` | `PlayWith(name string, options AnimationOptions)`: plays it as the options say. |
 | `AnimationOptions` | How `PlayWith` plays an animation; the zero value is what `Play` does. |
@@ -945,7 +947,7 @@ A model's animations, as Blender exports its actions, play through an `Animator`
 | `AnimationOptions.Speed` | How fast: 1 when zero, 2 twice as fast, -1 backwards. Playing it again with another speed changes it as it plays, such as a walk that follows how fast the character goes. |
 | `AnimationOptions.Once` | Plays to its end and holds the last pose there, instead of looping: a jump, an attack, a death. |
 | `AnimationOptions.Then` | With `Once`, the animation to fade into when it ends: `"Idle"` after `"Attack"`. |
-| `AnimationOptions.Bone` | Plays only on that bone and the ones below it, over what plays on the rest: `"Spine"` swings a sword while the legs run. Each `Bone` is a layer of its own; any node of the model can be named. A layer played `Once` without `Then` fades out at its end. Shape key animations on a layer go over the rest too, whatever the bone: a face's expression over the walk. |
+| `AnimationOptions.Bone` | Plays only on that bone and the ones below it, over what plays on the rest: `"Spine"` swings a sword while the legs run. Each `Bone` is a layer of its own, and the one played last goes over the others where they share bones, so a nod on `"Spine"` covers an arm holding a stick until the arm's animation is played again; any node of the model can be named. A layer played `Once` without `Then` fades out at its end. Shape key animations on a layer go over the rest too, whatever the bone: a face's expression over the walk. |
 | `AnimationOptions.Restart` | Starts it again from the beginning even if it is playing: a second punch. |
 | `Animator.Stop` | `Stop(bone string)`: fades out the layer of `bone`, back to what plays under it; `Stop("")` fades the whole model back to its rest pose. |
 | `Animator.Update` | `Update(dt float32)`: moves the animations on. Call it in every `Update`. |
@@ -953,7 +955,8 @@ A model's animations, as Blender exports its actions, play through an `Animator`
 | `Animator.Playing` | `Playing() string`: the animation the whole model plays or fades into, the last played without a `Bone`; `""` at rest. |
 | `Animator.Time` | `Time() float32`: seconds into it, from 0 to its length, starting again as it loops: the moment a swing hits. |
 | `Animator.Finished` | `Finished() bool`: what `Playing` names was played `Once` and has reached its end. |
-| `Animator.Bone` | `Bone(name string) Transform`: where a bone is now, in the model's own space, without its scale: place what the character holds with `Transform.Child`. A marker parented to a bone in Blender follows it, and is the best way to say where a held thing sits and how it is turned. |
+| `Animator.PlayingOn`, `Animator.TimeOn` | `PlayingOn(bone string) string` and `TimeOn(bone string) float32`: the same for the layer of `bone`. `PlayingOn` is `""` once the layer has faded out, as one played `Once` does at its end: the swing is over. |
+| `Animator.Bone` | `Bone(name string) Transform`: where a bone is now, in the model's own space, without its scale: place what the character holds with `Transform.Child`. Its position is the bone's head, the joint it turns around, such as the shoulder for an arm, and its axes are the file's own: in Blender, a bone's Y runs along it, though a model from elsewhere may differ. A marker parented to a bone in Blender follows it, and is the best way to say where a held thing sits and how it is turned; without one, place the thing with a `Child` of the bone, and check it in a shot. |
 | `Animator.SetShapeKey` | `SetShapeKey(name string, weight float32)`: holds the shape key called `name` at `weight`, 0 as modeled to 1 fully the shape, over what the animations give it: a blink, a smile, a bulge. |
 | `Animator.RootMotion` | When true, the movement of the skeleton's top bone across the ground is taken out of the pose and given to `Moved`, for the game to move the character by, so its feet don't slide: for walks animated moving forward rather than in place. Up and down stays in the pose. |
 | `Animator.Moved` | `Moved() Vector3`: how far the animations carried the top bone across the ground in the last `Update`, with `RootMotion` on, in the model's own space: turn it as the model is turned. |
@@ -1058,7 +1061,7 @@ screen.End3D()
 | `Camera3D.Look` | `Look(position Vector3, yaw, pitch float32)`: the eye at `position`, looking `yaw` and `pitch`. The first-person camera. |
 | `Camera3D.Follow` | `Follow(target, velocity Vector3, distance, pitch, dt float32)`: behind `target`, `distance` meters away, looking down `pitch` degrees (negative), swinging round behind the way `velocity` moves it along the ground, but not while it moves back towards the camera. The third-person camera; call it in every `Update`. |
 | `Camera3D.Heading` | The yaw `Follow` keeps the camera behind. `Follow` turns it; a game can turn it too, such as with the right stick. |
-| `Camera3D.Direction` | `Direction(forward, right float32) Vector3`: the way to move on the ground for keys or a stick pushed `forward` and `right`, from -1 to 1, as the player sees it: forward is away from the camera. At most length 1. A stick's Y grows downwards, so `Direction(-stickY, stickX)`. |
+| `Camera3D.Direction` | `Direction(forward, right float32) Vector3`: the way to move on the ground for keys or a stick pushed `forward` and `right`, from -1 to 1, as the player sees it: forward is away from the camera. As long as the push, at most 1: a stick tilted half way gives half, for a walk rather than a run. A stick's Y grows downwards, so `Direction(-stickY, stickX)`. |
 | `Camera3D.FieldOfView` | Degrees seen from the bottom of the screen to the top: 60, the default, is usual; less zooms in. With `Orthographic`, meters seen from bottom to top instead. |
 | `Camera3D.Orthographic` | No perspective: far things are as large as near ones, for isometric and top-down games. |
 | `Camera3D.Near`, `Camera3D.Far` | The closest and the farthest the camera draws. 0 counts as 0.1 and 1000 meters. |
@@ -1705,7 +1708,7 @@ func TestJumpOnlyFromTheGround(t *testing.T) {
 
 - `Rectangle`, the random numbers, `ReadAsset`, `Animation`, a sprite's `Width`, `Height`, `Frames` and `Animation`, and everything a `Map` has but drawing work in tests; `golib test` runs them in the game's folder, so a test can check that a level has a start and the player can reach the exit.
 - `Sound.Play` and `Music.Play` play nothing in tests; `Sound.Play` still reads a sound file, so a test that plays it checks the file.
-- In 3D, `Vector3`, `Rotation`, `Transform`, `Camera3D` (`ToScreen`, `Ray`, `Orbit`, `Look`, `Update`), and a model's `Err`, `Bounds` and `Markers` work in tests: check which way a key moves a character on the screen, and that a level's markers are where they should be, as `games/hopper/level_test.go` does.
+- In 3D, `Vector3`, `Rotation`, `Transform`, `Camera3D` (`ToScreen`, `Ray`, `Orbit`, `Look`, `Update`), a model's `Err`, `Bounds`, `Markers`, `Animations`, `AnimationLength` and `Bones`, and an `Animator` (`Play`, `Update`, `Playing`, `Time`, `Bone`, `Moved`) work in tests: check which way a key moves a character on the screen, that a level's markers are where they should be, as `games/hopper/level_test.go` does, and that a jump plays the jump.
 - `Run` and `Screen` need a window: check drawing with `golib shot` instead.
 
 ## Using raylib directly

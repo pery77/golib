@@ -350,3 +350,79 @@ func TestShapeKeysPlayOnALayer(t *testing.T) {
 		t.Errorf("under the layer, the root walked to %v, want 1 along Z", got)
 	}
 }
+
+func TestAnimatorLayersAndLengths(t *testing.T) {
+	useAssets(t, map[string][]byte{"models/bar.glb": barGLB()})
+	bar := NewModel("models/bar.glb")
+	if got := strings.Join(bar.Bones(), " "); got != "Root Tip" {
+		t.Errorf("Bones() = %s, want the skin's joints", got)
+	}
+	if got := bar.AnimationLength("Bend"); got != 1 {
+		t.Errorf("AnimationLength(Bend) = %v, want 1", got)
+	}
+	if got := bar.AnimationLength("Run"); got != 0 {
+		t.Errorf("AnimationLength of a missing animation = %v, want 0", got)
+	}
+
+	// Two layers on the same bone's tree: the one played last goes over.
+	a := NewAnimator(bar)
+	a.PlayWith("Bend", AnimationOptions{Bone: "Tip"})
+	a.PlayWith("Wave", AnimationOptions{Bone: "Root"})
+	a.Update(0.5)
+	if got := a.Bone("Hand").Position; got.X <= 0 {
+		t.Errorf("Wave, played last, should turn the hand right, but it is at %v", got)
+	}
+	a.PlayWith("Bend", AnimationOptions{Bone: "Tip", Restart: true})
+	a.Update(0.3)
+	if got := a.Bone("Hand").Position; got.X >= 0 {
+		t.Errorf("Bend, played again, should go over Wave and turn the hand left, but it is at %v", got)
+	}
+	if a.PlayingOn("Tip") != "Bend" || !within(a.TimeOn("Tip"), 0.3, 1e-5) {
+		t.Errorf("on Tip: %q at %v, want Bend at 0.3", a.PlayingOn("Tip"), a.TimeOn("Tip"))
+	}
+
+	// A layer played once is over when it has faded out.
+	once := NewAnimator(bar)
+	once.PlayWith("Bend", AnimationOptions{Bone: "Tip", Once: true})
+	once.Update(0.5)
+	if once.PlayingOn("Tip") != "Bend" {
+		t.Errorf("half way, PlayingOn(Tip) = %q, want Bend", once.PlayingOn("Tip"))
+	}
+	once.Update(0.6)
+	if once.PlayingOn("Tip") != "" {
+		t.Errorf("at its end, PlayingOn(Tip) = %q, want nothing, as the layer fades out", once.PlayingOn("Tip"))
+	}
+}
+
+func TestSeeThroughShowsOnlyTheFront(t *testing.T) {
+	screen, capture := openTestWindow(t, 64, 64)
+	takeError()
+	camera := NewCamera3D(64, 64)
+	camera.Position, camera.Target = Vector3{Z: 4}, Vector3{}
+	// Two squares one behind the other, both facing the camera: red in
+	// front, blue behind.
+	square := func(z float32, c Color) []Vertex {
+		return []Vertex{
+			{Position: Vector3{X: -1, Y: -1, Z: z}, Color: c}, {Position: Vector3{X: 1, Y: -1, Z: z}, Color: c},
+			{Position: Vector3{X: 1, Y: 1, Z: z}, Color: c}, {Position: Vector3{X: -1, Y: 1, Z: z}, Color: c},
+		}
+	}
+	both := NewMesh(append(square(0, Red), square(-1, Blue)...), []int{0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7})
+	front := NewMesh(square(0, Red), []int{0, 1, 2, 0, 2, 3})
+	draw := func(mesh *Mesh) func() {
+		return func() {
+			screen.Clear(Black)
+			screen.Begin3D(camera)
+			screen.SetEnvironment(Environment{NoShadows: true})
+			screen.DrawMesh(mesh, Transform{}, Color{R: 255, G: 255, B: 255, A: 128})
+			screen.End3D()
+		}
+	}
+	got, want := capture(draw(both)).NRGBAAt(32, 32), capture(draw(front)).NRGBAAt(32, 32)
+	if err := takeError(); err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Errorf("a half see-through mesh is %v in the middle, want %v, its front square alone, without the blue one inside it", got, want)
+	}
+}

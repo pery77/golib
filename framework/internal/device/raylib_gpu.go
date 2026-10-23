@@ -118,7 +118,7 @@ var gl struct {
 	FramebufferTexture2D, GenRenderbuffers, BindRenderbuffer                 uintptr
 	RenderbufferStorage, FramebufferRenderbuffer, DeleteRenderbuffers        uintptr
 	Viewport, ClearBufferfv, BlendFuncSeparate, DrawArrays                   uintptr
-	DrawBuffer, ReadBuffer, TexSubImage2D                                    uintptr
+	DrawBuffer, ReadBuffer, TexSubImage2D, ColorMask                         uintptr
 
 	// empty is a vertex array with nothing in it, for a triangle over the
 	// whole view whose corners the vertex shader works out.
@@ -171,7 +171,7 @@ func loadGL() {
 		{&gl.Viewport, "glViewport"}, {&gl.ClearBufferfv, "glClearBufferfv"},
 		{&gl.BlendFuncSeparate, "glBlendFuncSeparate"}, {&gl.DrawArrays, "glDrawArrays"},
 		{&gl.DrawBuffer, "glDrawBuffer"}, {&gl.ReadBuffer, "glReadBuffer"},
-		{&gl.TexSubImage2D, "glTexSubImage2D"},
+		{&gl.TexSubImage2D, "glTexSubImage2D"}, {&gl.ColorMask, "glColorMask"},
 	} {
 		*f.to = uintptr(rl.GetProcAddress(f.name))
 		if *f.to == 0 {
@@ -710,6 +710,14 @@ func SetUniformInt(location, value int32) {
 // it later. See-through things are drawn without, after the rest.
 func SetDepthWrite(on bool) {
 	glCall(gl.DepthMask, glBool(on))
+}
+
+// SetColorWrite says whether what is drawn next changes the pass's colors;
+// without, it changes only its depth, as a see-through model does first so
+// that only its front shows.
+func SetColorWrite(on bool) {
+	b := glBool(on)
+	glCall(gl.ColorMask, b, b, b, b)
 }
 
 // SetBlend3D says whether what is drawn next is blended over what is behind

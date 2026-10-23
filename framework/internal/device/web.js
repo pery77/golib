@@ -23,7 +23,8 @@ window.golib = (function () {
 		CULLING = 28, DRAW_MESH = 29, DRAW_INSTANCED = 30, BIND_TEXTURE_3D = 31,
 		DRAW_FULLSCREEN = 32, UNIFORM_VEC4S = 33, BEGIN_SHADOW = 34, END_SHADOW = 35,
 		BIND_SHADOW_MAP = 36, BEGIN_WORK = 37, END_WORK = 38, BIND_WORK_TARGET = 39,
-		BIND_PASS_PICTURE = 40, ADDITIVE_3D = 41, UPDATE_DATA = 42, BIND_DATA = 43;
+		BIND_PASS_PICTURE = 40, ADDITIVE_3D = 41, UPDATE_DATA = 42, BIND_DATA = 43,
+		COLOR_WRITE = 44;
 
 	// The vertex layouts of 3D meshes, as gpu.go defines them, and how many
 	// floats an instance of a lit mesh takes: its matrix and its tint.
@@ -466,6 +467,12 @@ void main() {
 					gl.uniform1i(locations3D[c[i]], c[i + 1]);
 					i += 2;
 					break;
+				case COLOR_WRITE: {
+					const on = c[i] !== 0;
+					gl.colorMask(on, on, on, on);
+					i += 1;
+					break;
+				}
 				case DEPTH_WRITE:
 					gl.depthMask(c[i] !== 0);
 					i += 1;

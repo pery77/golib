@@ -60,6 +60,7 @@ const (
 	opAdditive3D
 	opUpdateData
 	opBindData
+	opColorWrite
 )
 
 // The blend modes, for opBlend.

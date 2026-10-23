@@ -265,6 +265,13 @@ func SetDepthWrite(on bool) {
 	push(opDepthWrite, onOff(on))
 }
 
+// SetColorWrite says whether what is drawn next changes the pass's colors;
+// without, it changes only its depth, as a see-through model does first so
+// that only its front shows.
+func SetColorWrite(on bool) {
+	push(opColorWrite, onOff(on))
+}
+
 // SetBlend3D says whether what is drawn next is blended over what is behind
 // it by its opacity, as see-through things are.
 func SetBlend3D(on bool) {

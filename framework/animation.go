@@ -223,10 +223,11 @@ type AnimationOptions struct {
 	// Bone plays it only on the bone of this name and the bones below it,
 	// over what plays on the rest: "Spine" waves the arms while the legs
 	// keep walking. Each Bone is a layer of its own; the empty Bone is the
-	// whole model. Any node of the model can be named, and the shape keys
-	// an animation moves are moved over the rest whatever the Bone: a
-	// face's expression over the body's walk. A layer played Once without
-	// Then fades out at its end, back to what plays under it.
+	// whole model, and the layer played last goes over the others. Any
+	// node of the model can be named, and the shape keys an animation moves
+	// are moved over the rest whatever the Bone: a face's expression over
+	// the body's walk. A layer played Once without Then fades out at its
+	// end, back to what plays under it.
 	Bone string
 
 	// Restart plays it again from its start even when it is already
@@ -336,6 +337,33 @@ func (m *Model) Animations() []string {
 	return names
 }
 
+// AnimationLength returns how many seconds the animation called name lasts,
+// played once at its own speed, or 0 when the model has none of that name.
+func (m *Model) AnimationLength(name string) float32 {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.prepare() != nil {
+		return 0
+	}
+	if i := m.animationIndex(name); i >= 0 {
+		return m.animations[i].length
+	}
+	return 0
+}
+
+// Bones returns the names of the model's bones, the joints of its skins, in
+// the file's order, each once: what AnimationOptions.Bone and Animator.Bone
+// take. Markers parented to bones in Blender aren't among them; Markers
+// lists those.
+func (m *Model) Bones() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.prepare() != nil {
+		return nil
+	}
+	return m.boneNames()
+}
+
 // ready reads the model, if it hasn't been, and reports what stopped it.
 func (a *Animator) ready() bool {
 	a.model.mu.Lock()
@@ -392,7 +420,24 @@ func (a *Animator) PlayWith(name string, options AnimationOptions) {
 			return
 		}
 	}
+	layer = a.raise(layer)
 	a.start(layer, playingClip{animation: index, speed: speed, once: options.Once, then: options.Then, fade: fade}, fade)
+}
+
+// raise puts a bone's layer over the others, as the one played last, and
+// returns where it is now.
+func (a *Animator) raise(layer *animationLayer) *animationLayer {
+	if layer.nodes == nil {
+		return layer
+	}
+	for i := range a.layers {
+		if &a.layers[i] == layer {
+			moved := a.layers[i]
+			a.layers = append(append(a.layers[:i:i], a.layers[i+1:]...), moved)
+			break
+		}
+	}
+	return &a.layers[len(a.layers)-1]
 }
 
 // start begins clip on layer, fading the clips already there out in fade
@@ -591,6 +636,33 @@ func (a *Animator) Time() float32 {
 		return 0
 	}
 	return clips[len(clips)-1].time
+}
+
+// PlayingOn returns the name of the animation playing on the layer of bone,
+// as Playing does for the whole model: "" once the layer has faded out, as
+// one played Once without Then does at its end.
+func (a *Animator) PlayingOn(bone string) string {
+	for i := range a.layers {
+		layer := &a.layers[i]
+		if layer.bone != bone || layer.fading < 0 && layer.nodes != nil {
+			continue
+		}
+		if clips := layer.clips; len(clips) > 0 && clips[len(clips)-1].animation >= 0 {
+			return a.model.animations[clips[len(clips)-1].animation].name
+		}
+	}
+	return ""
+}
+
+// TimeOn returns how many seconds into its animation the layer of bone is,
+// as Time does for the whole model, or 0 when nothing plays there.
+func (a *Animator) TimeOn(bone string) float32 {
+	for i := range a.layers {
+		if layer := &a.layers[i]; layer.bone == bone && len(layer.clips) > 0 {
+			return layer.clips[len(layer.clips)-1].time
+		}
+	}
+	return 0
 }
 
 // Finished says whether the animation Playing was played Once and has
@@ -918,9 +990,8 @@ func (m *Model) animationList() string {
 	return nameList(names, "no animations: export them from Blender with Animation ticked")
 }
 
-// boneList names the model's bones, or its nodes when it has no skeleton,
-// for a mistake's message.
-func (m *Model) boneList() string {
+// boneNames returns the names of the joints of the model's skins, each once.
+func (m *Model) boneNames() []string {
 	var names []string
 	seen := map[int]bool{}
 	for _, skin := range m.skins {
@@ -931,6 +1002,13 @@ func (m *Model) boneList() string {
 			}
 		}
 	}
+	return names
+}
+
+// boneList names the model's bones, or its nodes when it has no skeleton,
+// for a mistake's message.
+func (m *Model) boneList() string {
+	names := m.boneNames()
 	if len(names) == 0 {
 		for _, n := range m.nodes {
 			names = append(names, n.name)
