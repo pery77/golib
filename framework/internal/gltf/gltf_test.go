@@ -219,3 +219,109 @@ func TestReadSparse(t *testing.T) {
 		t.Errorf("vertex 1 is %v, want the sparse value 5, 5, 5", got)
 	}
 }
+
+// TestReadSkinsMorphsAndAnimations reads a strip bound to two bones, with a
+// shape key and three animations, as Blender writes them.
+func TestReadSkinsMorphsAndAnimations(t *testing.T) {
+	b := NewBuilder()
+	mesh := b.Add("meshes", map[string]any{
+		"primitives": []any{map[string]any{
+			"attributes": map[string]any{
+				"POSITION":  b.Floats([]float32{0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 1, 0}, 3),
+				"NORMAL":    b.Floats([]float32{0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1}, 3),
+				"JOINTS_0":  b.Joints([]uint8{0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0}),
+				"WEIGHTS_0": b.Bytes([]uint8{255, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 100, 100, 0, 0}, 4),
+			},
+			"indices": b.Indices([]uint16{0, 1, 3, 0, 3, 2}),
+			"targets": []any{map[string]any{"POSITION": b.Floats([]float32{0, 0, 0, 0, 0, 0, -1, 0, 0, 1, 0, 0}, 3)}},
+		}},
+		"weights": []float32{0.25},
+		"extras":  map[string]any{"targetNames": []any{"Wide"}},
+	})
+	tip := b.Add("nodes", map[string]any{"name": "Tip", "translation": []float32{0, 1, 0}})
+	root := b.Add("nodes", map[string]any{"name": "Root", "children": []any{tip}})
+	body := b.Add("nodes", map[string]any{"name": "Body", "mesh": mesh, "skin": 0})
+	inverse := []float32{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, -1, 0, 1}
+	b.Add("skins", map[string]any{"name": "Armature", "joints": []any{root, tip}, "inverseBindMatrices": b.Matrices(inverse), "skeleton": root})
+	b.Root(b.Add("nodes", map[string]any{"name": "Armature", "children": []any{root, body}}))
+
+	times := b.Floats([]float32{0, 1}, 1)
+	half := float32(math.Sqrt(0.5))
+	b.Add("animations", map[string]any{
+		"name":     "Bend",
+		"channels": []any{map[string]any{"sampler": 0, "target": map[string]any{"node": tip, "path": "rotation"}}},
+		"samplers": []any{map[string]any{"input": times, "output": b.Floats([]float32{0, 0, 0, 1, 0, 0, half, half}, 4)}},
+	})
+	b.Add("animations", map[string]any{
+		"name":     "Grow",
+		"channels": []any{map[string]any{"sampler": 0, "target": map[string]any{"node": body, "path": "weights"}}},
+		"samplers": []any{map[string]any{"input": times, "output": b.Floats([]float32{0, 1}, 1), "interpolation": "STEP"}},
+	})
+	b.Add("animations", map[string]any{
+		"name": "Hop",
+		"channels": []any{
+			map[string]any{"sampler": 0, "target": map[string]any{"node": root, "path": "translation"}},
+			map[string]any{"sampler": 0, "target": map[string]any{"pointer": "/materials/0"}}, // an extension's: skipped
+		},
+		"samplers": []any{map[string]any{"input": times, "interpolation": "CUBICSPLINE",
+			"output": b.Floats([]float32{0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0}, 3)}},
+	})
+
+	doc, err := Read(b.GLB(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := doc.Meshes[0].Primitives[0]
+	if len(p.Joints) != 16 || p.Joints[8] != 1 || p.Joints[13] != 1 {
+		t.Errorf("joints read as %v", p.Joints)
+	}
+	if len(p.Weights) != 16 || p.Weights[0] != 1 || p.Weights[12] != 0.5 || p.Weights[13] != 0.5 {
+		t.Errorf("weights read as %v, want each vertex's adding up to 1", p.Weights)
+	}
+	if len(p.Targets) != 1 || p.Targets[0].Positions[9] != 1 || p.Targets[0].Normals != nil {
+		t.Errorf("morph targets read as %+v", p.Targets)
+	}
+	if m := doc.Meshes[0]; len(m.Weights) != 1 || m.Weights[0] != 0.25 || len(m.TargetNames) != 1 || m.TargetNames[0] != "Wide" {
+		t.Errorf("the mesh's weights and shape keys read as %v, %v", m.Weights, m.TargetNames)
+	}
+	if n := doc.Nodes[tip]; n.Translation != [3]float32{0, 1, 0} || n.Rotation != [4]float32{0, 0, 0, 1} || n.Scale != [3]float32{1, 1, 1} || n.HasMatrix || !n.Joint {
+		t.Errorf("the tip bone read as %+v", n)
+	}
+	if doc.Nodes[body].Skin != 0 || doc.Nodes[root].Skin != -1 {
+		t.Errorf("skins of the body and the root bone: %d, %d", doc.Nodes[body].Skin, doc.Nodes[root].Skin)
+	}
+	if len(doc.Skins) != 1 {
+		t.Fatalf("read %d skins, want 1", len(doc.Skins))
+	}
+	skin := doc.Skins[0]
+	if skin.Name != "Armature" || len(skin.Joints) != 2 || skin.Joints[1] != tip || skin.Skeleton != root || skin.InverseBind[1][13] != -1 {
+		t.Errorf("the skin read as %+v", skin)
+	}
+	if len(doc.Animations) != 3 {
+		t.Fatalf("read %d animations, want 3", len(doc.Animations))
+	}
+	bend, grow, hop := doc.Animations[0], doc.Animations[1], doc.Animations[2]
+	if bend.Name != "Bend" || len(bend.Channels) != 1 || bend.Channels[0].Path != "rotation" || bend.Channels[0].Interpolation != "LINEAR" || len(bend.Channels[0].Values) != 8 {
+		t.Errorf("Bend read as %+v", bend)
+	}
+	if c := grow.Channels[0]; c.Node != body || c.Path != "weights" || c.Interpolation != "STEP" || len(c.Values) != 2 {
+		t.Errorf("Grow read as %+v", grow)
+	}
+	if len(hop.Channels) != 1 || hop.Channels[0].Interpolation != "CUBICSPLINE" || len(hop.Channels[0].Values) != 18 || hop.Channels[0].Times[1] != 1 {
+		t.Errorf("Hop read as %+v, want its one channel for a node, three values a key", hop)
+	}
+}
+
+func TestReadRefusesBrokenAnimations(t *testing.T) {
+	b := NewBuilder()
+	node := b.Add("nodes", map[string]any{"name": "Box"})
+	b.Root(node)
+	b.Add("animations", map[string]any{
+		"name":     "Spin",
+		"channels": []any{map[string]any{"sampler": 0, "target": map[string]any{"node": node, "path": "rotation"}}},
+		"samplers": []any{map[string]any{"input": b.Floats([]float32{0, 1}, 1), "output": b.Floats([]float32{0, 0, 0, 1}, 4)}},
+	})
+	if _, err := Read(b.GLB(), nil); err == nil || !strings.Contains(err.Error(), "don't match") {
+		t.Errorf("two times with one rotation read with %v, want it said", err)
+	}
+}

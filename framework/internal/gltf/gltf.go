@@ -12,9 +12,11 @@
 // strength (KHR_materials_emissive_strength), unlit materials
 // (KHR_materials_unlit), alpha modes and double sides; samplers; nodes with a
 // matrix or a translation, rotation and scale, their names and their extras;
-// and lights (KHR_lights_punctual). Skins, animations, morph targets and
-// cameras are left for later; points and lines are skipped. A file that
-// requires an extension it doesn't know, such as Draco compression, is
+// lights (KHR_lights_punctual); skins, with the first four joints and
+// weights of each vertex; morph targets, with the names Blender gives its
+// shape keys; and animations of nodes and morph weights, linear, step or
+// cubic. Cameras are left for later; points and lines are skipped. A file
+// that requires an extension it doesn't know, such as Draco compression, is
 // refused with what to change in Blender.
 package gltf
 
@@ -32,19 +34,25 @@ import (
 
 // Document is what a glTF file holds.
 type Document struct {
-	Meshes    []Mesh
-	Materials []Material
-	Textures  []Texture
-	Images    []Image
-	Nodes     []Node
-	Roots     []int // the nodes of the scene to show, at the top of the tree
-	Lights    []Light
+	Meshes     []Mesh
+	Materials  []Material
+	Textures   []Texture
+	Images     []Image
+	Nodes      []Node
+	Roots      []int // the nodes of the scene to show, at the top of the tree
+	Lights     []Light
+	Skins      []Skin
+	Animations []Animation
 }
 
 // Mesh is a named list of primitives, drawn together.
 type Mesh struct {
 	Name       string
 	Primitives []Primitive
+	Weights    []float32 // its morph targets' weights when nothing animates them
+	// TargetNames are its morph targets' names, which Blender writes for its
+	// shape keys, or nil.
+	TargetNames []string
 }
 
 // Primitive is one set of triangles with one material.
@@ -55,6 +63,23 @@ type Primitive struct {
 	Colors    []float32 // r, g, b, a for each vertex, linear, or nil
 	Indices   []uint32  // three a triangle, counterclockwise seen from the front
 	Material  int       // -1 for glTF's default material
+
+	// Joints and Weights skin the primitive: for each vertex, four joints,
+	// as places in its skin's Joints, and how much each moves it, adding up
+	// to 1. Nil for a primitive that isn't skinned.
+	Joints  []float32
+	Weights []float32
+
+	// Targets are the shapes the primitive can blend towards, one for each
+	// of its mesh's morph weights.
+	Targets []MorphTarget
+}
+
+// MorphTarget is a shape a primitive can blend towards, as Blender exports a
+// shape key: how far each vertex moves, and how its normal turns, at weight 1.
+type MorphTarget struct {
+	Positions []float32 // x, y, z for each vertex
+	Normals   []float32 // x, y, z for each vertex, or nil
 }
 
 // TextureRef is a material's use of a texture.
@@ -109,6 +134,54 @@ type Node struct {
 	Local    [16]float32 // column-major, relative to the parent
 	Extras   map[string]string
 	Joint    bool // a bone of a skin, which moves the mesh rather than marking a place
+
+	// Translation, Rotation, a quaternion x, y, z, w, and Scale make Local,
+	// unless the file placed the node with a matrix: then HasMatrix is true
+	// and they are the identity's.
+	Translation [3]float32
+	Rotation    [4]float32
+	Scale       [3]float32
+	HasMatrix   bool
+
+	Skin    int       // the skin of its mesh, -1 for none
+	Weights []float32 // its mesh's morph weights, in place of the mesh's own, or nil
+}
+
+// Skin binds a mesh to bones: each vertex moves with the joints it names, by
+// their weights.
+type Skin struct {
+	Name   string
+	Joints []int // the nodes that are its bones
+
+	// InverseBind takes a point of the mesh into each joint's own space as
+	// they were when the mesh was bound to them, column-major.
+	InverseBind [][16]float32
+
+	Skeleton int // the top node of its bones, or -1 when the file doesn't say
+}
+
+// Animation moves nodes, and morph weights, over time.
+type Animation struct {
+	Name     string
+	Channels []Channel
+}
+
+// Channel animates one property of one node.
+type Channel struct {
+	Node int
+	Path string // "translation", "rotation", "scale" or "weights"
+
+	// Interpolation is "LINEAR", "STEP" or "CUBICSPLINE".
+	Interpolation string
+
+	// Times are the keyframes' times, in seconds, growing.
+	Times []float32
+
+	// Values holds each keyframe's value: 3 numbers for a translation or a
+	// scale, a quaternion x, y, z, w for a rotation, a weight for each morph
+	// target. With CUBICSPLINE, each keyframe has three: the tangent coming
+	// in, the value and the tangent going out.
+	Values []float32
 }
 
 // Light is a light from KHR_lights_punctual. Its direction, for a spot and a
@@ -228,6 +301,8 @@ type rawDocument struct {
 		Translation []float32       `json:"translation"`
 		Rotation    []float32       `json:"rotation"`
 		Scale       []float32       `json:"scale"`
+		Skin        *int            `json:"skin"`
+		Weights     []float32       `json:"weights"`
 		Extras      json.RawMessage `json:"extras"`
 		Extensions  struct {
 			Lights *struct {
@@ -236,17 +311,38 @@ type rawDocument struct {
 		} `json:"extensions"`
 	} `json:"nodes"`
 	Skins []struct {
-		Joints []int `json:"joints"`
+		Name                string `json:"name"`
+		Joints              []int  `json:"joints"`
+		InverseBindMatrices *int   `json:"inverseBindMatrices"`
+		Skeleton            *int   `json:"skeleton"`
 	} `json:"skins"`
 	Meshes []struct {
 		Name       string `json:"name"`
 		Primitives []struct {
-			Attributes map[string]int `json:"attributes"`
-			Indices    *int           `json:"indices"`
-			Material   *int           `json:"material"`
-			Mode       *int           `json:"mode"`
+			Attributes map[string]int   `json:"attributes"`
+			Indices    *int             `json:"indices"`
+			Material   *int             `json:"material"`
+			Mode       *int             `json:"mode"`
+			Targets    []map[string]int `json:"targets"`
 		} `json:"primitives"`
+		Weights []float32       `json:"weights"`
+		Extras  json.RawMessage `json:"extras"`
 	} `json:"meshes"`
+	Animations []struct {
+		Name     string `json:"name"`
+		Channels []struct {
+			Sampler int `json:"sampler"`
+			Target  struct {
+				Node *int   `json:"node"`
+				Path string `json:"path"`
+			} `json:"target"`
+		} `json:"channels"`
+		Samplers []struct {
+			Input         int    `json:"input"`
+			Output        int    `json:"output"`
+			Interpolation string `json:"interpolation"`
+		} `json:"samplers"`
+	} `json:"animations"`
 	Materials []struct {
 		Name string `json:"name"`
 		PBR  *struct {
@@ -455,9 +551,16 @@ func (r *reader) document() (*Document, error) {
 	}
 
 	for mi, m := range raw.Meshes {
-		mesh := Mesh{Name: m.Name}
+		mesh := Mesh{Name: m.Name, Weights: m.Weights}
+		var extras struct {
+			TargetNames []string `json:"targetNames"`
+		}
+		if json.Unmarshal(m.Extras, &extras) == nil {
+			mesh.TargetNames = extras.TargetNames
+		}
+		targets := 0
 		for pi, p := range m.Primitives {
-			prim, ok, err := r.primitive(p.Attributes, p.Indices, p.Mode)
+			prim, ok, err := r.primitive(p.Attributes, p.Indices, p.Mode, p.Targets)
 			if err != nil {
 				return nil, fmt.Errorf("mesh %d (%s), primitive %d: %w", mi, m.Name, pi, err)
 			}
@@ -468,7 +571,14 @@ func (r *reader) document() (*Document, error) {
 			if p.Material != nil && *p.Material >= 0 && *p.Material < len(doc.Materials) {
 				prim.Material = *p.Material
 			}
+			targets = max(targets, len(prim.Targets))
 			mesh.Primitives = append(mesh.Primitives, prim)
+		}
+		// One weight for each morph target, 0 unless the file says.
+		if len(mesh.Weights) != targets {
+			weights := make([]float32, targets)
+			copy(weights, mesh.Weights)
+			mesh.Weights = weights
 		}
 		doc.Meshes = append(doc.Meshes, mesh)
 	}
@@ -493,28 +603,40 @@ func (r *reader) document() (*Document, error) {
 	}
 
 	for i, n := range raw.Nodes {
-		node := Node{Name: n.Name, Mesh: -1, Light: -1, Children: n.Children, Local: identity}
+		node := Node{
+			Name: n.Name, Mesh: -1, Light: -1, Skin: -1, Children: n.Children, Local: identity,
+			Rotation: [4]float32{0, 0, 0, 1}, Scale: [3]float32{1, 1, 1},
+		}
 		if n.Mesh != nil && *n.Mesh >= 0 && *n.Mesh < len(doc.Meshes) {
 			node.Mesh = *n.Mesh
+			if len(n.Weights) == len(doc.Meshes[node.Mesh].Weights) && len(n.Weights) > 0 {
+				node.Weights = n.Weights
+			}
 		}
 		if l := n.Extensions.Lights; l != nil && l.Light >= 0 && l.Light < len(doc.Lights) {
 			node.Light = l.Light
 		}
+		if n.Skin != nil {
+			if *n.Skin < 0 || *n.Skin >= len(raw.Skins) {
+				return nil, fmt.Errorf("node %d (%s) names skin %d, which doesn't exist", i, n.Name, *n.Skin)
+			}
+			node.Skin = *n.Skin
+		}
 		switch {
 		case len(n.Matrix) == 16:
 			copy(node.Local[:], n.Matrix)
+			node.HasMatrix = true
 		default:
-			t, q, s := [3]float32{}, [4]float32{0, 0, 0, 1}, [3]float32{1, 1, 1}
 			if len(n.Translation) == 3 {
-				copy(t[:], n.Translation)
+				copy(node.Translation[:], n.Translation)
 			}
 			if len(n.Rotation) == 4 {
-				copy(q[:], n.Rotation)
+				copy(node.Rotation[:], n.Rotation)
 			}
 			if len(n.Scale) == 3 {
-				copy(s[:], n.Scale)
+				copy(node.Scale[:], n.Scale)
 			}
-			node.Local = trs(t, q, s)
+			node.Local = trs(node.Translation, node.Rotation, node.Scale)
 		}
 		extras, err := flattenExtras(n.Extras)
 		if err != nil {
@@ -529,12 +651,98 @@ func (r *reader) document() (*Document, error) {
 		doc.Nodes = append(doc.Nodes, node)
 	}
 
-	for _, skin := range raw.Skins {
+	for i, skin := range raw.Skins {
+		out := Skin{Name: skin.Name, Joints: skin.Joints, Skeleton: -1}
 		for _, joint := range skin.Joints {
-			if joint >= 0 && joint < len(doc.Nodes) {
-				doc.Nodes[joint].Joint = true
+			if joint < 0 || joint >= len(doc.Nodes) {
+				return nil, fmt.Errorf("skin %d (%s) names joint %d, which doesn't exist", i, skin.Name, joint)
+			}
+			doc.Nodes[joint].Joint = true
+		}
+		if skin.Skeleton != nil && *skin.Skeleton >= 0 && *skin.Skeleton < len(doc.Nodes) {
+			out.Skeleton = *skin.Skeleton
+		}
+		out.InverseBind = make([][16]float32, len(skin.Joints))
+		for k := range out.InverseBind {
+			out.InverseBind[k] = identity
+		}
+		if skin.InverseBindMatrices != nil {
+			values, count, err := r.floats(*skin.InverseBindMatrices, 16, 0)
+			if err != nil {
+				return nil, fmt.Errorf("skin %d (%s), its inverse bind matrices: %w", i, skin.Name, err)
+			}
+			if count < len(skin.Joints) {
+				return nil, fmt.Errorf("skin %d (%s) has %d joints and %d inverse bind matrices", i, skin.Name, len(skin.Joints), count)
+			}
+			for k := range out.InverseBind {
+				copy(out.InverseBind[k][:], values[k*16:])
 			}
 		}
+		doc.Skins = append(doc.Skins, out)
+	}
+
+	for i, a := range raw.Animations {
+		animation := Animation{Name: a.Name}
+		for k, c := range a.Channels {
+			if c.Target.Node == nil {
+				continue // a channel for an extension's property, such as KHR_animation_pointer
+			}
+			node := *c.Target.Node
+			if node < 0 || node >= len(doc.Nodes) {
+				return nil, fmt.Errorf("animation %d (%s), channel %d, moves node %d, which doesn't exist", i, a.Name, k, node)
+			}
+			if c.Sampler < 0 || c.Sampler >= len(a.Samplers) {
+				return nil, fmt.Errorf("animation %d (%s), channel %d, names sampler %d, which doesn't exist", i, a.Name, k, c.Sampler)
+			}
+			width := map[string]int{"translation": 3, "rotation": 4, "scale": 3}[c.Target.Path]
+			if c.Target.Path == "weights" {
+				if m := doc.Nodes[node].Mesh; m >= 0 {
+					width = len(doc.Meshes[m].Weights)
+				}
+			}
+			if width == 0 {
+				continue // weights of a node without morph targets, or a path glTF doesn't have
+			}
+			sampler := a.Samplers[c.Sampler]
+			channel := Channel{Node: node, Path: c.Target.Path, Interpolation: sampler.Interpolation}
+			switch channel.Interpolation {
+			case "":
+				channel.Interpolation = "LINEAR"
+			case "LINEAR", "STEP", "CUBICSPLINE":
+			default:
+				return nil, fmt.Errorf("animation %d (%s), channel %d, has interpolation %q, which glTF doesn't have", i, a.Name, k, sampler.Interpolation)
+			}
+			times, keys, err := r.floats(sampler.Input, 1, 0)
+			if err != nil {
+				return nil, fmt.Errorf("animation %d (%s), channel %d, its times: %w", i, a.Name, k, err)
+			}
+			perKey := width
+			if channel.Interpolation == "CUBICSPLINE" {
+				perKey *= 3
+			}
+			comps := 1
+			if channel.Path != "weights" {
+				comps = width
+			}
+			values, count, err := r.floats(sampler.Output, comps, 0)
+			if err != nil {
+				return nil, fmt.Errorf("animation %d (%s), channel %d, its values: %w", i, a.Name, k, err)
+			}
+			if count*comps != keys*perKey {
+				return nil, fmt.Errorf("animation %d (%s), channel %d, has %d times and %d values, which don't match", i, a.Name, k, keys, count)
+			}
+			for t := 1; t < len(times); t++ {
+				if times[t] < times[t-1] {
+					return nil, fmt.Errorf("animation %d (%s), channel %d, has its times out of order", i, a.Name, k)
+				}
+			}
+			if keys == 0 {
+				continue
+			}
+			channel.Times, channel.Values = times, values
+			animation.Channels = append(animation.Channels, channel)
+		}
+		doc.Animations = append(doc.Animations, animation)
 	}
 
 	switch {
@@ -825,7 +1033,7 @@ func integer(b []byte, kind int) uint32 {
 
 // primitive reads one primitive, and says false for one it skips: points and
 // lines, or one without positions.
-func (r *reader) primitive(attributes map[string]int, indicesAt *int, modeAt *int) (Primitive, bool, error) {
+func (r *reader) primitive(attributes map[string]int, indicesAt *int, modeAt *int, targets []map[string]int) (Primitive, bool, error) {
 	mode := 4
 	if modeAt != nil {
 		mode = *modeAt
@@ -870,6 +1078,45 @@ func (r *reader) primitive(attributes map[string]int, indicesAt *int, modeAt *in
 			return p, false, fmt.Errorf("%d colors for %d positions", n, count)
 		}
 	}
+	jointsAt, hasJoints := attributes["JOINTS_0"]
+	weightsAt, hasWeights := attributes["WEIGHTS_0"]
+	if hasJoints && hasWeights {
+		var n, m int
+		if p.Joints, n, err = r.floats(jointsAt, 4, 0); err != nil {
+			return p, false, err
+		}
+		if p.Weights, m, err = r.floats(weightsAt, 4, 0); err != nil {
+			return p, false, err
+		}
+		if n != count || m != count {
+			return p, false, fmt.Errorf("%d joints and %d weights for %d positions", n, m, count)
+		}
+		normalizeWeights(p.Weights)
+	}
+	for k, target := range targets {
+		var t MorphTarget
+		if at, ok := target["POSITION"]; ok {
+			var n int
+			if t.Positions, n, err = r.floats(at, 3, 0); err != nil {
+				return p, false, fmt.Errorf("morph target %d: %w", k, err)
+			}
+			if n != count {
+				return p, false, fmt.Errorf("morph target %d moves %d vertices of %d", k, n, count)
+			}
+		} else {
+			t.Positions = make([]float32, count*3)
+		}
+		if at, ok := target["NORMAL"]; ok {
+			var n int
+			if t.Normals, n, err = r.floats(at, 3, 0); err != nil {
+				return p, false, fmt.Errorf("morph target %d: %w", k, err)
+			}
+			if n != count {
+				return p, false, fmt.Errorf("morph target %d turns %d normals of %d", k, n, count)
+			}
+		}
+		p.Targets = append(p.Targets, t)
+	}
 
 	var indices []uint32
 	if indicesAt != nil {
@@ -913,10 +1160,28 @@ func (r *reader) primitive(attributes map[string]int, indicesAt *int, modeAt *in
 	return p, true, nil
 }
 
+// normalizeWeights makes each vertex's four weights add up to 1, as glTF
+// asks: weights stored in bytes, or with the influences past the fourth left
+// out, come close but not exactly. A vertex with none follows its first joint.
+func normalizeWeights(weights []float32) {
+	for v := 0; v+3 < len(weights); v += 4 {
+		w := weights[v : v+4]
+		sum := w[0] + w[1] + w[2] + w[3]
+		if sum <= 0 {
+			w[0], w[1], w[2], w[3] = 1, 0, 0, 0
+			continue
+		}
+		for k := range w {
+			w[k] /= sum
+		}
+	}
+}
+
 // flatten gives every triangle its own three vertices, with the triangle's
 // own normal: the flat normals glTF asks for when a file has none.
 func (p *Primitive) flatten() {
-	var positions, normals, texcoords, colors []float32
+	var positions, normals, texcoords, colors, joints, weights []float32
+	targets := make([]MorphTarget, len(p.Targets))
 	for _, i := range p.Indices {
 		positions = append(positions, p.Positions[i*3:i*3+3]...)
 		if p.Texcoords != nil {
@@ -925,6 +1190,19 @@ func (p *Primitive) flatten() {
 		if p.Colors != nil {
 			colors = append(colors, p.Colors[i*4:i*4+4]...)
 		}
+		if p.Joints != nil {
+			joints = append(joints, p.Joints[i*4:i*4+4]...)
+			weights = append(weights, p.Weights[i*4:i*4+4]...)
+		}
+		for k, t := range p.Targets {
+			// The flat normals don't turn with a shape key's normals, which
+			// were made for the smooth ones.
+			targets[k].Positions = append(targets[k].Positions, t.Positions[i*3:i*3+3]...)
+		}
+	}
+	p.Joints, p.Weights = joints, weights
+	if len(targets) > 0 {
+		p.Targets = targets
 	}
 	for t := 0; t+8 < len(positions); t += 9 {
 		ax, ay, az := positions[t+3]-positions[t], positions[t+4]-positions[t+1], positions[t+5]-positions[t+2]
