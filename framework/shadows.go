@@ -104,11 +104,18 @@ uniform mat4 lightViewProjection;
 out vec2 texcoord;
 out float opacity;
 
+// ANIMATION
+
 void main()
 {
     texcoord = vertexTexcoord;
     opacity = vertexColor.a * instanceTint.a;
-    gl_Position = lightViewProjection * instanceModel * vec4(vertexPosition, 1.0);
+    vec3 position = vertexPosition;
+#ifdef ANIMATED
+    vec3 n = vec3(0.0);
+    animate(position, n);
+#endif
+    gl_Position = lightViewProjection * instanceModel * vec4(position, 1.0);
 }
 `
 	shadowFragmentShader = `#version 330
@@ -137,50 +144,104 @@ type shadowProgram struct {
 	lightViewProjection              int32
 	baseTexture, hasBaseTexture      int32
 	baseOpacity, cutout, alphaCutoff int32
+	bending                          bendingUniforms
+}
+
+// locateShadow finds where the shadow shader's uniforms sit in program.
+func locateShadow(program device.Program) shadowProgram {
+	at := func(name string) int32 { return device.UniformLocation(program, name) }
+	return shadowProgram{
+		program: program, lightViewProjection: at("lightViewProjection"),
+		baseTexture: at("baseTexture"), hasBaseTexture: at("hasBaseTexture"),
+		baseOpacity: at("baseOpacity"), cutout: at("cutout"), alphaCutoff: at("alphaCutoff"),
+		bending: locateBending(program),
+	}
+}
+
+// bentShadow returns the shadow program that bends what it draws, made the
+// first time a pass casts the shadow of something animated, or nil when it
+// doesn't compile.
+func (r *state3D) bentShadow() *shadowProgram {
+	if r.shadowBent == nil {
+		program, err := compile3D("animated shadow", animated3D(shadowVertexShader), shadowFragmentShader)
+		if err != nil {
+			reportError(err)
+			r.shadowBent = &shadowProgram{}
+		} else {
+			p := locateShadow(program)
+			r.shadowBent = &p
+		}
+	}
+	if r.shadowBent.program.ID == 0 {
+		return nil
+	}
+	return r.shadowBent
 }
 
 // drawShadows draws the solid groups into the sun's shadow map, one slice at
-// a time, and leaves the pass's own target bound.
+// a time, and leaves the pass's own target bound: those that aren't
+// animated, then those that are, with the program that bends them.
 func (r *state3D) drawShadows(c *cascades, groups []shadowGroup) {
 	if r.shadowMap.ID == 0 {
 		r.shadowMap = device.NewShadowMap(shadowCascades*shadowResolution, shadowResolution)
 	}
-	s := r.shadow
-	device.UseProgram(s.program)
-	device.SetUniformInt(s.baseTexture, 0)
+	programs := []*shadowProgram{&r.shadow}
+	for _, g := range groups {
+		if g.animation.stride > 0 {
+			if bent := r.bentShadow(); bent != nil {
+				programs = append(programs, bent)
+			}
+			break
+		}
+	}
 	culling := true
 	device.SetCulling(true)
 	for k := range shadowCascades {
 		device.BeginShadow(r.shadowMap, k*shadowResolution, 0, shadowResolution, shadowResolution, k == 0)
 		lightViewProjection := [16]float32(c.viewProjections[k])
-		device.SetUniformMatrix(s.lightViewProjection, &lightViewProjection)
-		var current *material3D
-		for _, g := range groups {
-			m := g.material
-			if m != current {
-				current = m
-				cut := m.alpha == alphaMask
-				device.SetUniformInt(s.cutout, boolInt(cut))
-				if cut {
-					device.SetUniform(s.baseOpacity, 1, [4]float32{m.baseColor[3]})
-					device.SetUniform(s.alphaCutoff, 1, [4]float32{m.alphaCutoff})
-					if gpu := m.baseTexture.upload(); gpu.ID != 0 {
-						device.BindTexture3D(0, gpu)
-						device.SetUniformInt(s.hasBaseTexture, 1)
-					} else {
-						device.SetUniformInt(s.hasBaseTexture, 0)
-					}
-				}
-				if m.twoSided == culling {
-					culling = !m.twoSided
-					device.SetCulling(culling)
-				}
-			}
-			device.DrawMeshInstanced(g.gpu, g.instances)
+		for bending, s := range programs {
+			r.drawShadowGroups(s, &lightViewProjection, groups, bending == 1, &culling)
 		}
 	}
 	device.EndShadow()
 	device.SetCulling(true)
+}
+
+// drawShadowGroups draws, with s, the groups that are animated, when bent
+// is true, or those that aren't.
+func (r *state3D) drawShadowGroups(s *shadowProgram, lightViewProjection *[16]float32, groups []shadowGroup, bent bool, culling *bool) {
+	device.UseProgram(s.program)
+	device.SetUniformInt(s.baseTexture, 0)
+	device.SetUniformMatrix(s.lightViewProjection, lightViewProjection)
+	var current *material3D
+	for _, g := range groups {
+		if (g.animation.stride > 0) != bent {
+			continue
+		}
+		if m := g.material; m != current {
+			current = m
+			cut := m.alpha == alphaMask
+			device.SetUniformInt(s.cutout, boolInt(cut))
+			if cut {
+				device.SetUniform(s.baseOpacity, 1, [4]float32{m.baseColor[3]})
+				device.SetUniform(s.alphaCutoff, 1, [4]float32{m.alphaCutoff})
+				if gpu := m.baseTexture.upload(); gpu.ID != 0 {
+					device.BindTexture3D(0, gpu)
+					device.SetUniformInt(s.hasBaseTexture, 1)
+				} else {
+					device.SetUniformInt(s.hasBaseTexture, 0)
+				}
+			}
+			if m.twoSided == *culling {
+				*culling = !m.twoSided
+				device.SetCulling(*culling)
+			}
+		}
+		if bent {
+			s.bending.set(g.animation)
+		}
+		device.DrawMeshInstanced(g.gpu, g.instances)
+	}
 }
 
 // shadowGroup is a group of solid instances, as the shadow pass draws them.
@@ -188,4 +249,5 @@ type shadowGroup struct {
 	gpu       device.Mesh
 	material  *material3D
 	instances []float32
+	animation groupAnimation
 }

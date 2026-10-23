@@ -802,7 +802,7 @@ func (s *playScene) Draw(screen *golib.Screen) {
 
 ## 3D
 
-A 3D world, seen through a `Camera3D`, drawn between `screen.Begin3D` and `screen.End3D` in the same `Draw` as the 2D: the score and the menus go over it. In meters, with Y up; a model's front faces +Z. GoLib draws models from glTF files, as Blender exports them, with their textures and materials, and shapes made in code, lit physically by a sun that casts shadows, the sky's soft light and lamps of the game's own, with fog and a sky behind; FBX files and animation come in the next stages of M7 (see [docs/roadmap.md](../docs/roadmap.md#m7-3d-planned)).
+A 3D world, seen through a `Camera3D`, drawn between `screen.Begin3D` and `screen.End3D` in the same `Draw` as the 2D: the score and the menus go over it. In meters, with Y up; a model's front faces +Z. GoLib draws models from glTF files, as Blender exports them, with their textures and materials, and shapes made in code, lit physically by a sun that casts shadows, the sky's soft light and lamps of the game's own, with fog and a sky behind, and plays their animations: characters bent by their bones, shape keys, blends between animations and layers of them. FBX files and collisions come in the next stages of M7 (see [docs/roadmap.md](../docs/roadmap.md#m7-3d-planned)).
 
 ### Points, turns and places
 
@@ -925,8 +925,88 @@ func (s *playScene) Draw(screen *golib.Screen) {
 
 - **Exporting from Blender:** File > Export > glTF 2.0, format glTF Binary (`.glb`), with +Y Up ticked, as it is by default. Tick Include > Custom Properties for the markers' properties. Leave Compression off: GoLib refuses Draco and says so. Keep the source `.blend` in `sources/`, at the same path as the `.glb` in `assets/`.
 - **Size and facing:** Blender's meter is GoLib's meter, and a model's front, Blender's -Y, faces +Z, as a zero `Rotation` faces. Check a new model's size with `Bounds`.
-- **Materials are drawn as made:** color and texture, metallic and roughness, normal and occlusion maps, emission, unlit, see-through or cut out. Not read yet: skins and animations (stage 4), and a file's own lights and cameras; light a model with `Screen.AddLight`.
+- **Materials are drawn as made:** color and texture, metallic and roughness, normal and occlusion maps, emission, unlit, see-through or cut out. Not read yet: a file's own lights and cameras; light a model with `Screen.AddLight`.
+- **A rigged model is drawn at rest by `DrawModel`**, bent by its bones as the file's rest pose has them. To play its animations, draw it through an `Animator` (below).
 - **Copies are cheap.** Every copy of the same model or mesh in a frame is drawn together, and what the camera doesn't see is left out: a forest of the same tree costs little more than one tree.
+
+### Animation
+
+A model's animations, as Blender exports its actions, play through an `Animator`: one for each thing that moves, since each character is in its own pose, while the `Model` is shared. Bones bend the meshes skinned to them (on the graphics card, up to four bones a vertex), shape keys blend a mesh towards other shapes, and any other node moves too: a door, a windmill's sails. Animations fade into each other, play once or loop, at any speed, and play on part of a skeleton over the rest.
+
+| Name | What it does |
+| --- | --- |
+| `Animator` | Plays a model's animations for one character, enemy or door. Make one each, keep it in the thing it moves. |
+| `NewAnimator` | `NewAnimator(model *Model) *Animator`: shows the model at rest until it plays something. |
+| `Model.Animations` | `Animations() []string`: the names of its animations, in the file's order: Blender's actions, such as `"Run"` or `"Idle"`. |
+| `Animator.Play` | `Play(name string)`: fades into the animation called `name` in 0.2 seconds and loops it. Playing what already plays changes nothing, so call it every update with what should play; the first animation an Animator plays starts at once. |
+| `Animator.PlayWith` | `PlayWith(name string, options AnimationOptions)`: plays it as the options say. |
+| `AnimationOptions` | How `PlayWith` plays an animation; the zero value is what `Play` does. |
+| `AnimationOptions.Fade` | Seconds to blend into it from what played: 0.2 when zero. |
+| `AnimationOptions.Speed` | How fast: 1 when zero, 2 twice as fast, -1 backwards. Playing it again with another speed changes it as it plays, such as a walk that follows how fast the character goes. |
+| `AnimationOptions.Once` | Plays to its end and holds the last pose there, instead of looping: a jump, an attack, a death. |
+| `AnimationOptions.Then` | With `Once`, the animation to fade into when it ends: `"Idle"` after `"Attack"`. |
+| `AnimationOptions.Bone` | Plays only on that bone and the ones below it, over what plays on the rest: `"Spine"` swings a sword while the legs run. Each `Bone` is a layer of its own; any node of the model can be named. A layer played `Once` without `Then` fades out at its end. Shape key animations on a layer go over the rest too, whatever the bone: a face's expression over the walk. |
+| `AnimationOptions.Restart` | Starts it again from the beginning even if it is playing: a second punch. |
+| `Animator.Stop` | `Stop(bone string)`: fades out the layer of `bone`, back to what plays under it; `Stop("")` fades the whole model back to its rest pose. |
+| `Animator.Update` | `Update(dt float32)`: moves the animations on. Call it in every `Update`. |
+| `Screen.DrawAnimated` | `DrawAnimated(animator *Animator, transform Transform, tint Color)`: draws the model posed as its animations have it now, as `DrawModel` draws it. |
+| `Animator.Playing` | `Playing() string`: the animation the whole model plays or fades into, the last played without a `Bone`; `""` at rest. |
+| `Animator.Time` | `Time() float32`: seconds into it, from 0 to its length, starting again as it loops: the moment a swing hits. |
+| `Animator.Finished` | `Finished() bool`: what `Playing` names was played `Once` and has reached its end. |
+| `Animator.Bone` | `Bone(name string) Transform`: where a bone is now, in the model's own space, without its scale: place what the character holds with `Transform.Child`. A marker parented to a bone in Blender follows it, and is the best way to say where a held thing sits and how it is turned. |
+| `Animator.SetShapeKey` | `SetShapeKey(name string, weight float32)`: holds the shape key called `name` at `weight`, 0 as modeled to 1 fully the shape, over what the animations give it: a blink, a smile, a bulge. |
+| `Animator.RootMotion` | When true, the movement of the skeleton's top bone across the ground is taken out of the pose and given to `Moved`, for the game to move the character by, so its feet don't slide: for walks animated moving forward rather than in place. Up and down stays in the pose. |
+| `Animator.Moved` | `Moved() Vector3`: how far the animations carried the top bone across the ground in the last `Update`, with `RootMotion` on, in the model's own space: turn it as the model is turned. |
+
+```go
+var hero = golib.NewModel("models/hero.glb")
+
+type player struct {
+	position golib.Vector3
+	yaw      float32
+	velocity golib.Vector3
+	onGround bool
+	animator *golib.Animator
+}
+
+func newPlayer() *player {
+	return &player{animator: golib.NewAnimator(hero)}
+}
+
+func (p *player) update(input *golib.Input, dt float32) {
+	// ... move the player, then say what plays, every update:
+	switch {
+	case !p.onGround:
+		p.animator.Play("Fall")
+	case p.velocity.Length() > 4:
+		p.animator.Play("Run")
+	case p.velocity.Length() > 0.1:
+		p.animator.PlayWith("Walk", golib.AnimationOptions{Speed: p.velocity.Length() / 2})
+	default:
+		p.animator.Play("Idle")
+	}
+	if input.KeyPressed(golib.KeyX) {
+		p.animator.PlayWith("Attack", golib.AnimationOptions{Bone: "Spine", Once: true, Restart: true})
+	}
+	p.animator.Update(dt)
+}
+
+func (s *playScene) Draw(screen *golib.Screen) {
+	screen.Clear(golib.SkyBlue)
+	screen.Begin3D(s.camera)
+	body := golib.Transform{Position: s.player.position, Rotation: golib.Rotation{Yaw: s.player.yaw}}
+	screen.DrawAnimated(s.player.animator, body, golib.White)
+	hand := body.Child(s.player.animator.Bone("SwordSocket")) // an empty parented to the hand in Blender
+	screen.DrawModel(sword, hand, golib.White)
+	screen.End3D()
+}
+```
+
+- **Animations are named as the file names them.** `Model.Animations` lists them, and playing a name the model doesn't have stops `Run` with the names it has, as a missing bone or shape key does. Kenney's characters name theirs `"idle"`, `"walk"`, `"sprint"`, `"jump"` and more, in lowercase.
+- **Exporting animations from Blender:** each action becomes an animation of its name, with Animation ticked in the glTF export, as it is by default. Keep every action the export should find in the NLA editor (Push Down) or with a fake user, and leave Include all bone influences unticked: GoLib reads four bones a vertex. Shape keys export with Shape Keys ticked, their names with them, and a shape key action becomes an animation too.
+- **The state is the game's; the blending is the Animator's.** Work out what should play from the game's own state, as above, and call `Play` every update: the same name goes on, another fades in. Put the moment an attack lands in the rules, as a time, and check it against `Time` or a timer, rather than in the drawing.
+- **Copies are still cheap.** Every animated copy of one model is drawn together, each in its own pose: 400 of Kenney's characters walking took 2 ms of each frame on the iMac of [docs/3d.md](../docs/3d.md).
+- `Update`, `Bone`, `Playing`, `Time`, `Finished` and `Moved` work without a window, so a test can check that a jump plays `"Jump"`, or where a hand is.
 
 ### Light, sky and fog
 
@@ -1680,7 +1760,7 @@ A web build is what a phone plays, so a game meant for one is a game meant for t
 | Positional sound: louder on the side it comes from | Planned with 3D (M7, stage 6) | `Sound.PlayWith` at a lower volume for what is far away |
 | Physics | Planned with 3D (M7, stage 6): collisions and a character controller in Go, then rigid bodies with Jolt | Simple movement and `Rectangle` overlap checks in the game |
 | Trigger pressure, vibration | Not on the roadmap yet | Triggers read as buttons |
-| 3D shadows from lamps, FBX files, skeletal animation, collisions against a model's meshes, and hiding or reading one part of a model | Planned (M7, stages 4 to 7): see [docs/roadmap.md](../docs/roadmap.md#m7-3d-planned) | Models, materials, lights, the sun's shadows and fog work; for solid level geometry, mark it with empties and custom properties, as [games/hopper](../games/hopper) does, and check collisions in the game |
+| 3D shadows from lamps, FBX files, collisions against a model's meshes, inverse kinematics, and hiding or reading one part of a model | Planned (M7, stages 5 to 7): see [docs/roadmap.md](../docs/roadmap.md#m7-3d-planned); inverse kinematics isn't on the roadmap yet | Models, materials, lights, the sun's shadows and fog work; for solid level geometry, mark it with empties and custom properties, as [games/hopper](../games/hopper) does, and check collisions in the game |
 | Reflections of the world in water and mirrors, a tint for each draw of one `Material`, and hiding or dimming part of an HDRI | Planned (M7, stage 7) | Shiny things reflect the HDRI or the sky; make a `Material` for each color; paint the HDRI over in a copy made offline, as [games/sunset](../games/sunset)'s `sources/skies/lakesky.go` does |
 | `.qoa`, `.xm` and `.mod` in a browser | Not planned: browsers cannot decode them | Save the sound as `.wav`, `.ogg` or `.mp3`. For music, put that file next to the `.xm` under the same name: a web build plays it, and the desktop keeps playing the module |
 
