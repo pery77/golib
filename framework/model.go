@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"math"
 	"path"
+	"strings"
 	"sync"
 
 	"golib/internal/device"
+	"golib/internal/fbx"
 	"golib/internal/gltf"
 )
 
@@ -44,6 +46,7 @@ type Model struct {
 	rootSkin   int // the skin whose top bone root motion follows
 	animations []modelAnimation
 	rest       modelPose // the model as the file has it, which DrawModel draws
+	extra      []string  // files of more animations, from AddAnimations
 }
 
 // modelPart is one mesh of a model, with its material, on the node that
@@ -150,10 +153,7 @@ func (m *Model) load() error {
 	if err != nil {
 		return err
 	}
-	dir := path.Dir(m.name)
-	doc, err := gltf.Read(file, func(uri string) ([]byte, error) {
-		return ReadAsset(path.Join(dir, uri))
-	})
+	doc, err := readModelFile(m.name, file)
 	if err != nil {
 		return err
 	}
@@ -218,7 +218,12 @@ func (m *Model) load() error {
 	if err := m.readSkins(doc); err != nil {
 		return err
 	}
-	m.readAnimations(doc)
+	m.readAnimations(doc, func(i int) int { return i }, "")
+	for _, name := range m.extra {
+		if err := m.readAnimationFile(name); err != nil {
+			return err
+		}
+	}
 
 	first := true
 	grow := func(p Vector3) {
@@ -399,17 +404,28 @@ func (m *Model) readSkins(doc *gltf.Document) error {
 	return nil
 }
 
-// readAnimations keeps the file's animations.
-func (m *Model) readAnimations(doc *gltf.Document) {
+// readAnimations keeps the animations of doc, the model's own file when
+// named is "", and returns how many it kept. nodeOf gives the model's node
+// for each node of doc, or -1. named names another file's only animation,
+// and that file's animations that move none of the model are left out.
+func (m *Model) readAnimations(doc *gltf.Document, nodeOf func(int) int, named string) int {
 	root := m.rootBone()
-	for i, a := range doc.Animations {
+	kept := 0
+	for _, a := range doc.Animations {
 		anim := modelAnimation{name: a.Name}
+		if named != "" && len(doc.Animations) == 1 {
+			anim.name = named
+		}
 		if anim.name == "" {
-			anim.name = fmt.Sprintf("animation %d", i)
+			anim.name = fmt.Sprintf("animation %d", len(m.animations))
 		}
 		for _, c := range a.Channels {
+			node := nodeOf(c.Node)
+			if node < 0 {
+				continue
+			}
 			channel := animationChannel{
-				node: c.Node, step: c.Interpolation == "STEP", cubic: c.Interpolation == "CUBICSPLINE",
+				node: node, step: c.Interpolation == "STEP", cubic: c.Interpolation == "CUBICSPLINE",
 				times: c.Times, values: c.Values,
 			}
 			switch c.Path {
@@ -420,19 +436,107 @@ func (m *Model) readAnimations(doc *gltf.Document) {
 			case "scale":
 				channel.path, channel.width = pathScale, 3
 			case "weights":
-				channel.path, channel.width = pathWeights, len(m.nodes[c.Node].weights)
+				channel.path, channel.width = pathWeights, len(m.nodes[node].weights)
+				per := len(c.Values) / len(c.Times)
+				if channel.cubic {
+					per /= 3
+				}
+				if per != channel.width {
+					continue // shape keys this model's mesh doesn't have
+				}
 			}
-			if channel.width == 0 || m.nodes[c.Node].byMatrix {
+			if channel.width == 0 || m.nodes[node].byMatrix {
 				continue
 			}
-			if channel.path == pathTranslation && c.Node == root {
+			if channel.path == pathTranslation && node == root {
 				anim.root = append(anim.root, len(anim.channels))
 			}
 			anim.length = max(anim.length, c.Times[len(c.Times)-1])
 			anim.channels = append(anim.channels, channel)
 		}
-		m.animations = append(m.animations, anim)
+		if len(anim.channels) > 0 || named == "" {
+			m.animations = append(m.animations, anim)
+			kept++
+		}
 	}
+	return kept
+}
+
+// AddAnimations reads the animations of other files into the model, the way
+// Mixamo gives a character's: each in an FBX file of its own, with the
+// skeleton and without the character. A glTF file of animations alone
+// works too. They move the model's bones, and its other nodes, by name. A
+// file with a single animation names it after the file, so
+// "models/run.fbx" plays as "run"; one with several keeps their names.
+// It returns the model, to add them where it is made:
+//
+//	var hero = golib.NewModel("models/hero.fbx").AddAnimations("models/idle.fbx", "models/run.fbx")
+//
+// The files are read with the model, the first time it is drawn or asked
+// about, and a mistake in one stops it loading as a mistake in the model's
+// own file does.
+func (m *Model) AddAnimations(names ...string) *Model {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.extra = append(m.extra, names...)
+	if m.read && m.err == nil {
+		// Read already: the new files are read now.
+		for _, name := range names {
+			if err := m.readAnimationFile(name); err != nil {
+				m.err = fmt.Errorf("%s: %w", m.call(), err)
+				break
+			}
+		}
+	}
+	return m
+}
+
+// readAnimationFile reads the animations of the file called name into the
+// model, matching its nodes to the model's by name.
+func (m *Model) readAnimationFile(name string) error {
+	file, err := ReadAsset(name)
+	if err != nil {
+		return err
+	}
+	doc, err := readModelFile(name, file)
+	if err != nil {
+		return fmt.Errorf("%s: %w", name, err)
+	}
+	byName := map[string]int{}
+	for i, n := range m.nodes {
+		if _, ok := byName[n.name]; !ok {
+			byName[n.name] = i
+		}
+	}
+	nodeOf := func(i int) int {
+		if at, ok := byName[doc.Nodes[i].Name]; ok {
+			return at
+		}
+		return -1
+	}
+	base := strings.TrimSuffix(path.Base(name), path.Ext(name))
+	if len(doc.Animations) == 0 {
+		return fmt.Errorf("%s has no animations: export it with Animation ticked, or with Mixamo's Format FBX Binary", name)
+	}
+	if m.readAnimations(doc, nodeOf, base) == 0 {
+		return fmt.Errorf("%s moves no bone of the model: its bones are named %s, and the model's %s", name, nameList(fileBones(doc), "nothing"), m.boneList())
+	}
+	return nil
+}
+
+// fileBones names the first few nodes an animation file's animations move.
+func fileBones(doc *gltf.Document) []string {
+	seen := map[int]bool{}
+	var names []string
+	for _, a := range doc.Animations {
+		for _, c := range a.Channels {
+			if !seen[c.Node] && len(names) < 5 {
+				seen[c.Node] = true
+				names = append(names, doc.Nodes[c.Node].Name)
+			}
+		}
+	}
+	return names
 }
 
 // bind checks that a skinned part's vertices name bones its skin has, and
@@ -482,6 +586,22 @@ func (m *Model) skinnedCorners(part *modelPart, grow func(Vector3)) {
 		}
 		grow(bent)
 	}
+}
+
+// readModelFile reads a glTF or FBX file, by its name's extension, and the
+// files it names from its folder.
+func readModelFile(name string, file []byte) (*gltf.Document, error) {
+	dir := path.Dir(name)
+	beside := func(uri string) ([]byte, error) {
+		return ReadAsset(path.Join(dir, uri))
+	}
+	switch strings.ToLower(path.Ext(name)) {
+	case ".fbx":
+		return fbx.Read(file, beside)
+	case ".glb", ".gltf":
+		return gltf.Read(file, beside)
+	}
+	return nil, fmt.Errorf("%s isn't a model file GoLib reads: it reads glTF (.glb, .gltf) and FBX (.fbx)", path.Base(name))
 }
 
 func boolIndex(b bool) int {

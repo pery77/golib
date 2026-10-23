@@ -802,7 +802,7 @@ func (s *playScene) Draw(screen *golib.Screen) {
 
 ## 3D
 
-A 3D world, seen through a `Camera3D`, drawn between `screen.Begin3D` and `screen.End3D` in the same `Draw` as the 2D: the score and the menus go over it. In meters, with Y up; a model's front faces +Z. GoLib draws models from glTF files, as Blender exports them, with their textures and materials, and shapes made in code, lit physically by a sun that casts shadows, the sky's soft light and lamps of the game's own, with fog and a sky behind, and plays their animations: characters bent by their bones, shape keys, blends between animations and layers of them. FBX files and collisions come in the next stages of M7 (see [docs/roadmap.md](../docs/roadmap.md#m7-3d-planned)).
+A 3D world, seen through a `Camera3D`, drawn between `screen.Begin3D` and `screen.End3D` in the same `Draw` as the 2D: the score and the menus go over it. In meters, with Y up; a model's front faces +Z. GoLib draws models from glTF and FBX files, as Blender, Mixamo and most tools export them, with their textures and materials, and shapes made in code, lit physically by a sun that casts shadows, the sky's soft light and lamps of the game's own, with fog and a sky behind, and plays their animations: characters bent by their bones, shape keys, blends between animations and layers of them. Collisions come in the next stages of M7 (see [docs/roadmap.md](../docs/roadmap.md#m7-3d-planned)).
 
 ### Points, turns and places
 
@@ -882,12 +882,13 @@ screen.DrawMeshWith(s.sphere, golib.Transform{Position: coin}, gold)
 
 ### Models from Blender
 
-A model is a glTF file, `.glb` or `.gltf`, in the game's assets folder: Blender's File > Export > glTF 2.0, and most other 3D tools and asset packs. GoLib reads its meshes, their materials (color, texture, emission, unlit, see-through or cut out, one or two sides), vertex colors and the empties placed in it, with their custom properties: a level made in Blender carries where things go. Make each model once and keep it.
+A model is a glTF file, `.glb` or `.gltf`, or an FBX file, `.fbx`, in the game's assets folder: Blender's File > Export > glTF 2.0, Mixamo's downloads, and most other 3D tools and asset packs. Both are read the same way, and everything below works with both. GoLib reads its meshes, their materials (color, texture, emission, unlit, see-through or cut out, one or two sides), vertex colors and the empties placed in it, with their custom properties: a level made in Blender carries where things go. Make each model once and keep it.
 
 | Name | What it does |
 | --- | --- |
 | `Model` | A model from a glTF file. Read the first time it is drawn or asked about; its textures go to the graphics card the first time it is drawn. |
-| `NewModel` | `NewModel(name string) *Model`: the model in the assets folder named `name`, such as `"models/ship.glb"`. A `.gltf` file's `.bin` and textures are read from its folder. |
+| `NewModel` | `NewModel(name string) *Model`: the model in the assets folder named `name`, such as `"models/ship.glb"` or `"models/knight.fbx"`. A `.gltf` file's `.bin` and textures, and an FBX file's textures that aren't inside it, are read from its folder. |
+| `Model.AddAnimations` | `AddAnimations(names ...string) *Model`: reads the animations of other files into the model, matching their bones by name: Mixamo's way, each animation an FBX file of its own without the character. A file with one animation names it after the file, so `"models/run.fbx"` plays as `"run"`. It returns the model: `golib.NewModel("models/hero.fbx").AddAnimations("models/idle.fbx", "models/run.fbx")`. |
 | `Screen.DrawModel` | `DrawModel(model *Model, transform Transform, tint Color)`: the model, placed by `transform`. `golib.White` draws it as made; another tint multiplies its colors, and `A` below 255 makes it see-through. |
 | `Model.Bounds` | `Bounds() (lowest, upmost Vector3)`: the box around it, in its own space: how big it is, and where its feet are. |
 | `Model.Markers` | `Markers() []ModelMarker`: the empties placed in it, and any other node without a mesh, in the file's order. |
@@ -923,6 +924,8 @@ func (s *playScene) Draw(screen *golib.Screen) {
 }
 ```
 
+- **FBX files:** binary FBX 7.1 and later, as every current tool saves them. GoLib turns their units and axes into meters, Y up and +Z forward, and reads their meshes, materials (color, texture, normal map, emission, opacity), skins with four bones a vertex, shape keys with their names, custom properties as a marker's `Properties`, and each take as an animation, named as Blender names its action. Textures are read from inside the file, or from beside it. An FBX file saved as text, or older than 2011, is refused with what to do instead; a file's lights, cameras and in-between shapes are left out.
+- **Mixamo:** download the character as FBX Binary, With Skin, and each animation as FBX Binary, Without Skin, at 30 frames a second, then read them together with `AddAnimations`. Tick In Place for animations the game moves itself, or leave it unticked and play them with `Animator.RootMotion`. Mixamo names its bones `"mixamorig:Hips"`, `"mixamorig:Spine"` and so on: `Model.Bones` lists them.
 - **Exporting from Blender:** File > Export > glTF 2.0, format glTF Binary (`.glb`), with +Y Up ticked, as it is by default. Tick Include > Custom Properties for the markers' properties. Leave Compression off: GoLib refuses Draco and says so. Keep the source `.blend` in `sources/`, at the same path as the `.glb` in `assets/`.
 - **Size and facing:** Blender's meter is GoLib's meter, and a model's front, Blender's -Y, faces +Z, as a zero `Rotation` faces. Check a new model's size with `Bounds`.
 - **Materials are drawn as made:** color and texture, metallic and roughness, normal and occlusion maps, emission, unlit, see-through or cut out. Not read yet: a file's own lights and cameras; light a model with `Screen.AddLight`.
@@ -1763,7 +1766,7 @@ A web build is what a phone plays, so a game meant for one is a game meant for t
 | Positional sound: louder on the side it comes from | Planned with 3D (M7, stage 6) | `Sound.PlayWith` at a lower volume for what is far away |
 | Physics | Planned with 3D (M7, stage 6): collisions and a character controller in Go, then rigid bodies with Jolt | Simple movement and `Rectangle` overlap checks in the game |
 | Trigger pressure, vibration | Not on the roadmap yet | Triggers read as buttons |
-| 3D shadows from lamps, FBX files, collisions against a model's meshes, inverse kinematics, and hiding or reading one part of a model | Planned (M7, stages 5 to 7): see [docs/roadmap.md](../docs/roadmap.md#m7-3d-planned); inverse kinematics isn't on the roadmap yet | Models, materials, lights, the sun's shadows and fog work; for solid level geometry, mark it with empties and custom properties, as [games/hopper](../games/hopper) does, and check collisions in the game |
+| 3D shadows from lamps, collisions against a model's meshes, inverse kinematics, and hiding or reading one part of a model | Planned (M7, stages 6 and 7): see [docs/roadmap.md](../docs/roadmap.md#m7-3d-planned); inverse kinematics isn't on the roadmap yet | Models, materials, lights, the sun's shadows and fog work; for solid level geometry, mark it with empties and custom properties, as [games/hopper](../games/hopper) does, and check collisions in the game |
 | Reflections of the world in water and mirrors, a tint for each draw of one `Material`, and hiding or dimming part of an HDRI | Planned (M7, stage 7) | Shiny things reflect the HDRI or the sky; make a `Material` for each color; paint the HDRI over in a copy made offline, as [games/sunset](../games/sunset)'s `sources/skies/lakesky.go` does |
 | `.qoa`, `.xm` and `.mod` in a browser | Not planned: browsers cannot decode them | Save the sound as `.wav`, `.ogg` or `.mp3`. For music, put that file next to the `.xm` under the same name: a web build plays it, and the desktop keeps playing the module |
 
