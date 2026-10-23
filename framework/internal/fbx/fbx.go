@@ -1344,11 +1344,57 @@ func (b *builder) buildAnimations() error {
 			}
 		}
 		animation.Channels = append(animation.Channels, b.sampleShapes(shapes, start)...)
+		trimStillEnd(&animation)
 		if len(animation.Channels) > 0 {
 			b.doc.Animations = append(b.doc.Animations, animation)
 		}
 	}
 	return nil
+}
+
+// trimStillEnd ends an animation where its last movement does. Blender
+// exports each action over the scene's whole timeline, 250 frames unless
+// it was set, so a short punch would hold still for seconds before it ended
+// or looped. Still is closer to the last pose than half a millimeter, or a
+// few hundredths of a degree: Blender's curves drift by less than that past
+// their last key. An animation meant to pause at its end loses the pause.
+func trimStillEnd(a *gltf.Animation) {
+	const still = 5e-4
+	var end float32
+	for _, c := range a.Channels {
+		n := len(c.Times)
+		if n == 0 {
+			continue
+		}
+		width := len(c.Values) / n
+		last := c.Values[(n-1)*width:]
+		for k := n - 1; k >= 0; k-- {
+			moved := false
+			for i := range width {
+				if math.Abs(float64(c.Values[k*width+i]-last[i])) > still {
+					moved = true
+					break
+				}
+			}
+			if moved {
+				// It is still from the key after k on.
+				end = max(end, c.Times[min(k+1, n-1)])
+				break
+			}
+		}
+	}
+	for i := range a.Channels {
+		c := &a.Channels[i]
+		n := len(c.Times)
+		if n == 0 {
+			continue
+		}
+		width := len(c.Values) / n
+		keep := sort.Search(n, func(k int) bool { return c.Times[k] >= end }) + 1
+		if keep < n {
+			c.Times, c.Values = c.Times[:keep], c.Values[:keep*width]
+		}
+	}
 }
 
 // sampleTimes returns the keys of every curve given, from start, and times

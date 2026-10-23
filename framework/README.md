@@ -882,11 +882,11 @@ screen.DrawMeshWith(s.sphere, golib.Transform{Position: coin}, gold)
 
 ### Models from Blender
 
-A model is a glTF file, `.glb` or `.gltf`, or an FBX file, `.fbx`, in the game's assets folder: Blender's File > Export > glTF 2.0, Mixamo's downloads, and most other 3D tools and asset packs. Both are read the same way, and everything below works with both. GoLib reads its meshes, their materials (color, texture, emission, unlit, see-through or cut out, one or two sides), vertex colors and the empties placed in it, with their custom properties: a level made in Blender carries where things go. Make each model once and keep it.
+A model is a glTF file, `.glb` or `.gltf`, or an FBX file, `.fbx`, in the game's assets folder; a level is one too, made in Blender, or a text file of the game's own read with `ReadAsset` that places a pack's models, as [games/grove](../games/grove) does: Blender's File > Export > glTF 2.0, Mixamo's downloads, and most other 3D tools and asset packs. Both are read the same way, and everything below works with both. GoLib reads its meshes, their materials (color, texture, emission, unlit, see-through or cut out, one or two sides), vertex colors and the empties placed in it, with their custom properties: a level made in Blender carries where things go. Make each model once and keep it.
 
 | Name | What it does |
 | --- | --- |
-| `Model` | A model from a glTF file. Read the first time it is drawn or asked about; its textures go to the graphics card the first time it is drawn. |
+| `Model` | A model from a glTF or FBX file. Read the first time it is drawn or asked about; its textures go to the graphics card the first time it is drawn. |
 | `NewModel` | `NewModel(name string) *Model`: the model in the assets folder named `name`, such as `"models/ship.glb"` or `"models/knight.fbx"`. A `.gltf` file's `.bin` and textures, and an FBX file's textures that aren't inside it, are read from its folder. |
 | `Model.AddAnimations` | `AddAnimations(names ...string) *Model`: reads the animations of other files into the model, matching their bones by name: Mixamo's way, each animation an FBX file of its own without the character. A file with one animation names it after the file, so `"models/run.fbx"` plays as `"run"`. It returns the model: `golib.NewModel("models/hero.fbx").AddAnimations("models/idle.fbx", "models/run.fbx")`. |
 | `Screen.DrawModel` | `DrawModel(model *Model, transform Transform, tint Color)`: the model, placed by `transform`. `golib.White` draws it as made; another tint multiplies its colors, and `A` below 255 makes it see-through. |
@@ -924,7 +924,7 @@ func (s *playScene) Draw(screen *golib.Screen) {
 }
 ```
 
-- **FBX files:** binary FBX 7.1 and later, as every current tool saves them. GoLib turns their units and axes into meters, Y up and +Z forward, and reads their meshes, materials (color, texture, normal map, emission, opacity), skins with four bones a vertex, shape keys with their names, custom properties as a marker's `Properties`, and each take as an animation, named as Blender names its action. Textures are read from inside the file, or from beside it. An FBX file saved as text, or older than 2011, is refused with what to do instead; a file's lights, cameras and in-between shapes are left out.
+- **FBX files:** binary FBX 7.1 and later, as every current tool saves them. A take ends where its last movement does: Blender exports each action over the scene's whole timeline, 250 frames unless it was set, holding the last pose after the moves, and GoLib leaves that out; it also starts at the scene's first frame, so an action keyed from frame 0 loses that frame unless the scene starts there. GoLib turns their units and axes into meters, Y up and +Z forward, and reads their meshes, materials (color, texture, normal map, emission, opacity), skins with four bones a vertex, shape keys with their names, custom properties as a marker's `Properties`, and each take as an animation, named as Blender names its action. Textures are read from inside the file, or from beside it. An FBX file saved as text, or older than 2011, is refused with what to do instead; a file's lights, cameras and in-between shapes are left out.
 - **Mixamo:** download the character as FBX Binary, With Skin, and each animation as FBX Binary, Without Skin, at 30 frames a second, then read them together with `AddAnimations`. Tick In Place for animations the game moves itself, or leave it unticked and play them with `Animator.RootMotion`. Mixamo names its bones `"mixamorig:Hips"`, `"mixamorig:Spine"` and so on: `Model.Bones` lists them.
 - **Exporting from Blender:** File > Export > glTF 2.0, format glTF Binary (`.glb`), with +Y Up ticked, as it is by default. Tick Include > Custom Properties for the markers' properties. Leave Compression off: GoLib refuses Draco and says so. Keep the source `.blend` in `sources/`, at the same path as the `.glb` in `assets/`.
 - **Size and facing:** Blender's meter is GoLib's meter, and a model's front, Blender's -Y, faces +Z, as a zero `Rotation` faces. Check a new model's size with `Bounds`.
@@ -942,11 +942,11 @@ A model's animations, as Blender exports its actions, play through an `Animator`
 | `NewAnimator` | `NewAnimator(model *Model) *Animator`: shows the model at rest until it plays something. |
 | `Model.Animations` | `Animations() []string`: the names of its animations, in the file's order: Blender's actions, such as `"Run"` or `"Idle"`. |
 | `Model.AnimationLength` | `AnimationLength(name string) float32`: how many seconds it lasts at its own speed, 0 for a name it doesn't have. |
-| `Model.Bones` | `Bones() []string`: the names of its bones, what `AnimationOptions.Bone` and `Animator.Bone` take. Print them from a test to learn a model's skeleton. |
+| `Model.Bones` | `Bones() []string`: the names of its bones, what `AnimationOptions.Bone` and `Animator.Bone` take. Print them from a test with `t.Log`, and read them with `golib test <game> --run <TestName>`. |
 | `Animator.Play` | `Play(name string)`: fades into the animation called `name` in 0.2 seconds and loops it. Playing what already plays changes nothing, so call it every update with what should play; the first animation an Animator plays starts at once. |
 | `Animator.PlayWith` | `PlayWith(name string, options AnimationOptions)`: plays it as the options say. |
 | `AnimationOptions` | How `PlayWith` plays an animation; the zero value is what `Play` does. |
-| `AnimationOptions.Fade` | Seconds to blend into it from what played: 0.2 when zero. |
+| `AnimationOptions.Fade`, `AnimationOptions.NoFade` | Seconds to blend into it from what played: 0.2 when zero. `NoFade` switches at once. |
 | `AnimationOptions.Speed` | How fast: 1 when zero, 2 twice as fast, -1 backwards. Playing it again with another speed changes it as it plays, such as a walk that follows how fast the character goes. |
 | `AnimationOptions.Once` | Plays to its end and holds the last pose there, instead of looping: a jump, an attack, a death. |
 | `AnimationOptions.Then` | With `Once`, the animation to fade into when it ends: `"Idle"` after `"Attack"`. |
@@ -956,7 +956,7 @@ A model's animations, as Blender exports its actions, play through an `Animator`
 | `Animator.Update` | `Update(dt float32)`: moves the animations on. Call it in every `Update`. |
 | `Screen.DrawAnimated` | `DrawAnimated(animator *Animator, transform Transform, tint Color)`: draws the model posed as its animations have it now, as `DrawModel` draws it. |
 | `Animator.Playing` | `Playing() string`: the animation the whole model plays or fades into, the last played without a `Bone`; `""` at rest. |
-| `Animator.Time` | `Time() float32`: seconds into it, from 0 to its length, starting again as it loops: the moment a swing hits. |
+| `Animator.Time` | `Time() float32`: seconds into it, in the animation's own time, from 0 to its length, starting again as it loops: the moment a swing hits. At `Speed` 2 it reaches the length in half the real time. |
 | `Animator.Finished` | `Finished() bool`: what `Playing` names was played `Once` and has reached its end. |
 | `Animator.PlayingOn`, `Animator.TimeOn` | `PlayingOn(bone string) string` and `TimeOn(bone string) float32`: the same for the layer of `bone`. `PlayingOn` is `""` once the layer has faded out, as one played `Once` does at its end: the swing is over. |
 | `Animator.Bone` | `Bone(name string) Transform`: where a bone is now, in the model's own space, without its scale: place what the character holds with `Transform.Child`. Its position is the bone's head, the joint it turns around, such as the shoulder for an arm, and its axes are the file's own: in Blender, a bone's Y runs along it, though a model from elsewhere may differ. A marker parented to a bone in Blender follows it, and is the best way to say where a held thing sits and how it is turned; without one, place the thing with a `Child` of the bone, and check it in a shot. |
@@ -1709,7 +1709,7 @@ func TestJumpOnlyFromTheGround(t *testing.T) {
 }
 ```
 
-- `Rectangle`, the random numbers, `ReadAsset`, `Animation`, a sprite's `Width`, `Height`, `Frames` and `Animation`, and everything a `Map` has but drawing work in tests; `golib test` runs them in the game's folder, so a test can check that a level has a start and the player can reach the exit.
+- `Rectangle`, the random numbers, `ReadAsset`, `Animation`, a sprite's `Width`, `Height`, `Frames` and `Animation`, and everything a `Map` has but drawing work in tests; `golib test` runs them in the game's folder, so a test can check that a level has a start and the player can reach the exit. `golib test <game> --run <TestName>` runs only that test and shows what it logs with `t.Log`.
 - `Sound.Play` and `Music.Play` play nothing in tests; `Sound.Play` still reads a sound file, so a test that plays it checks the file.
 - In 3D, `Vector3`, `Rotation`, `Transform`, `Camera3D` (`ToScreen`, `Ray`, `Orbit`, `Look`, `Update`), a model's `Err`, `Bounds`, `Markers`, `Animations`, `AnimationLength` and `Bones`, and an `Animator` (`Play`, `Update`, `Playing`, `Time`, `Bone`, `Moved`) work in tests: check which way a key moves a character on the screen, that a level's markers are where they should be, as `games/hopper/level_test.go` does, and that a jump plays the jump.
 - `Run` and `Screen` need a window: check drawing with `golib shot` instead.

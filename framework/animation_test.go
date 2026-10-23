@@ -312,6 +312,19 @@ func TestAnimatedInAWindow(t *testing.T) {
 	}
 }
 
+func TestNoFade(t *testing.T) {
+	useAssets(t, map[string][]byte{"models/bar.glb": barGLB()})
+	a := NewAnimator(NewModel("models/bar.glb"))
+	a.PlayWith("Bend", AnimationOptions{Once: true})
+	a.Update(1)
+	a.PlayWith("Wave", AnimationOptions{NoFade: true})
+	a.Update(0.01)
+	hand := a.Bone("Hand").Position.Sub(Vector3{Y: 1})
+	if angle := math.Atan2(float64(-hand.X), float64(hand.Y)) * 180 / math.Pi; !within(float32(angle), -0.9, 0.1) {
+		t.Errorf("switched to Wave with no fade, the tip turned %.2f°, want Wave's own -0.9° at 0.01 s", angle)
+	}
+}
+
 func TestChannelSampling(t *testing.T) {
 	// Cubic: from 0 to 1 with flat tangents, a smooth step, half way at
 	// the middle and a quarter of the way rather sooner than linear.

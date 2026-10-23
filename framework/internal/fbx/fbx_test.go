@@ -8,6 +8,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"golib/internal/gltf"
 )
 
 // rec is a record for writeFBX: a name, its values (int32, int64, float64,
@@ -329,5 +331,19 @@ func TestReadBlender(t *testing.T) {
 	}
 	if !weights {
 		t.Error("the shape key's animation, in Sway's take, wasn't read")
+	}
+}
+
+func TestTrimStillEnd(t *testing.T) {
+	a := gltf.Animation{Channels: []gltf.Channel{
+		{Times: []float32{0, 1, 2, 3, 4}, Values: []float32{0, 5, 7, 7, 7}},
+		{Times: []float32{0, 1, 2, 3, 4}, Values: []float32{1, 1, 1, 1, 1, 2, 2, 2, 2, 2}},
+	}}
+	trimStillEnd(&a)
+	// The second channel moves last, from 2 s to 3 s: both end there.
+	for i, want := range []int{4, 4} {
+		if len(a.Channels[i].Times) != want {
+			t.Errorf("channel %d keeps %v, want its keys up to 3 s, where the last movement ends", i, a.Channels[i].Times)
+		}
 	}
 }

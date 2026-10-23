@@ -206,6 +206,9 @@ type AnimationOptions struct {
 	// plays starts at once.
 	Fade float32
 
+	// NoFade switches to the animation at once, with no blend.
+	NoFade bool
+
 	// Speed multiplies how fast it plays: 1 when zero, 2 twice as fast, -1
 	// backwards. Play it again with another Speed to change it as it plays,
 	// such as a walk that follows how fast the character moves.
@@ -421,6 +424,12 @@ func (a *Animator) PlayWith(name string, options AnimationOptions) {
 		}
 	}
 	layer = a.raise(layer)
+	if options.NoFade {
+		layer.clips = layer.clips[:0]
+		if layer.nodes != nil {
+			layer.weight, layer.fading = 1, 0
+		}
+	}
 	a.start(layer, playingClip{animation: index, speed: speed, once: options.Once, then: options.Then, fade: fade}, fade)
 }
 
@@ -628,8 +637,9 @@ func (a *Animator) Playing() string {
 	return a.model.animations[clips[len(clips)-1].animation].name
 }
 
-// Time returns how many seconds into its animation Playing is: from 0 to its
-// length, starting again as it loops.
+// Time returns how many seconds into its animation Playing is, in the
+// animation's own time, from 0 to its length, starting again as it loops:
+// played at Speed 2, it goes from 0 to the length in half the time.
 func (a *Animator) Time() float32 {
 	clips := a.layers[0].clips
 	if len(clips) == 0 {
