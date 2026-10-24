@@ -127,7 +127,7 @@ Rigid bodies (`golib.PhysicsWorld.AddRigidBody`) are simulated by Jolt Physics: 
 | `golibnative.dll`, `.so` or `.dylib` for this machine | The GitHub release `nativeRelease` of `nativeRepository`, made by `.github/workflows/native.yml` | `.tools/native/` | `nativeChecksums`, one SHA-256 per platform |
 | `jolt-physics.wasm.js` and `jolt-physics.wasm.wasm` | The npm package `jolt-physics` `joltJSVersion`, through jsDelivr | `.tools/jolt/` | `joltJSFiles` |
 
-A file already there with the right checksum isn't downloaded again; a download with the wrong one is thrown away with a `[fail]` line. A platform with no checksum in `nativeChecksums` has no release yet: setup prints an `[info]` line, and keeps a library built by hand with `native/build.sh`. Until the first release, every platform is in that case.
+A file already there with the right checksum isn't downloaded again; a download with the wrong one is thrown away with a `[fail]` line. A platform with no checksum in `nativeChecksums` has no release yet: setup prints an `[info]` line, and keeps a library built by hand with `native/build.sh`. The release, native-2, covers Windows x86-64, Linux x86-64 and ARM64, and macOS on Intel and Apple silicon.
 
 A game needs them only if it makes rigid bodies. `framework/internal/device` keeps the text `PhysicsMarker` in a variable the first time a world of rigid bodies is made, so the linker leaves the text in that game's builds and in no other, and golib looks for it in the executable or the `.wasm` (`usesRigidBodies`):
 

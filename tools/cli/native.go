@@ -41,7 +41,13 @@ const (
 // platform, written here when the release is made (see native/README.md). A
 // platform without one has no release yet: setup leaves a copy built by hand
 // with native/build.sh in place, and says so.
-var nativeChecksums = map[string]string{}
+var nativeChecksums = map[string]string{
+	"darwin/amd64":  "87ccbeae15f567c160f17d07d5b5390de88b528e695d1dd40160a47fceac3b41",
+	"darwin/arm64":  "42bbc82467715f7a9e9231909ac2ff1ed1b6c40a0d082f03c95b154e96e854c1",
+	"linux/amd64":   "489ef66fd04378a11271fa1c01f55df0042f70971c0b2a33146b19baa09ea8c1",
+	"linux/arm64":   "e385b16549eb6fcfc8a39f2e9e3aebb36e39041174ce17225981c7ce645a7845",
+	"windows/amd64": "7d7a1a82fed3b4d9d56c7e7261d179cade408d11c9f4a859f4b5571ceddd4a68",
+}
 
 // joltJSVersion is the version of JoltPhysics.js, the npm package
 // jolt-physics, that web builds carry, and joltJSFiles its files, from its
