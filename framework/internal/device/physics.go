@@ -28,7 +28,7 @@ const NoBody = 0xffffffff
 // The floats of a body's description, for AddPhysicsBody, in order. A
 // convex hull's points follow the description, three floats each.
 const (
-	BodyShape          = iota // ShapeBox, ShapeSphere, ShapeCapsule or ShapeHull
+	BodyShape          = iota // ShapeBox, ShapeSphere, ShapeCapsule, ShapeHull or ShapeCylinder
 	BodySizeX                 // a box's half size each way; a sphere's radius in X;
 	BodySizeY                 // a capsule's radius in X and its middle's half
 	BodySizeZ                 // height in Y
@@ -57,6 +57,7 @@ const (
 	ShapeSphere
 	ShapeCapsule
 	ShapeHull
+	ShapeCylinder // its radius in X and half its height in Y, as a capsule's
 )
 
 // How a body moves: never, as the game moves it, or as the physics does.

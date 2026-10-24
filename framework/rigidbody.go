@@ -4,6 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"runtime"
+	"sync"
+	"weak"
 
 	"golib/internal/device"
 )
@@ -15,12 +18,12 @@ import (
 // and each has its triangles there too, so rays hit them and characters
 // stand on them and push them.
 
-// BodyShape is the shape of a rigid body: a box, a ball, a capsule, or the
-// shape around a model or a mesh. A Transform's Scale stretches it, as it
+// BodyShape is the shape of a rigid body: a box, a ball, a capsule, a
+// cylinder, or the shape around a model or a mesh. A Transform's Scale stretches it, as it
 // stretches a mesh.
 type BodyShape struct {
 	kind    int
-	size    Vector3   // a box's size; a ball's diameter in X; a capsule's width in X, height in Y
+	size    Vector3   // a box's size; a ball's diameter in X; a capsule's or a cylinder's width in X, height in Y
 	points  []Vector3 // a hull's points, as made
 	corners []Vector3 // its triangles, for rays and characters: three corners each
 }
@@ -43,6 +46,15 @@ func SphereShape(radius float32) BodyShape {
 func CapsuleShape(height, radius float32) BodyShape {
 	height = max(height, 2*radius)
 	return BodyShape{kind: device.ShapeCapsule, size: Vector3{X: 2 * radius, Y: height, Z: 2 * radius}, corners: ballCorners(radius, height/2-radius)}
+}
+
+// CylinderShape is a cylinder height meters tall and radius meters from its
+// middle, flat at both ends, standing on Y and centered on its position, as
+// NewCylinderMesh is scaled by golib.Vector3{X: 2 * radius, Y: height, Z:
+// 2 * radius}: a barrel, a log, a coin on its side, a column.
+func CylinderShape(height, radius float32) BodyShape {
+	size := Vector3{X: 2 * radius, Y: height, Z: 2 * radius}
+	return BodyShape{kind: device.ShapeCylinder, size: size, corners: meshCorners(NewCylinderMesh(), scaleMatrix(size), nil)}
 }
 
 // ModelShape is the shape around a model's meshes, at rest: what falls
@@ -224,7 +236,7 @@ func (w *PhysicsWorld) AddRigidBody(shape BodyShape, transform Transform, option
 	b.id = w.next
 	w.next++
 	w.bodies[b.id] = &physicsBody{corners: corners, place: place.matrix(), transform: place, moving: true, rigid: b, joltID: device.NoBody}
-	w.moving.dirty = true
+	w.movingDirty = true
 	w.rigid = append(w.rigid, b)
 
 	size := Vector3{X: shape.size.X * scale.X, Y: shape.size.Y * scale.Y, Z: shape.size.Z * scale.Z}
@@ -247,6 +259,8 @@ func (w *PhysicsWorld) AddRigidBody(shape BodyShape, transform Transform, option
 	case device.ShapeCapsule:
 		radius := max(size.X, size.Z) / 2
 		d[device.BodySizeX], d[device.BodySizeY] = radius, max(0.001, size.Y/2-radius)
+	case device.ShapeCylinder:
+		d[device.BodySizeX], d[device.BodySizeY] = max(size.X, size.Z)/2, size.Y/2
 	case device.ShapeHull:
 		d[device.BodyPoints] = float32(len(shape.points))
 		for _, p := range shape.points {
@@ -292,6 +306,9 @@ func volumeOf(kind int, size Vector3) float32 {
 	case device.ShapeCapsule:
 		r := max(size.X, size.Z) / 2
 		return math.Pi*r*r*max(0, size.Y-2*r) + 4.0/3*math.Pi*r*r*r
+	case device.ShapeCylinder:
+		r := max(size.X, size.Z) / 2
+		return math.Pi * r * r * size.Y
 	case device.ShapeHull:
 		return size.X * size.Y * size.Z * 0.6 // about what a rock fills of its box
 	}
@@ -342,6 +359,7 @@ func (w *PhysicsWorld) startJolt() bool {
 	if w.joltFailed {
 		return false
 	}
+	freeOrphanedPhysics()
 	p, err := device.NewPhysics(65536)
 	if err != nil {
 		w.joltFailed = true
@@ -349,7 +367,13 @@ func (w *PhysicsWorld) startJolt() bool {
 		return false
 	}
 	w.jolt = p
-	loadedPhysics = append(loadedPhysics, w)
+	joltWorlds.Lock()
+	if joltWorlds.live == nil {
+		joltWorlds.live = map[uintptr]weak.Pointer[PhysicsWorld]{}
+	}
+	joltWorlds.live[p.ID] = weak.Make(w)
+	joltWorlds.Unlock()
+	runtime.AddCleanup(w, orphanPhysics, p)
 	for _, id := range w.sortedIDs() {
 		if b := w.bodies[id]; b.rigid == nil {
 			w.mirror(b)
@@ -393,6 +417,7 @@ func (w *PhysicsWorld) mirror(b *physicsBody) {
 // moving lifts and before moving characters. A world without rigid bodies
 // needs none.
 func (w *PhysicsWorld) Update(dt float32) {
+	freeOrphanedPhysics()
 	if w.jolt.ID == 0 || dt <= 0 {
 		return
 	}
@@ -456,11 +481,13 @@ func (w *PhysicsWorld) Update(dt float32) {
 	for i, r := range bodies {
 		copy(r.state[:], states[i*device.BodyStateFloats:])
 		b := w.bodies[r.id]
-		b.previous = b.place
-		b.place = nodePose{translation: r.Position(), rotation: quaternion(r.state[3:7]), scale: Vector3{X: 1, Y: 1, Z: 1}}.matrix()
+		place := nodePose{translation: r.Position(), rotation: quaternion(r.state[3:7]), scale: Vector3{X: 1, Y: 1, Z: 1}}.matrix()
+		if place == b.place {
+			continue // at rest: its triangles stay as they are
+		}
+		b.moveTo(place)
 		b.moves++
 	}
-	w.moving.dirty = true
 }
 
 // joltCharacter is a CharacterController as Jolt sees it: a kinematic
@@ -511,23 +538,58 @@ func (w *PhysicsWorld) placeCharacter(c *CharacterController, height, radius flo
 	j.to, j.moved = middle, w.updates
 }
 
-// loadedPhysics are the worlds with Jolt worlds, for Run to free when it
-// ends.
-var loadedPhysics []*PhysicsWorld
+// joltWorlds are the Jolt worlds made and not yet freed, for Run to free
+// when it ends, and the orphaned ones, whose PhysicsWorld the game keeps no
+// longer, as when a scene ends: the next Update or AddRigidBody frees them,
+// on the game's goroutine, so a game that makes a world each level doesn't
+// keep every one.
+var joltWorlds struct {
+	sync.Mutex
+	live     map[uintptr]weak.Pointer[PhysicsWorld]
+	orphaned []device.Physics
+}
 
-func freePhysicsWorlds() {
-	for _, w := range loadedPhysics {
-		device.FreePhysics(w.jolt)
-		w.jolt = device.Physics{}
-		for _, b := range w.bodies {
-			b.joltID = device.NoBody
-		}
-		for _, r := range w.rigid {
-			r.jolt = device.NoBody
-		}
-		w.characters = nil
+// orphanPhysics is called once the PhysicsWorld that made p is gone.
+func orphanPhysics(p device.Physics) {
+	joltWorlds.Lock()
+	defer joltWorlds.Unlock()
+	if _, live := joltWorlds.live[p.ID]; live {
+		delete(joltWorlds.live, p.ID)
+		joltWorlds.orphaned = append(joltWorlds.orphaned, p)
 	}
-	loadedPhysics = nil
+}
+
+// freeOrphanedPhysics frees the Jolt worlds no PhysicsWorld uses any more.
+func freeOrphanedPhysics() {
+	joltWorlds.Lock()
+	orphaned := joltWorlds.orphaned
+	joltWorlds.orphaned = nil
+	joltWorlds.Unlock()
+	for _, p := range orphaned {
+		device.FreePhysics(p)
+	}
+}
+
+// freePhysicsWorlds frees every Jolt world, when Run ends.
+func freePhysicsWorlds() {
+	freeOrphanedPhysics()
+	joltWorlds.Lock()
+	live := joltWorlds.live
+	joltWorlds.live = nil
+	joltWorlds.Unlock()
+	for id, pointer := range live {
+		if w := pointer.Value(); w != nil {
+			w.jolt = device.Physics{}
+			for _, b := range w.bodies {
+				b.joltID = device.NoBody
+			}
+			for _, r := range w.rigid {
+				r.jolt = device.NoBody
+			}
+			w.characters = nil
+		}
+		device.FreePhysics(device.Physics{ID: id})
+	}
 }
 
 // ID returns the body's number in its world: what RayHit.Body and
@@ -595,9 +657,7 @@ func (b *RigidBody) Teleport(transform Transform) {
 	}
 	copy(b.state[:7], []float32{p.X, p.Y, p.Z, q[0], q[1], q[2], q[3]})
 	if pb := b.world.bodies[b.id]; pb != nil {
-		pb.previous = pb.place
-		pb.place = Transform{Position: p, Rotation: transform.Rotation}.matrix()
-		b.world.moving.dirty = true
+		pb.moveTo(Transform{Position: p, Rotation: transform.Rotation}.matrix())
 	}
 }
 
@@ -630,5 +690,5 @@ func (b *RigidBody) Remove() {
 			break
 		}
 	}
-	w.moving.dirty = true
+	w.movingDirty = true
 }

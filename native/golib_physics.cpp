@@ -14,6 +14,7 @@
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
 #include <Jolt/Physics/Collision/Shape/ConvexHullShape.h>
+#include <Jolt/Physics/Collision/Shape/CylinderShape.h>
 #include <Jolt/Physics/Collision/Shape/MeshShape.h>
 #include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
@@ -220,6 +221,9 @@ GOLIB_EXPORT uint32_t golib_add_body(void *w, const float *d) {
 		shape = ConvexHullShapeSettings(points, 0.02f).Create();
 		break;
 	}
+	case 4:
+		shape = CylinderShapeSettings(d[dSizeY], d[dSizeX], std::min(0.05f, 0.5f * std::min(d[dSizeX], d[dSizeY]))).Create();
+		break;
 	}
 	if (shape.HasError()) {
 		return BodyID::cInvalidBodyID;

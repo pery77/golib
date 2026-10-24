@@ -2,6 +2,7 @@ package golib
 
 import (
 	"math"
+	"runtime"
 	"testing"
 
 	"golib/internal/gltf"
@@ -410,5 +411,91 @@ func TestRigidBodiesMeetCharacters(t *testing.T) {
 	}
 	if z := single.Position().Z; z < 3 {
 		t.Errorf("a crate walked into for two seconds is at z = %v, want pushed ahead", z)
+	}
+}
+
+// Bodies at rest keep their triangles: questions after Update don't place
+// them again, so a world of crates that have landed costs nothing.
+func TestRigidBodiesAtRestAreNotPlacedAgain(t *testing.T) {
+	w, _ := floorWorld()
+	needJolt(t, w)
+	crate := w.AddRigidBody(BoxShape(Vector3{X: 1, Y: 1, Z: 1}), Transform{Position: Vector3{Y: 0.5}}, RigidBodyOptions{})
+	for range 120 {
+		w.Update(1.0 / 60)
+	}
+	if !crate.Resting() {
+		t.Fatal("a crate on the floor is still moving after two seconds")
+	}
+	if _, ok := w.Raycast(Vector3{Y: 5}, Vector3{Y: -1}, 10); !ok {
+		t.Fatal("a ray down misses the crate")
+	}
+	w.Update(1.0 / 60)
+	if b := w.bodies[crate.ID()]; !b.placedOK || !b.boxOK {
+		t.Error("Update placed a crate at rest again")
+	}
+	crate.Push(Vector3{X: 500})
+	w.Update(1.0 / 60)
+	if hit, ok := w.Raycast(Vector3{Y: 5}, Vector3{Y: -1}, 10); !ok || hit.Body != crate.ID() || hit.Position.X == 0 && crate.Position().X > 0.05 {
+		t.Errorf("after a push the ray hits %+v, %v; the crate is at %v", hit, ok, crate.Position())
+	}
+}
+
+// A world the game keeps no longer, as when a level ends, has its Jolt
+// world freed at the next Update of another.
+func TestPhysicsWorldsNobodyKeepsAreFreed(t *testing.T) {
+	keep, _ := floorWorld()
+	needJolt(t, keep)
+	count := func() int {
+		joltWorlds.Lock()
+		defer joltWorlds.Unlock()
+		return len(joltWorlds.live)
+	}
+	before := count()
+	var levels []*PhysicsWorld
+	for range 10 {
+		w, _ := floorWorld()
+		w.AddRigidBody(SphereShape(0.5), Transform{Position: Vector3{Y: 1}}, RigidBodyOptions{})
+		levels = append(levels, w)
+	}
+	if count() < 10 {
+		t.Fatalf("10 worlds made and kept: %d live", count())
+	}
+	runtime.KeepAlive(levels)
+	levels = nil
+	for range 5 {
+		runtime.GC()
+	}
+	keep.Update(1.0 / 60)
+	if count() > before {
+		t.Errorf("after the 10 worlds were dropped, %d are live, want %d at most", count(), before)
+	}
+	joltWorlds.Lock()
+	_, kept := joltWorlds.live[keep.jolt.ID]
+	joltWorlds.Unlock()
+	if !kept {
+		t.Error("the world kept was freed")
+	}
+	keep.Update(1.0 / 60) // the kept one still works
+}
+
+// A barrel stands on its flat end, and on its side rolls down a slope.
+func TestCylinderShapeStandsAndRolls(t *testing.T) {
+	w, _ := floorWorld()
+	needJolt(t, w)
+	barrel := CylinderShape(1, 0.4)
+	standing := w.AddRigidBody(barrel, Transform{Position: Vector3{X: -3, Y: 0.6}}, RigidBodyOptions{})
+	lying := w.AddRigidBody(barrel, Transform{Position: Vector3{X: 3, Y: 0.5}, Rotation: Rotation{Roll: 90}}, RigidBodyOptions{})
+	lying.SetVelocity(Vector3{Z: 2})
+	for range 120 {
+		w.Update(1.0 / 60)
+	}
+	if p := standing.Position(); !within(p.Y, 0.5, 0.02) || !standing.Resting() {
+		t.Errorf("a barrel on its end is at %v (resting %v), want standing at 0.5", p, standing.Resting())
+	}
+	if p := lying.Position(); !within(p.Y, 0.4, 0.02) || p.Z < 1.5 {
+		t.Errorf("a barrel on its side, set rolling, is at %v, want rolled along Z at height 0.4", p)
+	}
+	if !within(standing.Mass(), 250*math.Pi*0.16, 0.5) {
+		t.Errorf("a barrel weighs %v kg", standing.Mass())
 	}
 }

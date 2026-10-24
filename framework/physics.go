@@ -33,7 +33,11 @@ type PhysicsWorld struct {
 	bodies map[int]*physicsBody
 	next   int
 	still  bvh // what never moves, made again only when it changes
-	moving bvh // what moves: lifts and rigid bodies, made again as they move
+	// What moves, lifts and rigid bodies, by number: each has its own box,
+	// and its own tree, made again when a question reaches it after it
+	// moved, so bodies at rest cost nothing.
+	moving      []int
+	movingDirty bool // a body began or stopped moving since moving was listed
 
 	rigid      []*RigidBody // in the order they were added
 	jolt       device.Physics
@@ -68,6 +72,21 @@ type physicsBody struct {
 	joltID    uint32 // its body in Jolt, or device.NoBody
 	joltMoved bool   // a kinematic body in Jolt, which SetTransform moves
 	joltTo    bool   // SetTransform moved it since the last Update
+
+	// A moving body's triangles where it is, in a tree of their own, and
+	// its box there; ok while it hasn't moved since they were made.
+	placed          bvh
+	lo, hi          Vector3
+	placedOK, boxOK bool
+	cornersLo       Vector3 // the box around corners, in its own space
+	cornersHi       Vector3
+	cornersBoxed    bool
+}
+
+// moveTo puts the body at place, remembering where it was.
+func (b *physicsBody) moveTo(place matrix) {
+	b.previous, b.place = b.place, place
+	b.placedOK, b.boxOK = false, false
 }
 
 // physicsTriangle is a triangle of a body, placed in the world.
@@ -203,7 +222,16 @@ func (w *PhysicsWorld) Remove(id int) {
 		device.RemovePhysicsBody(w.jolt, b.joltID)
 	}
 	delete(w.bodies, id)
-	w.tree(b).dirty = true
+	w.changed(b)
+}
+
+// changed marks what must be made again after b was added or taken out.
+func (w *PhysicsWorld) changed(b *physicsBody) {
+	if b.moving || b.rigid != nil {
+		w.movingDirty = true
+	} else {
+		w.still.dirty = true
+	}
 }
 
 // SetTransform moves the body numbered id to transform, as a lift or a
@@ -218,7 +246,7 @@ func (w *PhysicsWorld) SetTransform(id int, transform Transform) {
 	}
 	if !b.moving {
 		b.moving = true
-		w.still.dirty = true
+		w.still.dirty, w.movingDirty = true, true
 		if b.joltID != device.NoBody && w.jolt.ID != 0 {
 			// Still in Jolt until now: moved by the game from here on.
 			device.RemovePhysicsBody(w.jolt, b.joltID)
@@ -226,72 +254,125 @@ func (w *PhysicsWorld) SetTransform(id int, transform Transform) {
 			w.mirror(b)
 		}
 	}
-	b.previous, b.place, b.transform = b.place, transform.matrix(), transform
+	b.moveTo(transform.matrix())
+	b.transform = transform
 	b.moves++
 	b.joltTo = true
-	w.moving.dirty = true
 }
 
-// tree returns the tree b's triangles are in.
-func (w *PhysicsWorld) tree(b *physicsBody) *bvh {
-	if b.moving || b.rigid != nil {
-		return &w.moving
-	}
-	return &w.still
-}
-
-// build places the bodies' triangles and sorts them into their trees, when
-// something changed since the last question.
+// build sorts the still bodies' triangles into their tree, and lists the
+// moving bodies, when something changed since the last question.
 func (w *PhysicsWorld) build() {
-	for _, t := range []*bvh{&w.still, &w.moving} {
-		if !t.dirty {
-			continue
-		}
-		t.dirty = false
-		t.triangles = t.triangles[:0]
-		ids := make([]int, 0, len(w.bodies))
+	if w.movingDirty {
+		w.movingDirty = false
+		w.moving = w.moving[:0]
 		for id, b := range w.bodies {
-			if w.tree(b) == t {
-				ids = append(ids, id)
+			if b.moving || b.rigid != nil {
+				w.moving = append(w.moving, id)
 			}
 		}
-		slices.Sort(ids) // the same tree every time, so questions answer alike
-		for _, id := range ids {
-			b := w.bodies[id]
-			for i := 0; i+2 < len(b.corners); i += 3 {
-				tri := physicsTriangle{
-					a: b.place.transformPoint(b.corners[i]), b: b.place.transformPoint(b.corners[i+1]),
-					c: b.place.transformPoint(b.corners[i+2]), body: id,
-				}
-				n := tri.b.Sub(tri.a).Cross(tri.c.Sub(tri.a))
-				if n.Length() < 1e-12 {
-					continue // no area: nothing to hit
-				}
-				tri.normal = n.Normalize()
-				t.triangles = append(t.triangles, tri)
-			}
-		}
-		t.nodes = t.nodes[:0]
-		if len(t.triangles) > 0 {
-			t.nodes = append(t.nodes, bvhNode{})
-			t.split(0, 0, len(t.triangles))
+		slices.Sort(w.moving) // the same order every time, so questions answer alike
+	}
+	if !w.still.dirty {
+		return
+	}
+	w.still.dirty = false
+	ids := make([]int, 0, len(w.bodies))
+	for id, b := range w.bodies {
+		if !b.moving && b.rigid == nil {
+			ids = append(ids, id)
 		}
 	}
+	slices.Sort(ids)
+	w.still.triangles = w.still.triangles[:0]
+	for _, id := range ids {
+		w.still.triangles = w.bodies[id].placeTriangles(id, w.still.triangles)
+	}
+	w.still.sort()
+}
+
+// placeTriangles appends b's triangles, where it is, to triangles.
+func (b *physicsBody) placeTriangles(id int, triangles []physicsTriangle) []physicsTriangle {
+	for i := 0; i+2 < len(b.corners); i += 3 {
+		tri := physicsTriangle{
+			a: b.place.transformPoint(b.corners[i]), b: b.place.transformPoint(b.corners[i+1]),
+			c: b.place.transformPoint(b.corners[i+2]), body: id,
+		}
+		n := tri.b.Sub(tri.a).Cross(tri.c.Sub(tri.a))
+		if n.Length() < 1e-12 {
+			continue // no area: nothing to hit
+		}
+		tri.normal = n.Normalize()
+		triangles = append(triangles, tri)
+	}
+	return triangles
+}
+
+// sort makes the tree over the triangles.
+func (t *bvh) sort() {
+	t.nodes = t.nodes[:0]
+	if len(t.triangles) > 0 {
+		t.nodes = append(t.nodes, bvhNode{})
+		t.split(0, 0, len(t.triangles))
+	}
+}
+
+// box returns the box around a moving body where it is: the box around its
+// corners in its own space, placed, which is all a question needs to pass
+// it by.
+func (b *physicsBody) box() (lo, hi Vector3) {
+	if b.boxOK {
+		return b.lo, b.hi
+	}
+	if !b.cornersBoxed {
+		b.cornersBoxed = true
+		if len(b.corners) > 0 {
+			b.cornersLo, b.cornersHi = b.corners[0], b.corners[0]
+		}
+		for _, c := range b.corners {
+			b.cornersLo, b.cornersHi = lowest(b.cornersLo, c), highest(b.cornersHi, c)
+		}
+	}
+	l, h := b.cornersLo, b.cornersHi
+	for i := range 8 {
+		corner := Vector3{X: l.X, Y: l.Y, Z: l.Z}
+		if i&1 != 0 {
+			corner.X = h.X
+		}
+		if i&2 != 0 {
+			corner.Y = h.Y
+		}
+		if i&4 != 0 {
+			corner.Z = h.Z
+		}
+		p := b.place.transformPoint(corner)
+		if i == 0 {
+			b.lo, b.hi = p, p
+		}
+		b.lo, b.hi = lowest(b.lo, p), highest(b.hi, p)
+	}
+	b.boxOK = true
+	return b.lo, b.hi
 }
 
 // bounds returns the box around everything in the world, and false when it
 // is empty.
 func (w *PhysicsWorld) bounds() (lo, hi Vector3, ok bool) {
 	w.build()
-	for _, t := range []*bvh{&w.still, &w.moving} {
-		if len(t.nodes) == 0 {
+	if len(w.still.nodes) > 0 {
+		lo, hi, ok = w.still.nodes[0].lo, w.still.nodes[0].hi, true
+	}
+	for _, id := range w.moving {
+		b := w.bodies[id]
+		if len(b.corners) == 0 {
 			continue
 		}
+		l, h := b.box()
 		if !ok {
-			lo, hi, ok = t.nodes[0].lo, t.nodes[0].hi, true
+			lo, hi, ok = l, h, true
 			continue
 		}
-		lo, hi = lowest(lo, t.nodes[0].lo), highest(hi, t.nodes[0].hi)
+		lo, hi = lowest(lo, l), highest(hi, h)
 	}
 	return lo, hi, ok
 }
@@ -352,7 +433,21 @@ func highest(a, b Vector3) Vector3 {
 func (w *PhysicsWorld) near(lo, hi Vector3, visit func(t *physicsTriangle)) {
 	w.build()
 	w.still.near(lo, hi, visit)
-	w.moving.near(lo, hi, visit)
+	for _, id := range w.moving {
+		b := w.bodies[id]
+		if len(b.corners) == 0 {
+			continue
+		}
+		if l, h := b.box(); h.X < lo.X || l.X > hi.X || h.Y < lo.Y || l.Y > hi.Y || h.Z < lo.Z || l.Z > hi.Z {
+			continue
+		}
+		if !b.placedOK {
+			b.placedOK = true
+			b.placed.triangles = b.placeTriangles(id, b.placed.triangles[:0])
+			b.placed.sort()
+		}
+		b.placed.near(lo, hi, visit)
+	}
 }
 
 func (w *bvh) near(lo, hi Vector3, visit func(t *physicsTriangle)) {

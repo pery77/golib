@@ -802,7 +802,7 @@ func (s *playScene) Draw(screen *golib.Screen) {
 
 ## 3D
 
-A 3D world, seen through a `Camera3D`, drawn between `screen.Begin3D` and `screen.End3D` in the same `Draw` as the 2D: the score and the menus go over it. In meters, with Y up; a model's front faces +Z. GoLib draws models from glTF and FBX files, as Blender, Mixamo and most tools export them, with their textures and materials, and shapes made in code, lit physically by a sun that casts shadows, the sky's soft light and lamps of the game's own, with fog and a sky behind, and plays their animations: characters bent by their bones, shape keys, blends between animations and layers of them. Characters walk through it with collisions and find their way along paths; rigid bodies come in the next stages of M7 (see [docs/roadmap.md](../docs/roadmap.md#m7-3d-planned)).
+A 3D world, seen through a `Camera3D`, drawn between `screen.Begin3D` and `screen.End3D` in the same `Draw` as the 2D: the score and the menus go over it. In meters, with Y up; a model's front faces +Z. GoLib draws models from glTF and FBX files, as Blender, Mixamo and most tools export them, with their textures and materials, and shapes made in code, lit physically by a sun that casts shadows, the sky's soft light and lamps of the game's own, with fog and a sky behind, and plays their animations: characters bent by their bones, shape keys, blends between animations and layers of them. Characters walk through it with collisions and find their way along paths, and crates, barrels and balls fall, roll and stack as rigid bodies (see [Rigid bodies](#rigid-bodies)).
 
 ### Points, turns and places
 
@@ -1051,10 +1051,10 @@ Rigid bodies are simulated by [Jolt Physics](https://github.com/jrouwe/JoltPhysi
 | `PhysicsWorld.Update` | `Update(dt float32)`: moves the rigid bodies on by `dt`. Call it in every `Update` that has rigid bodies, after moving lifts with `SetTransform` and before moving characters. |
 | `PhysicsWorld.Gravity` | What pulls the rigid bodies, in meters per second per second: Earth's, 9.81 down, when zero. Characters fall as the game makes them, as before. |
 | `BodyShape` | A rigid body's shape. Boxes, balls and capsules are the cheapest, and roll and stack best. |
-| `BoxShape`, `SphereShape`, `CapsuleShape` | `BoxShape(size Vector3)`, a box `size` wide, high and deep, centered on the body's position: a crate; `SphereShape(radius float32)`: a ball; `CapsuleShape(height, radius float32)`: a capsule standing on Y, centered, round at both ends: a barrel on its end. |
+| `BoxShape`, `SphereShape`, `CapsuleShape`, `CylinderShape` | `BoxShape(size Vector3)`, a box `size` wide, high and deep, centered on the body's position: a crate; `SphereShape(radius float32)`: a ball; `CapsuleShape(height, radius float32)`: a capsule standing on Y, centered, round at both ends: a bowling pin; `CylinderShape(height, radius float32)`: a cylinder standing on Y, centered, flat at both ends, as `NewCylinderMesh` scaled by `Vector3{X: 2 * radius, Y: height, Z: 2 * radius}`: a barrel, a log, a column. |
 | `ModelShape`, `MeshShape` | `ModelShape(model *Model)` and `MeshShape(mesh *Mesh)`: the shape around a model's meshes, at rest, or a mesh's, with any hollows filled in: a rock, a chair, a statue. Make the shape once and add as many bodies of it as the game needs. |
 | `RigidBodyOptions` | What it is made of and how it moves; the zero value is light wood that falls, slides and bounces a little. |
-| `RigidBodyOptions.Mass` | Kilograms: when zero, its size of light wood, 250 kilograms a cubic meter, so a meter-wide crate is 250 and a character pushes it. Heavier things push lighter ones aside. |
+| `RigidBodyOptions.Mass` | Kilograms: when zero, its size of light wood, 250 kilograms a cubic meter, so a meter-wide crate is 250 and a character pushes it. Heavier things push lighter ones aside. A game where thrown balls knock things over sets lighter masses, as toys are: a 5 kg ball barely moves a 250 kg crate. |
 | `RigidBodyOptions.Friction`, `RigidBodyOptions.NoFriction` | How it grips, from 0, ice, to 1, rubber: 0.5 when zero; `NoFriction` makes it ice. |
 | `RigidBodyOptions.Bounce` | How much of its speed it keeps as it hits something, from 0, a sack, to 1, a rubber ball. |
 | `RigidBodyOptions.Moved` | A body the game moves itself with `MoveTo`, which pushes what is in its way and that nothing pushes back: a piston, a swinging door, a paddle. |
@@ -1099,7 +1099,9 @@ func (s *playScene) Draw(screen *golib.Screen) {
 
 - **A character pushes what it walks into** as a strong person would: a ball rolls away at its pace, a meter-wide crate slides briskly, two stacked slowly, three or a 2000-kilogram block not at all. It stands on rigid bodies, and is carried when they move under it. Rigid bodies meet a character as a post: a crate dropped on its head lands there or slides off, a ball bounces off its legs; they never push it. Jolt keeps a capsule for each character that moved since the last `Update`, a little thinner than its `CharacterController`.
 - **The simulation follows the world's still and moved things**: a lift moved with `SetTransform` carries the crates on it, a wall taken out with `Remove` lets them fall. Add rigid bodies once the level is in.
-- **Hundreds of bodies are fine**, and thousands when most are at rest: Jolt stops working out what has come to rest until something touches it. 118 crates and balls, most of them moving, took 0.15 to 0.35 milliseconds an update on an Intel Mac, and 0.7 in Chrome.
+- **Hundreds of bodies are fine**, and thousands when most are at rest: Jolt stops working out what has come to rest until something touches it. 118 crates and balls, most of them moving, took 0.15 to 0.35 milliseconds an update on an Intel Mac, and 0.7 in Chrome; a character's `Move` beside 118 falling balls took 0.4 milliseconds more, and 0.01 once they had come to rest, since bodies at rest keep their triangles where they are.
+- **A world the game keeps no longer is freed**, Jolt's copy included, at the next `Update` of another: make a new `PhysicsWorld` for each level and drop the old one.
+- **No collision events yet**: a sound when things hit is a sudden change in a body's `Velocity` from one update to the next, which the game checks.
 - **When the native library is missing**, `AddRigidBody` reports why, `golib build` fails and says to run `golib setup`, and the bodies stay where they were added.
 
 ```go
@@ -1903,7 +1905,7 @@ A web build is what a phone plays, so a game meant for one is a game meant for t
 | Isometric and hexagonal maps; drawing a map's shapes and text | Not on the roadmap yet | Orthogonal maps; draw what objects stand for with sprites and shapes |
 | Positional sound in 2D | Not on the roadmap yet: 3D has `Sound.PlayAt` | `Sound.PlayWith` at a lower volume for what is far away |
 | Physics in 2D: things that fall, roll and bounce on their own | Not on the roadmap yet: 3D has rigid bodies, with Jolt | Simple movement and `Rectangle` overlap checks in the game |
-| Joints between rigid bodies (hinges, chains, ragdolls), cars, and rigid bodies that push characters | Not on the roadmap yet | A swinging door is a `Moved` body turned by the game; a falling crate the game checks against the player |
+| Joints between rigid bodies (hinges, chains, ragdolls), cars, rigid bodies that push characters, and collision events | Not on the roadmap yet | A swinging door is a `Moved` body turned by the game; a falling crate the game checks against the player; a hit is a sudden change in `Velocity` |
 | Trigger pressure, vibration | Not on the roadmap yet | Triggers read as buttons |
 | 3D shadows from lamps, inverse kinematics, and hiding or reading one part of a model | Planned (M7, stage 7): see [docs/roadmap.md](../docs/roadmap.md#m7-3d-planned); inverse kinematics isn't on the roadmap yet | Models, materials, lights, the sun's shadows and fog work |
 | Reflections of the world in water and mirrors, a tint for each draw of one `Material`, and hiding or dimming part of an HDRI | Planned (M7, stage 7) | Shiny things reflect the HDRI or the sky; make a `Material` for each color; paint the HDRI over in a copy made offline, as [games/sunset](../games/sunset)'s `sources/skies/lakesky.go` does |

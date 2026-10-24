@@ -1257,6 +1257,9 @@ void main() {
 				result = hull.Create();
 				break;
 			}
+			case 4:
+				result = new Jolt.CylinderShapeSettings(d[2], d[1], Math.min(0.05, 0.5 * Math.min(d[1], d[2]))).Create();
+				break;
 		}
 		if (!result || result.HasError()) return 0xffffffff;
 		const motion = d[11] === 2 ? Jolt.EMotionType_Dynamic : (d[11] === 1 ? Jolt.EMotionType_Kinematic : Jolt.EMotionType_Static);
