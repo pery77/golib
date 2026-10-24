@@ -42,9 +42,8 @@ Title (the level, seen from above, turning slowly; the controls), playing (coins
 All in `world.go`, at the top: run speed 5.5 m/s, ground acceleration 45 m/s², air acceleration 22 m/s²; jump speed 10 m/s under gravity of 30 m/s², so a full jump rises about 1.65 m and crosses about 3.5 m; releasing the jump early cuts the rise; 0.1 s of coyote time and 0.12 s of jump buffer. The camera's distance, pitch and how fast it swings round are at the top of `controls.go`.
 
 ## Later
-- The character's walk and jump animations, once GoLib plays glTF animations (M7, stage 4): for now it is drawn in its rest pose, squashed and stretched by code.
-- Real shadows (M7, stage 3) instead of the dark disc under the character.
 - Moving blocks, springs and spikes from the kit; more levels, listed with `golib.ListAssets`.
 
 ## Changelog
 - 0.1.0: first version: the Blender level, running and jumping, coins, checkpoints, lives, the timer, title, pause, won and game over.
+- 0.2.0: the character plays the kit's animations, idle, walk and sprint at a pace that follows its speed, jump, fall, and a nod at the flag, through a `golib.Animator`, in place of squash and stretch; the sun's shadow in place of the dark disc under it.

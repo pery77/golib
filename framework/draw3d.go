@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"slices"
+	"strconv"
 	"strings"
 
 	"golib/internal/device"
@@ -77,6 +78,18 @@ type item3D struct {
 	center   Vector3 // the middle of its bounds, in the world
 	radius   float32 // how far its bounds reach from center, in the world
 	wire     *Mesh   // for DrawWireframe: the mesh whose edges are drawn
+	anim     itemAnimation
+}
+
+// itemAnimation is how an item's vertices are bent: by the joints of a skin
+// and by shape keys, from its block of the pass's animation numbers. A zero
+// one isn't bent.
+type itemAnimation struct {
+	at, floats   int // its block in pass3D.animation: 16 numbers a joint, then the shape keys' weights, in fours
+	joints       int
+	morphs       int
+	vertices     int // its mesh's, to find each vertex's shape keys
+	morphTexture device.DataTexture
 }
 
 // pass3D is what a Screen gathers between Begin3D and End3D.
@@ -86,6 +99,7 @@ type pass3D struct {
 	items       []item3D
 	lines       []float32 // device.LayoutColored
 	lineIndices []uint32
+	animation   []float32 // the blocks of the animated items, see itemAnimation
 	environment Environment
 	lights      []Light
 	width       int // the size of the target the pass draws over, in its texels
@@ -128,6 +142,7 @@ func (s *Screen) Begin3D(camera *Camera3D) {
 		items:       s.pass.items[:0],
 		lines:       s.pass.lines[:0],
 		lineIndices: s.pass.lineIndices[:0],
+		animation:   s.pass.animation[:0],
 		lights:      s.pass.lights[:0],
 		time:        s.time,
 		width:       max(1, int(s.width*textScale)),
@@ -182,6 +197,26 @@ func (s *Screen) addItem(mesh *Mesh, material *material3D, model matrix, tint Co
 	s.pass.items = append(s.pass.items, item3D{
 		gpu: gpu, material: material, model: model, tint: tint,
 		center: model.transformPoint(mesh.center), radius: mesh.radius * model.largestScale(),
+	})
+}
+
+// addAnimated adds mesh, bent as anim says, drawn with material, placed by
+// model, inside the sphere at center, radius across, in the world.
+func (s *Screen) addAnimated(mesh *Mesh, material *material3D, model matrix, tint Color, anim itemAnimation, center Vector3, radius float32) {
+	gpu := mesh.upload()
+	if gpu.ID == 0 {
+		return
+	}
+	for _, t := range []*texture3D{material.baseTexture, material.emissiveTexture, material.metalRoughTexture, material.normalTexture, material.occlusionTexture} {
+		t.upload()
+	}
+	if anim.morphs > 0 {
+		anim.morphTexture = mesh.uploadMorphs()
+		anim.vertices = int(mesh.vertexCount())
+	}
+	s.pass.items = append(s.pass.items, item3D{
+		gpu: gpu, material: material, model: model, tint: tint,
+		center: center, radius: radius, anim: anim,
 	})
 }
 
@@ -294,13 +329,20 @@ out vec3 normal;
 out vec2 texcoord;
 out vec4 color;
 
+// ANIMATION
+
 void main()
 {
+    vec3 position = vertexPosition;
+    vec3 shapeNormal = vertexNormal;
+#ifdef ANIMATED
+    animate(position, shapeNormal);
+#endif
     mat3 turn = mat3(instanceModel);
-    normal = transpose(inverse(turn)) * vertexNormal;
+    normal = transpose(inverse(turn)) * shapeNormal;
     texcoord = vertexTexcoord;
     color = vertexColor * vec4(pow(instanceTint.rgb, vec3(2.2)), instanceTint.a);
-    vec4 world = instanceModel * vec4(vertexPosition, 1.0);
+    vec4 world = instanceModel * vec4(position, 1.0);
     worldPosition = world.xyz;
     gl_Position = viewProjection * world;
 }
@@ -705,6 +747,78 @@ void main()
 `
 )
 
+// animationShader bends a vertex by its skin's joints and its shape keys,
+// for the vertex shaders of animated meshes: the joints' matrices and the
+// shape keys' weights of each instance are a block of texels in the pass's
+// animation texture, animationStride texels apart, and the shape keys' moves
+// are in the mesh's own, two texels for each vertex of each.
+const animationShader = `layout(location = 9) in vec4 vertexJoints;
+layout(location = 10) in vec4 vertexWeights;
+uniform highp sampler2D animation;
+uniform highp sampler2D morphTargets;
+uniform int animationBase;
+uniform int animationStride;
+uniform int jointCount;
+uniform int morphCount;
+uniform int morphVertices;
+
+vec4 animationTexel(int k)
+{
+    return texelFetch(animation, ivec2(k % DATA_WIDTH, k / DATA_WIDTH), 0);
+}
+
+vec4 morphTexel(int k)
+{
+    return texelFetch(morphTargets, ivec2(k % DATA_WIDTH, k / DATA_WIDTH), 0);
+}
+
+mat4 jointMatrix(int block, float joint)
+{
+    int k = block + int(joint) * 4;
+    return mat4(animationTexel(k), animationTexel(k + 1), animationTexel(k + 2), animationTexel(k + 3));
+}
+
+void animate(inout vec3 position, inout vec3 n)
+{
+    int block = animationBase + gl_InstanceID * animationStride;
+    if (morphCount > 0) {
+        int weights = block + jointCount * 4;
+        for (int t = 0; t < morphCount; t++) {
+            float w = animationTexel(weights + t / 4)[t % 4];
+            if (w != 0.0) {
+                int k = (t * morphVertices + gl_VertexID) * 2;
+                position += w * morphTexel(k).xyz;
+                n += w * morphTexel(k + 1).xyz;
+            }
+        }
+    }
+    if (jointCount > 0) {
+        mat4 skin = vertexWeights.x * jointMatrix(block, vertexJoints.x)
+            + vertexWeights.y * jointMatrix(block, vertexJoints.y)
+            + vertexWeights.z * jointMatrix(block, vertexJoints.z)
+            + vertexWeights.w * jointMatrix(block, vertexJoints.w);
+        position = (skin * vec4(position, 1.0)).xyz;
+        n = mat3(skin) * n;
+    }
+}
+`
+
+// animated3D returns a vertex shader made to bend what it draws by bones and
+// shape keys.
+func animated3D(vertex string) string {
+	code := strings.ReplaceAll(animationShader, "DATA_WIDTH", strconv.Itoa(device.DataTextureWidth))
+	vertex = strings.Replace(vertex, "// ANIMATION", code, 1)
+	return strings.Replace(vertex, "#version 330\n", "#version 330\n#define ANIMATED\n", 1)
+}
+
+// The texture units of the animation texture and of a mesh's shape keys,
+// past the ones the materials, the shadows and the HDRI use, and the one
+// the backends make textures on.
+const (
+	animationUnit = 8
+	morphUnit     = 9
+)
+
 // litProgram is the program meshes are drawn with, and where its uniforms
 // sit.
 type litProgram struct {
@@ -729,6 +843,61 @@ type litProgram struct {
 	environmentTurn                             int32
 	shadowMatrices                              [shadowCascades]int32
 	shadowSplits, shadowTexels, viewForward     int32
+	bending                                     bendingUniforms
+}
+
+// bendingUniforms are where an animated program's uniforms sit.
+type bendingUniforms struct {
+	animation, morphTargets        int32
+	animationBase, animationStride int32
+	jointCount, morphCount         int32
+	morphVertices                  int32
+}
+
+func locateBending(program device.Program) bendingUniforms {
+	at := func(name string) int32 { return device.UniformLocation(program, name) }
+	return bendingUniforms{
+		animation: at("animation"), morphTargets: at("morphTargets"),
+		animationBase: at("animationBase"), animationStride: at("animationStride"),
+		jointCount: at("jointCount"), morphCount: at("morphCount"), morphVertices: at("morphVertices"),
+	}
+}
+
+// set gives an animated program what a group of instances is bent by.
+func (b bendingUniforms) set(g groupAnimation) {
+	device.SetUniformInt(b.animation, animationUnit)
+	device.SetUniformInt(b.morphTargets, morphUnit)
+	device.SetUniformInt(b.animationBase, int32(g.base))
+	device.SetUniformInt(b.animationStride, int32(g.stride))
+	device.SetUniformInt(b.jointCount, int32(g.joints))
+	device.SetUniformInt(b.morphCount, int32(g.morphs))
+	device.SetUniformInt(b.morphVertices, int32(g.vertices))
+	if g.morphs > 0 {
+		device.BindDataTexture(morphUnit, g.morphTexture)
+	}
+}
+
+// groupAnimation is how the instances of one draw are bent: where their
+// blocks start in the animation texture, how many texels each takes, and
+// what they hold. The zero one isn't bent.
+type groupAnimation struct {
+	base, stride   int // in texels
+	joints, morphs int
+	vertices       int
+	morphTexture   device.DataTexture
+}
+
+// groupAnimationOf returns the bending of a draw whose first instance is
+// item, its blocks starting at texel base.
+func groupAnimationOf(item *item3D, base int) groupAnimation {
+	a := item.anim
+	if a.floats == 0 {
+		return groupAnimation{}
+	}
+	return groupAnimation{
+		base: base, stride: a.floats / 4, joints: a.joints, morphs: a.morphs,
+		vertices: a.vertices, morphTexture: a.morphTexture,
+	}
 }
 
 // lineProgram is the program lines and wireframes are drawn with.
@@ -767,9 +936,20 @@ type state3D struct {
 	bloomDown bloomProgram
 	bloomUp   bloomProgram
 	bloom     bloomChain
-	surfaces  map[string]*litProgram // programs with a game's own surface, by its source; nil for one that didn't compile
+	surfaces  map[programKind]*litProgram // programs with a game's own surface or bending, nil for one that didn't compile
 	lineMesh  device.Mesh
 	instances []float32 // the instances of the draw being built
+
+	shadowBent    *shadowProgram     // the shadow program that bends, once a pass needs it
+	animation     []float32          // the animated items' blocks, as the animation texture gets them
+	animationData device.DataTexture // the animation texture
+}
+
+// programKind says which lit program a draw needs: with a game's own
+// surface, and bending what it draws by bones and shape keys.
+type programKind struct {
+	surface  string
+	animated bool
 }
 
 var renderer3D state3D
@@ -841,11 +1021,7 @@ func (r *state3D) load() error {
 	}
 	r.bloomDown = bloomProgram{program: bloomDown, source: at(bloomDown, "source"), texel: at(bloomDown, "texel"), first: at(bloomDown, "first")}
 	r.bloomUp = bloomProgram{program: bloomUp, source: at(bloomUp, "source"), texel: at(bloomUp, "texel")}
-	r.shadow = shadowProgram{
-		program: shadow, lightViewProjection: at(shadow, "lightViewProjection"),
-		baseTexture: at(shadow, "baseTexture"), hasBaseTexture: at(shadow, "hasBaseTexture"),
-		baseOpacity: at(shadow, "baseOpacity"), cutout: at(shadow, "cutout"), alphaCutoff: at(shadow, "alphaCutoff"),
-	}
+	r.shadow = locateShadow(shadow)
 	r.sky.environmentMap, r.sky.hasEnvironment = at(sky, "environmentMap"), at(sky, "hasEnvironment")
 	r.sky.environmentTurn = at(sky, "environmentTurn")
 	r.loaded = true
@@ -853,7 +1029,7 @@ func (r *state3D) load() error {
 }
 
 // locateLit finds where the lit shader's uniforms sit in program, the
-// plain one or one with a game's own surface.
+// plain one or one with a game's own surface, bending what it draws or not.
 func locateLit(program device.Program) litProgram {
 	at := func(name string) int32 { return device.UniformLocation(program, name) }
 	p := litProgram{
@@ -878,36 +1054,49 @@ func locateLit(program device.Program) litProgram {
 	for k := range shadowCascades {
 		p.shadowMatrices[k] = at(fmt.Sprintf("shadowMatrix%d", k))
 	}
+	p.bending = locateBending(program) // all -1 in a program that doesn't bend
 	return p
 }
 
 // surfaceProgram returns the lit program for a material: the plain one, or,
 // for one with a shader of the game's own, that shader's, compiled the first
-// time a material uses it. A shader that doesn't compile is reported, and the
-// material drawn with the plain program.
-func (r *state3D) surfaceProgram(m *material3D) *litProgram {
-	if m.surface == "" {
+// time a material uses it, and one that bends what it draws for animated
+// meshes. A shader that doesn't compile is reported, and the material drawn
+// with the plain program.
+func (r *state3D) surfaceProgram(m *material3D, animated bool) *litProgram {
+	kind := programKind{surface: m.surface, animated: animated}
+	if kind == (programKind{}) {
 		return &r.lit
 	}
-	if p, ok := r.surfaces[m.surface]; ok {
+	if p, ok := r.surfaces[kind]; ok {
 		if p == nil {
 			return &r.lit
 		}
 		return p
 	}
-	fragment := strings.Replace(litFragmentShader, "// SURFACE", m.surface, 1)
-	fragment = strings.Replace(fragment, "#version 330\n", "#version 330\n#define CUSTOM_SURFACE\n", 1)
-	program, err := device.NewProgram(litVertexShader, fragment)
+	vertex, fragment := litVertexShader, litFragmentShader
+	if animated {
+		vertex = animated3D(vertex)
+	}
+	if m.surface != "" {
+		fragment = strings.Replace(fragment, "// SURFACE", m.surface, 1)
+		fragment = strings.Replace(fragment, "#version 330\n", "#version 330\n#define CUSTOM_SURFACE\n", 1)
+	}
+	program, err := device.NewProgram(vertex, fragment)
 	if r.surfaces == nil {
-		r.surfaces = map[string]*litProgram{}
+		r.surfaces = map[programKind]*litProgram{}
 	}
 	if err != nil {
-		reportError(fmt.Errorf("golib: a Material's Shader doesn't compile: %w", err))
-		r.surfaces[m.surface] = nil
+		if m.surface != "" {
+			reportError(fmt.Errorf("golib: a Material's Shader doesn't compile: %w", err))
+		} else {
+			reportError(fmt.Errorf("golib: the 3D's animated shader doesn't compile on this graphics card: %w", err))
+		}
+		r.surfaces[kind] = nil
 		return &r.lit
 	}
 	p := locateLit(program)
-	r.surfaces[m.surface] = &p
+	r.surfaces[kind] = &p
 	return &p
 }
 
@@ -925,6 +1114,10 @@ func (r *state3D) unload() {
 			device.UnloadProgram(p.program)
 		}
 	}
+	if r.shadowBent != nil {
+		device.UnloadProgram(r.shadowBent.program)
+	}
+	device.UnloadDataTexture(r.animationData)
 	r.unloadBloom()
 	device.UnloadShadowMap(r.shadowMap)
 	device.UnloadMesh(r.lineMesh)
@@ -1003,6 +1196,7 @@ func (r *state3D) draw(pass *pass3D) {
 	type groupKey struct {
 		mesh     uint32
 		material *material3D
+		floats   int // an animated item's block: items bent alike go together
 	}
 	type group struct {
 		gpu      device.Mesh
@@ -1023,7 +1217,7 @@ func (r *state3D) draw(pass *pass3D) {
 		case item.material.alpha == alphaBlend || item.tint.A < 255:
 			seeThrough = append(seeThrough, i)
 		default:
-			key := groupKey{item.gpu.ID, item.material}
+			key := groupKey{item.gpu.ID, item.material, item.anim.floats}
 			at, ok := byKey[key]
 			if !ok {
 				at = len(groups)
@@ -1034,19 +1228,43 @@ func (r *state3D) draw(pass *pass3D) {
 		}
 	}
 
+	distance := func(i int) float32 { return pass.items[i].center.Distance(eye) }
+	slices.SortStableFunc(seeThrough, func(a, b int) int {
+		return cmp.Compare(distance(b), distance(a)) // farthest first
+	})
+
 	device.Begin3D()
 
-	// Each group's instances, built once for the shadows and the picture.
+	// Each group's instances, built once for the shadows and the picture,
+	// and the blocks of the animated ones, each draw's together, for the
+	// animation texture.
+	r.animation = r.animation[:0]
 	built := make([]shadowGroup, len(groups))
 	for k, g := range groups {
 		var data []float32
+		bending := groupAnimationOf(&pass.items[g.items[0]], len(r.animation)/4)
 		for _, i := range g.items {
 			item := &pass.items[i]
 			tint := colorFloats(item.tint)
 			data = append(data, item.model[:]...)
 			data = append(data, tint[:]...)
+			r.animation = append(r.animation, pass.animation[item.anim.at:item.anim.at+item.anim.floats]...)
 		}
-		built[k] = shadowGroup{gpu: g.gpu, material: g.material, instances: data}
+		built[k] = shadowGroup{gpu: g.gpu, material: g.material, instances: data, animation: bending}
+	}
+	seeThroughBending := make([]groupAnimation, len(seeThrough))
+	for k, i := range seeThrough {
+		item := &pass.items[i]
+		seeThroughBending[k] = groupAnimationOf(item, len(r.animation)/4)
+		r.animation = append(r.animation, pass.animation[item.anim.at:item.anim.at+item.anim.floats]...)
+	}
+	if len(r.animation) > 0 {
+		if r.animationData.ID == 0 {
+			r.animationData = device.NewDataTexture(r.animation)
+		} else {
+			device.UpdateDataTexture(&r.animationData, r.animation)
+		}
+		device.BindDataTexture(animationUnit, r.animationData)
 	}
 	shadows := env.shadows && len(built) > 0
 	var sunViews cascades
@@ -1128,14 +1346,15 @@ func (r *state3D) draw(pass *pass3D) {
 		}
 	}
 	var current *material3D
+	var currentBent bool
 	var program *litProgram
 	culling := true
-	use := func(m *material3D) {
-		if m == current {
+	use := func(m *material3D, bent bool) {
+		if m == current && bent == currentBent {
 			return
 		}
-		current = m
-		if p := r.surfaceProgram(m); p != program {
+		current, currentBent = m, bent
+		if p := r.surfaceProgram(m, bent); p != program {
 			program = p
 			frame(p)
 		}
@@ -1178,7 +1397,11 @@ func (r *state3D) draw(pass *pass3D) {
 		r.instances = append(r.instances, tint[:]...)
 	}
 	for _, g := range built {
-		use(g.material)
+		bent := g.animation.stride > 0
+		use(g.material, bent)
+		if bent {
+			program.bending.set(g.animation)
+		}
 		device.DrawMeshInstanced(g.gpu, g.instances)
 	}
 
@@ -1230,14 +1453,10 @@ func (r *state3D) draw(pass *pass3D) {
 	}
 
 	if len(seeThrough) > 0 {
-		distance := func(i int) float32 { return pass.items[i].center.Distance(eye) }
-		slices.SortStableFunc(seeThrough, func(a, b int) int {
-			return cmp.Compare(distance(b), distance(a)) // farthest first
-		})
 		current, program = nil, nil
 		device.SetDepthWrite(false)
 		device.SetBlend3D(true)
-		for _, i := range seeThrough {
+		for k, i := range seeThrough {
 			item := &pass.items[i]
 			material := item.material
 			if material.alpha != alphaBlend {
@@ -1246,9 +1465,22 @@ func (r *state3D) draw(pass *pass3D) {
 				see.alpha = alphaBlend
 				material = &see
 			}
-			use(material)
+			bending := seeThroughBending[k]
+			use(material, bending.stride > 0)
+			if bending.stride > 0 {
+				program.bending.set(bending)
+			}
 			r.instances = r.instances[:0]
 			instance(item)
+			if item.material.alpha != alphaBlend {
+				// A solid model fading out: its depth first, so that only
+				// its front shows, not the faces inside it.
+				device.SetColorWrite(false)
+				device.SetDepthWrite(true)
+				device.DrawMeshInstanced(item.gpu, r.instances)
+				device.SetDepthWrite(false)
+				device.SetColorWrite(true)
+			}
 			device.DrawMeshInstanced(item.gpu, r.instances)
 		}
 		device.SetDepthWrite(true)

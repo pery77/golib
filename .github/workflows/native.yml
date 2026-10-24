@@ -1,0 +1,76 @@
+# Builds GoLib's native library, golibnative (native/), for every platform
+# GoLib's games run on, and publishes the files as a GitHub release when a tag
+# named native-<n> is pushed. golib setup downloads them from that release,
+# checking each against the checksum in tools/cli/native.go. See
+# native/README.md for making a release.
+name: Native library
+
+on:
+  push:
+    tags: ["native-*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-2022
+            platform: windows-amd64
+            file: Release/golibnative.dll
+            ext: .dll
+          - runner: ubuntu-22.04
+            platform: linux-amd64
+            file: golibnative.so
+            ext: .so
+          - runner: ubuntu-22.04-arm
+            platform: linux-arm64
+            file: golibnative.so
+            ext: .so
+          - runner: macos-15-intel
+            platform: darwin-amd64
+            file: golibnative.dylib
+            ext: .dylib
+          - runner: macos-15
+            platform: darwin-arm64
+            file: golibnative.dylib
+            ext: .dylib
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        shell: bash
+        run: |
+          cmake -S native -B build/native -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/native --config Release --parallel
+          mkdir -p out
+          cp "build/native/${{ matrix.file }}" "out/golibnative-${{ matrix.platform }}${{ matrix.ext }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: golibnative-${{ matrix.platform }}
+          path: out/*
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/native-')
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd out
+          sha256sum golibnative-* > SHA256SUMS
+          cat SHA256SUMS
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+            --title "GoLib native library $GITHUB_REF_NAME" \
+            --notes "GoLib's native library, with Jolt Physics, for rigid bodies. golib setup downloads it: see native/README.md. Checksums are in SHA256SUMS." \
+            golibnative-* SHA256SUMS

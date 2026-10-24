@@ -82,6 +82,7 @@ const (
 	glTextureMaxLevel    = 0x813D
 	glColor              = 0x1800
 	glDepth              = 0x1801
+	glRGBA32F            = 0x8814
 )
 
 // anisotropy is how many samples a texture takes along a surface seen at a
@@ -117,7 +118,7 @@ var gl struct {
 	FramebufferTexture2D, GenRenderbuffers, BindRenderbuffer                 uintptr
 	RenderbufferStorage, FramebufferRenderbuffer, DeleteRenderbuffers        uintptr
 	Viewport, ClearBufferfv, BlendFuncSeparate, DrawArrays                   uintptr
-	DrawBuffer, ReadBuffer                                                   uintptr
+	DrawBuffer, ReadBuffer, TexSubImage2D, ColorMask                         uintptr
 
 	// empty is a vertex array with nothing in it, for a triangle over the
 	// whole view whose corners the vertex shader works out.
@@ -170,6 +171,7 @@ func loadGL() {
 		{&gl.Viewport, "glViewport"}, {&gl.ClearBufferfv, "glClearBufferfv"},
 		{&gl.BlendFuncSeparate, "glBlendFuncSeparate"}, {&gl.DrawArrays, "glDrawArrays"},
 		{&gl.DrawBuffer, "glDrawBuffer"}, {&gl.ReadBuffer, "glReadBuffer"},
+		{&gl.TexSubImage2D, "glTexSubImage2D"}, {&gl.ColorMask, "glColorMask"},
 	} {
 		*f.to = uintptr(rl.GetProcAddress(f.name))
 		if *f.to == 0 {
@@ -275,11 +277,15 @@ func NewMesh(layout int, vertices []float32, indices []uint32, lines bool) Mesh 
 		glCall(gl.VertexAttribPointer, location, size, glFloat, 0, stride, offset*4)
 	}
 	switch layout {
-	case LayoutLit:
+	case LayoutLit, LayoutSkinned:
 		attribute(0, 3, 0)
 		attribute(1, 3, 3)
 		attribute(2, 2, 6)
 		attribute(3, 4, 8)
+		if layout == LayoutSkinned {
+			attribute(9, 4, 12)
+			attribute(10, 4, 16)
+		}
 		glCall(gl.BindBuffer, glArrayBuffer, uintptr(gl.instances))
 		for i := uintptr(0); i < 5; i++ { // the matrix's four columns, then the tint
 			glCall(gl.EnableVertexAttribArray, 4+i)
@@ -590,6 +596,64 @@ func BindShadowMap(unit int, m ShadowMap) {
 	glCall(gl.BindTexture, glTexture2D, uintptr(m.texture))
 }
 
+// NewDataTexture puts values on the graphics card as a DataTexture, four to
+// a texel, padded with zeros to whole rows.
+func NewDataTexture(values []float32) DataTexture {
+	loadGL()
+	var t DataTexture
+	glCall(gl.GenTextures, 1, uintptr(unsafe.Pointer(&t.texture)))
+	t.ID = t.texture
+	glCall(gl.ActiveTexture, glTexture0+scratchUnit)
+	glCall(gl.BindTexture, glTexture2D, uintptr(t.texture))
+	glCall(gl.TexParameteri, glTexture2D, glTextureMinFilter, glNearest)
+	glCall(gl.TexParameteri, glTexture2D, glTextureMagFilter, glNearest)
+	glCall(gl.TexParameteri, glTexture2D, glTextureWrapS, glClampToEdge)
+	glCall(gl.TexParameteri, glTexture2D, glTextureWrapT, glClampToEdge)
+	fillData(&t, values)
+	glCall(gl.BindTexture, glTexture2D, 0)
+	glCall(gl.ActiveTexture, glTexture0)
+	return t
+}
+
+// fillData puts values into t, which is bound: into the rows it has when
+// they fit, and into new ones, all of them, when they don't.
+func fillData(t *DataTexture, values []float32) {
+	padded, rows := dataRows(values)
+	if rows > t.rows {
+		glCall(gl.TexImage2D, glTexture2D, 0, glRGBA32F, DataTextureWidth, uintptr(rows), 0, glRGBA, glFloat, uintptr(unsafe.Pointer(&padded[0])))
+		t.rows = rows
+	} else {
+		glCall(gl.TexSubImage2D, glTexture2D, 0, 0, 0, DataTextureWidth, uintptr(rows), glRGBA, glFloat, uintptr(unsafe.Pointer(&padded[0])))
+	}
+	runtime.KeepAlive(padded)
+}
+
+// UpdateDataTexture replaces what t holds with values, which may be more
+// than it held: what is drawn after it reads the new values.
+func UpdateDataTexture(t *DataTexture, values []float32) {
+	if t.ID == 0 {
+		return
+	}
+	glCall(gl.ActiveTexture, glTexture0+scratchUnit)
+	glCall(gl.BindTexture, glTexture2D, uintptr(t.texture))
+	fillData(t, values)
+	glCall(gl.BindTexture, glTexture2D, 0)
+	glCall(gl.ActiveTexture, glTexture0)
+}
+
+// UnloadDataTexture frees a data texture.
+func UnloadDataTexture(t DataTexture) {
+	if t.ID != 0 {
+		glCall(gl.DeleteTextures, 1, uintptr(unsafe.Pointer(&t.texture)))
+	}
+}
+
+// BindDataTexture makes t the one a sampler uniform set to unit reads.
+func BindDataTexture(unit int, t DataTexture) {
+	glCall(gl.ActiveTexture, glTexture0+uintptr(unit))
+	glCall(gl.BindTexture, glTexture2D, uintptr(t.texture))
+}
+
 // DrawFullscreen draws one triangle over the whole view with the program in
 // use, whose vertex shader places its three corners from gl_VertexID: a sky
 // behind everything, or a picture put over another.
@@ -646,6 +710,14 @@ func SetUniformInt(location, value int32) {
 // it later. See-through things are drawn without, after the rest.
 func SetDepthWrite(on bool) {
 	glCall(gl.DepthMask, glBool(on))
+}
+
+// SetColorWrite says whether what is drawn next changes the pass's colors;
+// without, it changes only its depth, as a see-through model does first so
+// that only its front shows.
+func SetColorWrite(on bool) {
+	b := glBool(on)
+	glCall(gl.ColorMask, b, b, b, b)
 }
 
 // SetBlend3D says whether what is drawn next is blended over what is behind

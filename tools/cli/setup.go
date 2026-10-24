@@ -9,7 +9,8 @@ import (
 
 // setup finishes golib setup once the scripts have checked the machine and
 // installed Go: it downloads the Go modules of the framework and every game,
-// and fills .tools/raylib/. The scripts pass --warnings=N, the number of
+// fills .tools/raylib/, and downloads Jolt for rigid bodies into
+// .tools/native/ and .tools/jolt/ (see native.go). The scripts pass --warnings=N, the number of
 // warnings they printed, so the summary counts them; they stop before this
 // after a failure. People never pass options: the scripts refuse them.
 func (c *cli) setup(options []string) int {
@@ -44,6 +45,7 @@ func (c *cli) setup(options []string) int {
 		}
 		c.check("ok", fmt.Sprintf("%s: modules downloaded, raylib library for raylib-go %s in .tools/raylib/", module, synced.version))
 	}
+	c.syncNative()
 
 	exitCode := c.summary("setup")
 	if exitCode != 0 {

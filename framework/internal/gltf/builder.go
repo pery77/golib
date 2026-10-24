@@ -75,6 +75,26 @@ func (b *Builder) Bytes(values []uint8, comps int) int {
 	})
 }
 
+// Joints adds an accessor of unsigned bytes, four to an element, not
+// normalized, as Blender writes the joints that skin each vertex.
+func (b *Builder) Joints(values []uint8) int {
+	return b.add("accessors", map[string]any{
+		"bufferView": b.View(values), "componentType": 5121, "count": len(values) / 4, "type": "VEC4",
+	})
+}
+
+// Matrices adds an accessor of 4 by 4 matrices, 16 float32 values each in
+// column-major order, as a skin's inverse bind matrices are written.
+func (b *Builder) Matrices(values []float32) int {
+	var data bytes.Buffer
+	for _, v := range values {
+		binary.Write(&data, binary.LittleEndian, math.Float32bits(v))
+	}
+	return b.add("accessors", map[string]any{
+		"bufferView": b.View(data.Bytes()), "componentType": 5126, "count": len(values) / 16, "type": "MAT4",
+	})
+}
+
 // Indices adds an accessor of 16-bit indices.
 func (b *Builder) Indices(values []uint16) int {
 	var data bytes.Buffer

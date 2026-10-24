@@ -23,11 +23,15 @@ window.golib = (function () {
 		CULLING = 28, DRAW_MESH = 29, DRAW_INSTANCED = 30, BIND_TEXTURE_3D = 31,
 		DRAW_FULLSCREEN = 32, UNIFORM_VEC4S = 33, BEGIN_SHADOW = 34, END_SHADOW = 35,
 		BIND_SHADOW_MAP = 36, BEGIN_WORK = 37, END_WORK = 38, BIND_WORK_TARGET = 39,
-		BIND_PASS_PICTURE = 40, ADDITIVE_3D = 41;
+		BIND_PASS_PICTURE = 40, ADDITIVE_3D = 41, UPDATE_DATA = 42, BIND_DATA = 43,
+		COLOR_WRITE = 44;
 
 	// The vertex layouts of 3D meshes, as gpu.go defines them, and how many
 	// floats an instance of a lit mesh takes: its matrix and its tint.
-	const LAYOUT_LIT = 0, LAYOUT_COLORED = 1, INSTANCE_FLOATS = 20;
+	const LAYOUT_LIT = 0, LAYOUT_COLORED = 1, LAYOUT_SKINNED = 2, INSTANCE_FLOATS = 20;
+
+	// How many texels a row of a data texture holds, as gpu.go says.
+	const DATA_WIDTH = 1024;
 
 	const BLEND_NORMAL = 0, BLEND_ADD = 1, BLEND_COPY = 2, BLEND_PREMULTIPLIED = 3;
 
@@ -463,6 +467,12 @@ void main() {
 					gl.uniform1i(locations3D[c[i]], c[i + 1]);
 					i += 2;
 					break;
+				case COLOR_WRITE: {
+					const on = c[i] !== 0;
+					gl.colorMask(on, on, on, on);
+					i += 1;
+					break;
+				}
 				case DEPTH_WRITE:
 					gl.depthMask(c[i] !== 0);
 					i += 1;
@@ -499,6 +509,25 @@ void main() {
 					gl.bindTexture(gl.TEXTURE_2D, textures.get(c[i + 1]) || null);
 					i += 2;
 					break;
+				case UPDATE_DATA: {
+					const made = dataTextures.get(c[i]), count = c[i + 1];
+					if (made) {
+						gl.activeTexture(gl.TEXTURE7);
+						gl.bindTexture(gl.TEXTURE_2D, made.texture);
+						fillData(made, c, i + 2, count);
+						gl.bindTexture(gl.TEXTURE_2D, null);
+						gl.activeTexture(gl.TEXTURE0);
+					}
+					i += 2 + count;
+					break;
+				}
+				case BIND_DATA: {
+					const made = dataTextures.get(c[i + 1]);
+					gl.activeTexture(gl.TEXTURE0 + c[i]);
+					gl.bindTexture(gl.TEXTURE_2D, made ? made.texture : null);
+					i += 2;
+					break;
+				}
 				case DRAW_MESH: {
 					const mesh = meshes.get(c[i]);
 					if (mesh) {
@@ -894,11 +923,16 @@ void main() {
 		gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
 		const ibo = gl.createBuffer();
 		gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
-		if (layout === LAYOUT_LIT) {
-			bindAttribute(0, 3, 0, 48);
-			bindAttribute(1, 3, 12, 48);
-			bindAttribute(2, 2, 24, 48);
-			bindAttribute(3, 4, 32, 48);
+		if (layout === LAYOUT_LIT || layout === LAYOUT_SKINNED) {
+			const stride = layout === LAYOUT_SKINNED ? 80 : 48;
+			bindAttribute(0, 3, 0, stride);
+			bindAttribute(1, 3, 12, stride);
+			bindAttribute(2, 2, 24, stride);
+			bindAttribute(3, 4, 32, stride);
+			if (layout === LAYOUT_SKINNED) {
+				bindAttribute(9, 4, 48, stride);
+				bindAttribute(10, 4, 64, stride);
+			}
 			if (!instanceBuffer) instanceBuffer = gl.createBuffer();
 			gl.bindBuffer(gl.ARRAY_BUFFER, instanceBuffer);
 			for (let k = 0; k < 5; k++) { // the matrix's four columns, then the tint
@@ -1051,6 +1085,272 @@ void main() {
 		gl.deleteFramebuffer(map.framebuffer);
 		gl.deleteTexture(map.texture);
 		shadowMaps.delete(id);
+	}
+
+	// Data textures: numbers for shaders, such as the bones of a pass, four
+	// 32-bit floats a texel, DATA_WIDTH texels a row, read with texelFetch.
+	const dataTextures = new Map(); // id -> { texture, rows }
+
+	function newDataTexture(bytes) {
+		const values = new Float32Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 4);
+		const id = nextID++;
+		const made = { texture: gl.createTexture(), rows: 0 };
+		gl.activeTexture(gl.TEXTURE7);
+		gl.bindTexture(gl.TEXTURE_2D, made.texture);
+		clampAndFilter(gl.NEAREST);
+		fillData(made, values, 0, values.length);
+		gl.bindTexture(gl.TEXTURE_2D, null);
+		gl.activeTexture(gl.TEXTURE0);
+		dataTextures.set(id, made);
+		boundTexture = -1;
+		return id;
+	}
+
+	// fillData puts count numbers of values, from at, into a data texture
+	// that is bound: into the rows it has when they fit, into new ones when
+	// they don't. A last row that isn't full is written as far as it goes.
+	function fillData(made, values, at, count) {
+		const texels = Math.floor(count / 4);
+		const rows = Math.max(1, Math.ceil(texels / DATA_WIDTH));
+		if (rows > made.rows) {
+			gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, DATA_WIDTH, rows, 0, gl.RGBA, gl.FLOAT, null);
+			made.rows = rows;
+		}
+		const full = Math.floor(texels / DATA_WIDTH), rest = texels - full * DATA_WIDTH;
+		if (full > 0) gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, DATA_WIDTH, full, gl.RGBA, gl.FLOAT, values, at);
+		if (rest > 0) gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, full, rest, 1, gl.RGBA, gl.FLOAT, values, at + full * DATA_WIDTH * 4);
+	}
+
+	function unloadDataTexture(id) {
+		const made = dataTextures.get(id);
+		if (!made) return;
+		gl.deleteTexture(made.texture);
+		dataTextures.delete(id);
+	}
+
+	// ---------------------------------------------------------------- physics
+
+	// Rigid bodies, from JoltPhysics.js, Jolt Physics built for
+	// WebAssembly, which web builds of games that use them carry beside
+	// this file as jolt-physics.wasm.js and its .wasm. It loads the first
+	// time a game makes a world.
+	let Jolt = null, joltLoading = null;
+	const physicsWorlds = new Map(); // id -> { jolt, system, bodies, ids, v, w, r, q }
+
+	function loadJolt(done) {
+		if (Jolt) { done(''); return; }
+		if (!joltLoading) {
+			joltLoading = import(new URL('jolt-physics.wasm.js', document.baseURI).href)
+				.then(function (m) { return m.default(); })
+				.then(function (j) { Jolt = j; });
+		}
+		joltLoading.then(function () { done(''); }, function (e) {
+			done('the page could not load jolt-physics.wasm.js, which rigid bodies need: build the game again with golib web or golib dist --web (' + e + ')');
+		});
+	}
+
+	function newPhysics(maxBodies) {
+		const settings = new Jolt.JoltSettings();
+		const most = Math.max(1024, maxBodies);
+		settings.mMaxBodies = most;
+		settings.mMaxBodyPairs = Math.min(most, 16384);
+		settings.mMaxContactConstraints = Math.min(most, 8192);
+		// Two layers, as golibnative has them: what never moves, and what
+		// does; still things don't collide with each other.
+		const pairs = new Jolt.ObjectLayerPairFilterTable(2);
+		pairs.EnableCollision(0, 1);
+		pairs.EnableCollision(1, 1);
+		const broad = new Jolt.BroadPhaseLayerInterfaceTable(2, 2);
+		broad.MapObjectToBroadPhaseLayer(0, new Jolt.BroadPhaseLayer(0));
+		broad.MapObjectToBroadPhaseLayer(1, new Jolt.BroadPhaseLayer(1));
+		settings.mObjectLayerPairFilter = pairs;
+		settings.mBroadPhaseLayerInterface = broad;
+		settings.mObjectVsBroadPhaseLayerFilter = new Jolt.ObjectVsBroadPhaseLayerFilterTable(broad, 2, pairs, 2);
+		const jolt = new Jolt.JoltInterface(settings);
+		Jolt.destroy(settings);
+		const system = jolt.GetPhysicsSystem();
+		system.SetGravity(new Jolt.Vec3(0, -9.81, 0));
+		const id = nextID++;
+		physicsWorlds.set(id, {
+			jolt: jolt, system: system, bodies: system.GetBodyInterface(), ids: new Map(),
+			v: new Jolt.Vec3(), w: new Jolt.Vec3(), r: new Jolt.RVec3(), q: new Jolt.Quat(),
+		});
+		return id;
+	}
+
+	function freePhysics(id) {
+		const world = physicsWorlds.get(id);
+		if (!world) return;
+		Jolt.destroy(world.jolt);
+		physicsWorlds.delete(id);
+	}
+
+	function physicsGravity(id, x, y, z) {
+		const world = physicsWorlds.get(id);
+		if (world) world.system.SetGravity(new Jolt.Vec3(x, y, z));
+	}
+
+	// floatsOf reads bytes from Go as the floats they are.
+	function floatsOf(bytes) {
+		return new Float32Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 4);
+	}
+
+	// keepBody keeps a new body's id, and returns its number, as the
+	// desktop's library numbers bodies.
+	function keepBody(world, bodyID) {
+		const number = bodyID.GetIndexAndSequenceNumber();
+		world.ids.set(number, new Jolt.BodyID(number));
+		return number;
+	}
+
+	// addPhysicsMesh adds a body of triangles in its own space, placed as
+	// moreBytes says: friction, restitution, position, rotation, and 1 for a
+	// body the game moves.
+	function addPhysicsMesh(id, bytes, moreBytes) {
+		const world = physicsWorlds.get(id);
+		const c = floatsOf(bytes), m = floatsOf(moreBytes);
+		const triangles = new Jolt.TriangleList();
+		const a = new Jolt.Vec3(), b = new Jolt.Vec3(), d = new Jolt.Vec3();
+		for (let i = 0; i + 8 < c.length; i += 9) {
+			a.Set(c[i], c[i + 1], c[i + 2]);
+			b.Set(c[i + 3], c[i + 4], c[i + 5]);
+			d.Set(c[i + 6], c[i + 7], c[i + 8]);
+			const t = new Jolt.Triangle(a, b, d);
+			triangles.push_back(t);
+			Jolt.destroy(t);
+		}
+		const result = new Jolt.MeshShapeSettings(triangles).Create();
+		Jolt.destroy(triangles);
+		if (result.HasError()) return 0xffffffff;
+		const moved = m[9] === 1;
+		const settings = new Jolt.BodyCreationSettings(result.Get(), new Jolt.RVec3(m[2], m[3], m[4]), new Jolt.Quat(m[5], m[6], m[7], m[8]),
+			moved ? Jolt.EMotionType_Kinematic : Jolt.EMotionType_Static, moved ? 1 : 0);
+		settings.mFriction = m[0];
+		settings.mRestitution = m[1];
+		const number = keepBody(world, world.bodies.CreateAndAddBody(settings, moved ? Jolt.EActivation_Activate : Jolt.EActivation_DontActivate));
+		Jolt.destroy(settings);
+		return number;
+	}
+
+	// addPhysicsBody reads a body's description, in the order of
+	// physics.go's Body constants.
+	function addPhysicsBody(id, bytes) {
+		const world = physicsWorlds.get(id);
+		const d = floatsOf(bytes);
+		let result = null;
+		switch (d[0]) {
+			case 0:
+				result = new Jolt.BoxShapeSettings(new Jolt.Vec3(d[1], d[2], d[3]), Math.min(0.05, 0.5 * Math.min(d[1], d[2], d[3]))).Create();
+				break;
+			case 1:
+				result = new Jolt.SphereShapeSettings(d[1]).Create();
+				break;
+			case 2:
+				result = new Jolt.CapsuleShapeSettings(d[2], d[1]).Create();
+				break;
+			case 3: {
+				const hull = new Jolt.ConvexHullShapeSettings();
+				for (let i = 0; i < d[19]; i++) {
+					hull.mPoints.push_back(new Jolt.Vec3(d[20 + i * 3], d[21 + i * 3], d[22 + i * 3]));
+				}
+				hull.mMaxConvexRadius = 0.02;
+				result = hull.Create();
+				break;
+			}
+			case 4:
+				result = new Jolt.CylinderShapeSettings(d[2], d[1], Math.min(0.05, 0.5 * Math.min(d[1], d[2]))).Create();
+				break;
+		}
+		if (!result || result.HasError()) return 0xffffffff;
+		const motion = d[11] === 2 ? Jolt.EMotionType_Dynamic : (d[11] === 1 ? Jolt.EMotionType_Kinematic : Jolt.EMotionType_Static);
+		const settings = new Jolt.BodyCreationSettings(result.Get(), new Jolt.RVec3(d[4], d[5], d[6]),
+			new Jolt.Quat(d[7], d[8], d[9], d[10]), motion, motion === Jolt.EMotionType_Static ? 0 : 1);
+		if (d[12] > 0) {
+			settings.mOverrideMassProperties = Jolt.EOverrideMassProperties_CalculateInertia;
+			settings.mMassPropertiesOverride.mMass = d[12];
+		}
+		settings.mFriction = d[13];
+		settings.mRestitution = d[14];
+		settings.mLinearDamping = d[15];
+		settings.mAngularDamping = d[16];
+		settings.mGravityFactor = d[17];
+		if (d[18] !== 0) settings.mMotionQuality = Jolt.EMotionQuality_LinearCast;
+		const activation = motion === Jolt.EMotionType_Static ? Jolt.EActivation_DontActivate : Jolt.EActivation_Activate;
+		const number = keepBody(world, world.bodies.CreateAndAddBody(settings, activation));
+		Jolt.destroy(settings);
+		return number;
+	}
+
+	function removePhysicsBody(id, number) {
+		const world = physicsWorlds.get(id);
+		const body = world && world.ids.get(number);
+		if (!body) return;
+		world.bodies.RemoveBody(body);
+		world.bodies.DestroyBody(body);
+		Jolt.destroy(body);
+		world.ids.delete(number);
+	}
+
+	function stepPhysics(id, dt, steps) {
+		const world = physicsWorlds.get(id);
+		if (world) world.jolt.Step(dt, Math.max(1, steps));
+	}
+
+	// readPhysicsBodies writes 14 floats for each body numbered in idBytes
+	// into out: position, rotation, velocity, spin, awake.
+	function readPhysicsBodies(id, idBytes, out) {
+		const world = physicsWorlds.get(id);
+		const numbers = new Uint32Array(idBytes.buffer, idBytes.byteOffset, idBytes.byteLength / 4);
+		const o = new Float32Array(numbers.length * 14);
+		for (let i = 0; i < numbers.length; i++) {
+			const body = world.ids.get(numbers[i]);
+			if (!body) continue;
+			world.bodies.GetPositionAndRotation(body, world.r, world.q);
+			const v = world.bodies.GetLinearVelocity(body);
+			const k = i * 14;
+			o[k] = world.r.GetX(); o[k + 1] = world.r.GetY(); o[k + 2] = world.r.GetZ();
+			o[k + 3] = world.q.GetX(); o[k + 4] = world.q.GetY(); o[k + 5] = world.q.GetZ(); o[k + 6] = world.q.GetW();
+			o[k + 7] = v.GetX(); o[k + 8] = v.GetY(); o[k + 9] = v.GetZ();
+			const s = world.bodies.GetAngularVelocity(body);
+			o[k + 10] = s.GetX(); o[k + 11] = s.GetY(); o[k + 12] = s.GetZ();
+			o[k + 13] = world.bodies.IsActive(body) ? 1 : 0;
+		}
+		out.set(new Uint8Array(o.buffer));
+	}
+
+	// setPhysicsBody changes a body as physics.go's Set constants say.
+	function setPhysicsBody(id, number, what, bytes) {
+		const world = physicsWorlds.get(id);
+		const body = world && world.ids.get(number);
+		if (!body) return;
+		const v = floatsOf(bytes);
+		const b = world.bodies;
+		switch (what) {
+			case 0:
+				world.r.Set(v[0], v[1], v[2]);
+				world.q.Set(v[3], v[4], v[5], v[6]);
+				b.SetPositionAndRotation(body, world.r, world.q, Jolt.EActivation_Activate);
+				break;
+			case 1:
+				world.v.Set(v[0], v[1], v[2]);
+				world.w.Set(v[3], v[4], v[5]);
+				b.SetLinearAndAngularVelocity(body, world.v, world.w);
+				break;
+			case 2:
+				world.v.Set(v[0], v[1], v[2]);
+				world.r.Set(v[3], v[4], v[5]);
+				b.AddImpulse(body, world.v, world.r);
+				break;
+			case 3:
+				world.r.Set(v[0], v[1], v[2]);
+				world.q.Set(v[3], v[4], v[5], v[6]);
+				b.MoveKinematic(body, world.r, world.q, v[7]);
+				break;
+			case 4:
+				world.v.Set(v[0], v[1], v[2]);
+				b.AddForce(body, world.v, Jolt.EActivation_Activate);
+				break;
+		}
 	}
 
 	// Work targets: pictures a pass draws into and reads back on the way to
@@ -1756,7 +2056,7 @@ void main() {
 
 	function newVoice(buffer) {
 		const id = nextSoundID++;
-		voices.set(id, { buffer: buffer, volume: 1, pitch: 1, node: null, gain: null });
+		voices.set(id, { buffer: buffer, volume: 1, pitch: 1, pan: 0, node: null, gain: null, panner: null });
 		return id;
 	}
 
@@ -1777,13 +2077,36 @@ void main() {
 		const gain = audio.createGain();
 		gain.gain.value = voice.volume;
 		node.connect(gain);
-		gain.connect(master);
+		voice.panner = connectPanned(gain, voice.pan);
 		node.onended = function () {
-			if (voice.node === node) { voice.node = null; voice.gain = null; }
+			if (voice.node === node) { voice.node = null; voice.gain = null; voice.panner = null; }
 		};
 		node.start();
 		voice.node = node;
 		voice.gain = gain;
+	}
+
+	// connectPanned connects gain to the master volume through a stereo
+	// panner when pan isn't 0, and returns the panner. A sound in the
+	// middle goes without one, since a panner lowers a mono sound in the
+	// middle by a third, as no sound before panning was.
+	function connectPanned(gain, pan) {
+		if (pan === 0) {
+			gain.connect(master);
+			return null;
+		}
+		const panner = audio.createStereoPanner();
+		panner.pan.value = pan;
+		gain.connect(panner);
+		panner.connect(master);
+		return panner;
+	}
+
+	function setSoundPan(id, pan) {
+		const voice = voices.get(id);
+		if (!voice) return;
+		voice.pan = pan;
+		if (voice.panner) voice.panner.pan.value = pan;
 	}
 
 	function stopSound(id) {
@@ -1842,7 +2165,7 @@ void main() {
 		const gain = audio.createGain();
 		gain.gain.value = music.volume;
 		node.connect(gain);
-		gain.connect(master);
+		music.panner = connectPanned(gain, music.pan || 0);
 		node.onended = function () {
 			if (music.node === node && !music.looping) {
 				music.node = null;
@@ -1886,6 +2209,19 @@ void main() {
 		stopMusicNode(music);
 		music.offset = 0;
 		music.playing = false;
+	}
+
+	function setMusicPan(id, pan) {
+		const music = musics.get(id);
+		if (!music) return;
+		music.pan = pan;
+		if (music.panner) {
+			music.panner.pan.value = pan;
+		} else if (music.gain && pan !== 0) {
+			// Playing in the middle: a panner joins it now.
+			music.gain.disconnect();
+			music.panner = connectPanned(music.gain, pan);
+		}
 	}
 
 	function setMusicVolume(id, volume) {
@@ -2104,15 +2440,19 @@ void main() {
 		decodeImage: decodeImage, newTexture3D: newTexture3D, newHDRTexture: newHDRTexture,
 		newShadowMap: newShadowMap, unloadShadowMap: unloadShadowMap,
 		newWorkTarget: newWorkTarget, unloadWorkTarget: unloadWorkTarget,
+		newDataTexture: newDataTexture, unloadDataTexture: unloadDataTexture,
+		loadJolt: loadJolt, newPhysics: newPhysics, freePhysics: freePhysics, physicsGravity: physicsGravity,
+		addPhysicsMesh: addPhysicsMesh, addPhysicsBody: addPhysicsBody, removePhysicsBody: removePhysicsBody,
+		stepPhysics: stepPhysics, readPhysicsBodies: readPhysicsBodies, setPhysicsBody: setPhysicsBody,
 		newProgram3D: newProgram3D, unloadProgram3D: unloadProgram3D, location3D: location3D,
 		readFont: readFont,
 		openAudio: openAudio, closeAudio: closeAudio, setMasterVolume: setMasterVolume,
 		decodeSound: decodeSound, unloadWave: unloadWave,
 		newSound: newSound, newSoundAlias: newSoundAlias, unloadSound: unloadSound,
 		playSound: playSound, stopSound: stopSound, soundPlaying: soundPlaying,
-		setSoundVolume: setSoundVolume, setSoundPitch: setSoundPitch,
+		setSoundVolume: setSoundVolume, setSoundPitch: setSoundPitch, setSoundPan: setSoundPan,
 		newMusic: newMusic, playMusic: playMusic, pauseMusic: pauseMusic,
 		resumeMusic: resumeMusic, stopMusic: stopMusic, unloadMusic: unloadMusic,
-		setMusicVolume: setMusicVolume, musicPlaying: musicPlaying,
+		setMusicVolume: setMusicVolume, setMusicPan: setMusicPan, musicPlaying: musicPlaying,
 	};
 })();

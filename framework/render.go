@@ -285,6 +285,7 @@ func (r *renderer) close() {
 	loadedFonts.unloadAll()
 	loadedMeshes.unloadAll()
 	loadedTextures.unloadAll()
+	freePhysicsWorlds()
 	renderer3D.unload()
 	r.unloadScene()
 	for _, pass := range r.passes {

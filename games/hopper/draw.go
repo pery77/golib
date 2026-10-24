@@ -7,12 +7,8 @@ import (
 	"golib"
 )
 
-// Shapes made in code, made once: the clouds and the shadow under the
-// character.
-var (
-	sphereMesh   = golib.NewSphereMesh()
-	cylinderMesh = golib.NewCylinderMesh()
-)
+// The clouds' shape, made once.
+var sphereMesh = golib.NewSphereMesh()
 
 // How things look; the rules don't need these.
 const (
@@ -20,10 +16,10 @@ const (
 	coinBob       = 0.08 // meters up and down
 	coinScale     = 1.3  // the kit's coin is 0.4 m across: a little larger reads better
 	coinHalf      = 0.2 * coinScale
-	shadowSize    = 0.75 // meters across, on the ground right under the character
-	strideRoll    = 7    // degrees the character rocks from side to side as it runs
-	strideRate    = 2.2  // rocks per meter run
-	blinkInterval = 0.2  // seconds: the character blinks while it starts again
+	blinkInterval = 0.2 // seconds: the character blinks while it starts again
+	sprintFrom    = 3.5 // meters per second: faster than this, the character sprints
+	walkPace      = 1.6 // meters per second the walk animation covers at its own speed
+	sprintPace    = 5   // and the sprint
 )
 
 // cloud is a puff of spheres far from the level.
@@ -44,11 +40,10 @@ var clouds = []cloud{
 // look is how the scene wants the character drawn this frame: the effects
 // that are only for the eye, kept by the scene, not the rules.
 type look struct {
-	time    float32 // seconds, for the coins' spin
-	stride  float32 // meters run, for the rocking
-	squash  float32 // from 0 to 1: how squashed it is after a landing
-	blink   bool    // hidden this frame, while it starts again
-	hideAll bool    // the character is out of the picture
+	time     float32         // seconds, for the coins' spin
+	animator *golib.Animator // the character's animations, nil to draw it at rest
+	blink    bool            // hidden this frame, while it starts again
+	hideAll  bool            // the character is out of the picture
 }
 
 // drawSky fills the screen with a sky that fades from deep blue at the top to
@@ -90,11 +85,8 @@ func drawWorld(screen *golib.Screen, w *world, camera *golib.Camera3D, l look) {
 			drawCoin(screen, at, l.time+float32(i)*0.37)
 		}
 	}
-	if !l.hideAll {
-		drawShadow(screen, w)
-		if !l.blink {
-			drawCharacter(screen, w.player, l)
-		}
+	if !l.hideAll && !l.blink {
+		drawCharacter(screen, w.player, l)
 	}
 	screen.End3D()
 }
@@ -121,43 +113,37 @@ func drawCoin(screen *golib.Screen, at golib.Vector3, t float32) {
 	screen.DrawModel(coinModel, place, golib.White)
 }
 
-// drawShadow draws a dark disc on the block under the character, smaller
-// the higher it is, since GoLib has no shadows yet: it shows where a jump
-// will land.
-func drawShadow(screen *golib.Screen, w *world) {
-	at := w.player.position
-	ground, ok := w.level.groundBelow(at)
-	if !ok {
+// drawCharacter draws the kit's character, turned where it faces, posed by
+// its animations.
+func drawCharacter(screen *golib.Screen, p player, l look) {
+	body := golib.Transform{Position: p.position, Rotation: golib.Rotation{Yaw: p.yaw}}
+	if l.animator == nil {
+		screen.DrawModel(characterModel, body, golib.White)
 		return
 	}
-	size := shadowSize * golib.Clamp(1-(at.Y-ground)/6, 0.35, 1)
-	screen.DrawMesh(cylinderMesh, golib.Transform{
-		Position: golib.Vector3{X: at.X, Y: ground + 0.012, Z: at.Z},
-		Scale:    golib.Vector3{X: size, Y: 0.01, Z: size},
-	}, shadowColor)
+	screen.DrawAnimated(l.animator, body, golib.White)
 }
 
-// drawCharacter draws the kit's character, turned where it faces. GoLib
-// doesn't play the kit's animations yet, so it stretches as it jumps,
-// squashes as it lands and rocks from side to side as it runs.
-func drawCharacter(screen *golib.Screen, p player, l look) {
-	stretch := float32(0)
-	if !p.onGround {
-		stretch = golib.Clamp(p.velocity.Y/60, -0.08, 0.14)
+// animate plays the kit's animation for what the character is doing: idle,
+// walking or sprinting at a pace that follows its speed, jumping and
+// falling, and nodding at the flag.
+func animate(animator *golib.Animator, p player, won bool, dt float32) {
+	speed := golib.Vector3{X: p.velocity.X, Z: p.velocity.Z}.Length()
+	switch {
+	case won:
+		animator.Play("emote-yes")
+	case !p.onGround && p.velocity.Y > 0:
+		animator.PlayWith("jump", golib.AnimationOptions{Once: true})
+	case !p.onGround:
+		animator.Play("fall")
+	case speed > sprintFrom:
+		animator.PlayWith("sprint", golib.AnimationOptions{Speed: speed / sprintPace})
+	case speed > 0.3:
+		animator.PlayWith("walk", golib.AnimationOptions{Speed: speed / walkPace})
+	default:
+		animator.Play("idle")
 	}
-	stretch -= 0.22 * l.squash
-	height := 1 + stretch
-	width := 1 / float32(math.Sqrt(float64(height)))
-	roll := float32(0)
-	if p.onGround {
-		speed := golib.Vector3{X: p.velocity.X, Z: p.velocity.Z}.Length()
-		roll = strideRoll * speed / runSpeed * float32(math.Sin(float64(l.stride)*strideRate*math.Pi))
-	}
-	screen.DrawModel(characterModel, golib.Transform{
-		Position: p.position,
-		Rotation: golib.Rotation{Yaw: p.yaw, Roll: roll},
-		Scale:    golib.Vector3{X: width, Y: height, Z: width},
-	}, golib.White)
+	animator.Update(dt)
 }
 
 // drawText draws text with a dark shadow under it, so it reads over the sky

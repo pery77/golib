@@ -148,7 +148,7 @@ func appInfo(info gameInfo, game, exe string, withIcon bool) []byte {
 
 // makeApp turns the executable folder/exe into the app players open,
 // folder/<title>.app, with game.json's details and icon.png as its icon, and
-// signs it. It returns the app's name, or "" after reporting a failure.
+// GoLib's native library when the game uses rigid bodies, and signs it. It returns the app's name, or "" after reporting a failure.
 func (c *cli) makeApp(game, folder, exe string, info gameInfo) string {
 	name := appName(info.Title, game)
 	shown := "build/" + game + "/dist/" + game + "/" + name
@@ -177,6 +177,17 @@ func (c *cli) makeApp(game, folder, exe string, info gameInfo) string {
 	}
 	if err := os.WriteFile(filepath.Join(contents, "Info.plist"), appInfo(info, game, exe, withIcon), 0o644); err != nil {
 		return fail(err)
+	}
+	// A game with rigid bodies loads golibnative from the app's Frameworks
+	// folder. codesign signs the app only when what is inside it is signed,
+	// so the library is signed first.
+	frameworks := filepath.Join(contents, "Frameworks")
+	if copied, err := c.copyNative(game, filepath.Join(contents, "MacOS", exe), frameworks); err != nil {
+		return fail(err)
+	} else if copied {
+		if err := c.signApp(filepath.Join(frameworks, c.nativeName())); err != nil {
+			c.check("warn", fmt.Sprintf("could not sign %s, so macOS may call the app damaged once players download it: %v", c.nativeName(), err))
+		}
 	}
 	// A downloaded app whose files don't match its signature is one macOS
 	// calls damaged, with no way to open it. The linker signs the executable

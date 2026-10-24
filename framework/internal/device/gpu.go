@@ -25,10 +25,15 @@ const (
 	// LayoutColored is a position (location 0) and an RGBA color from 0 to
 	// 1 (location 3): 7 floats a vertex.
 	LayoutColored
+
+	// LayoutSkinned is LayoutLit followed by four joints (location 9), as
+	// whole numbers, and their four weights (location 10): 20 floats a
+	// vertex, drawn instanced as LayoutLit is.
+	LayoutSkinned
 )
 
 // LayoutFloats is how many floats a vertex of each layout takes.
-var LayoutFloats = [...]int{LayoutLit: 12, LayoutColored: 7}
+var LayoutFloats = [...]int{LayoutLit: 12, LayoutColored: 7, LayoutSkinned: 20}
 
 // InstanceFloats is how many floats an instance takes in DrawMeshInstanced:
 // its model matrix, column-major, then its tint, RGBA.
@@ -75,6 +80,32 @@ type WorkTarget struct {
 	ID            uint32
 	texture       uint32 // the raylib backend's color texture
 	Width, Height int
+}
+
+// DataTexture is numbers for shaders rather than a picture: RGBA texels of
+// 32-bit floats, DataTextureWidth to a row, never smoothed, which a shader
+// reads with texelFetch, such as the bones of every animated model in a pass.
+// Portable fields: ID, 0 for none.
+type DataTexture struct {
+	ID      uint32
+	texture uint32 // the raylib backend's texture
+	rows    int    // the raylib backend's rows, as made
+}
+
+// DataTextureWidth is how many texels a row of a DataTexture holds: texel k
+// is at k % DataTextureWidth across and k / DataTextureWidth down.
+const DataTextureWidth = 1024
+
+// dataRows pads values, four for each texel, to whole rows of a
+// DataTexture, and says how many rows they fill, at least one.
+func dataRows(values []float32) ([]float32, int) {
+	row := DataTextureWidth * 4
+	rows := max(1, (len(values)+row-1)/row)
+	if len(values) < rows*row {
+		// A copy: the caller's values may share their array with more.
+		values = append(values[:len(values):len(values)], make([]float32, rows*row-len(values))...)
+	}
+	return values, rows
 }
 
 // TextureOptions say how a Texture3D is stored and sampled. The zero value

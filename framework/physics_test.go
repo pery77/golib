@@ -1,0 +1,501 @@
+package golib
+
+import (
+	"math"
+	"runtime"
+	"testing"
+
+	"golib/internal/gltf"
+)
+
+// floorWorld is a world with a floor 20 meters a side, its top at 0.
+func floorWorld() (*PhysicsWorld, int) {
+	w := NewPhysicsWorld()
+	floor := w.AddMesh(NewBoxMesh(), Transform{Position: Vector3{Y: -0.5}, Scale: Vector3{X: 20, Y: 1, Z: 20}})
+	return w, floor
+}
+
+func TestRaycastAndSphereCast(t *testing.T) {
+	w, floor := floorWorld()
+	hit, ok := w.Raycast(Vector3{X: 1, Y: 5, Z: 2}, Vector3{Y: -2}, 10)
+	if !ok || !near3(hit.Position, Vector3{X: 1, Z: 2}) || !near3(hit.Normal, Vector3{Y: 1}) || !within(hit.Distance, 5, 1e-4) || hit.Body != floor {
+		t.Errorf("a ray down onto the floor: %+v, %v", hit, ok)
+	}
+	if _, ok := w.Raycast(Vector3{Y: 5}, Vector3{Y: -1}, 4); ok {
+		t.Error("a ray 4 meters long reached a floor 5 meters away")
+	}
+	if _, ok := w.Raycast(Vector3{Y: 5}, Vector3{Y: 1}, 100); ok {
+		t.Error("a ray up hit the floor below it")
+	}
+	if hit, ok := w.Raycast(Vector3{Y: -5}, Vector3{Y: 1}, 10); !ok || !near3(hit.Position, Vector3{Y: -1}) {
+		t.Errorf("a ray up from under the floor hits its bottom at %+v, %v, want at -1", hit, ok)
+	}
+
+	wall := w.AddMesh(NewBoxMesh(), Transform{Position: Vector3{Z: 5, Y: 1}, Scale: Vector3{X: 4, Y: 2, Z: 1}})
+	hit, ok = w.SphereCast(Vector3{Y: 1}, Vector3{Z: 1}, 0.5, 20)
+	if !ok || hit.Body != wall || !within(hit.Position.Z, 4, 1e-3) || !near3(hit.Normal, Vector3{Z: -1}) {
+		t.Errorf("a ball of radius 0.5 rolled at the wall's face at z = 4.5 stops at %+v, %v, want its center at z = 4", hit, ok)
+	}
+	// Past the wall's corner, a ball grazes its edge.
+	hit, ok = w.SphereCast(Vector3{X: 2.3, Y: 1}, Vector3{Z: 1}, 0.5, 20)
+	if !ok || hit.Body != wall || hit.Position.Z < 4 || hit.Position.Z > 4.6 {
+		t.Errorf("a ball passing 0.3 m beside the wall's side touches its edge at %+v, %v", hit, ok)
+	}
+	if _, ok := w.SphereCast(Vector3{X: 2.6, Y: 1}, Vector3{Z: 1}, 0.5, 20); ok {
+		t.Error("a ball passing 0.6 m beside the wall touched it")
+	}
+	if hit, ok := w.SphereCast(Vector3{Y: 0.2}, Vector3{X: 1}, 0.5, 3); !ok || hit.Distance != 0 {
+		t.Errorf("a ball already in the floor hits it at %+v, want at once", hit)
+	}
+
+	// A body removed or moved is where the world says.
+	w.Remove(wall)
+	if _, ok := w.SphereCast(Vector3{Y: 1}, Vector3{Z: 1}, 0.5, 20); ok {
+		t.Error("the removed wall is still hit")
+	}
+	lift := w.AddMesh(NewBoxMesh(), Transform{Position: Vector3{X: 5, Y: 0.5}})
+	w.SetTransform(lift, Transform{Position: Vector3{X: 5, Y: 3}})
+	if hit, ok := w.Raycast(Vector3{X: 5, Y: 10}, Vector3{Y: -1}, 20); !ok || hit.Body != lift || !within(hit.Position.Y, 3.5, 1e-4) {
+		t.Errorf("the lift, moved up 2.5 m, is hit at %+v", hit)
+	}
+}
+
+func TestCharacterStandsWalksAndSteps(t *testing.T) {
+	w, _ := floorWorld()
+	c := &CharacterController{Position: Vector3{Y: 2}}
+	var velocity Vector3
+	for range 120 {
+		velocity.Y -= 20.0 / 60
+		c.Move(w, velocity.Scale(1.0/60))
+		if c.OnGround {
+			velocity.Y = 0
+		}
+	}
+	if !c.OnGround || !within(c.Position.Y, 0, 0.01) || !near3(c.GroundNormal, Vector3{Y: 1}) {
+		t.Fatalf("after falling, the character stands at %v, on ground %v, want on the floor", c.Position, c.OnGround)
+	}
+
+	// A wall stops it, and it slides along the wall.
+	w.AddMesh(NewBoxMesh(), Transform{Position: Vector3{Z: 3, Y: 1}, Scale: Vector3{X: 10, Y: 2, Z: 1}})
+	for range 120 {
+		c.Move(w, Vector3{X: 1, Z: 3}.Scale(1.0/60))
+	}
+	if !within(c.Position.Z, 2.5-0.3, 0.02) || c.Position.X < 1.5 || !c.OnWall || !c.OnGround {
+		t.Errorf("walking into the wall at z = 2.5, the character is at %v (wall %v, ground %v), want stopped 0.3 m from it, slid along", c.Position, c.OnWall, c.OnGround)
+	}
+
+	// A low step it walks up; a high one stops it.
+	c.Position = Vector3{X: -5, Z: -5}
+	w.AddMesh(NewBoxMesh(), Transform{Position: Vector3{X: -5, Y: 0.1, Z: -3}, Scale: Vector3{X: 2, Y: 0.2, Z: 2}})
+	w.AddMesh(NewBoxMesh(), Transform{Position: Vector3{X: 5, Y: 0.4, Z: -3}, Scale: Vector3{X: 2, Y: 0.8, Z: 2}})
+	for range 90 {
+		c.Move(w, Vector3{Z: 2.0 / 60, Y: -0.05})
+	}
+	if !within(c.Position.Y, 0.2, 0.02) || !c.OnGround {
+		t.Errorf("walking onto a 0.2 m step, the character is at %v, on ground %v, want up on it", c.Position, c.OnGround)
+	}
+	c.Position = Vector3{X: 5, Z: -5}
+	for range 90 {
+		c.Move(w, Vector3{Z: 2.0 / 60, Y: -0.05})
+	}
+	if c.Position.Y > 0.01 || c.Position.Z > -4.3+0.01 {
+		t.Errorf("walking into a 0.8 m block, the character is at %v, want stopped before it, on the floor", c.Position)
+	}
+}
+
+func TestCharacterOnSlopesAndUnderCeilings(t *testing.T) {
+	// A ramp of 30 degrees it walks up, and one of 60 it can't.
+	for _, c := range []struct {
+		degrees float32
+		climbs  bool
+	}{{30, true}, {60, false}} {
+		w, _ := floorWorld()
+		w.AddMesh(NewBoxMesh(), Transform{Position: Vector3{Z: 3}, Rotation: Rotation{Pitch: c.degrees}, Scale: Vector3{X: 4, Y: 0.1, Z: 6}})
+		body := &CharacterController{Position: Vector3{Z: -1}, OnGround: true}
+		for range 180 {
+			body.Move(w, Vector3{Z: 2.0 / 60, Y: -0.1})
+		}
+		if climbed := body.Position.Y > 1; climbed != c.climbs {
+			t.Errorf("a %v° ramp: the character reached %v, climbing it is %v, want %v", c.degrees, body.Position, climbed, c.climbs)
+		}
+		if c.climbs {
+			slope := float32(math.Cos(float64(c.degrees) * math.Pi / 180))
+			if !body.OnGround || !within(body.GroundNormal.Y, slope, 0.01) {
+				t.Errorf("on the %v° ramp: ground %v, normal %v", c.degrees, body.OnGround, body.GroundNormal)
+			}
+			// Down again, it keeps to the ramp rather than leaving it.
+			for range 30 {
+				body.Move(w, Vector3{Z: -3.0 / 60})
+				if !body.OnGround {
+					t.Fatalf("walking down the %v° ramp the character left the ground at %v", c.degrees, body.Position)
+				}
+			}
+		}
+	}
+
+	w, _ := floorWorld()
+	w.AddMesh(NewBoxMesh(), Transform{Position: Vector3{Y: 2.5}, Scale: Vector3{X: 4, Y: 1, Z: 4}})
+	body := &CharacterController{Height: 1.8}
+	body.Move(w, Vector3{Y: 0.5})
+	if !body.OnCeiling || !within(body.Position.Y, 0.2, 0.01) {
+		t.Errorf("jumping under a ceiling at 2 m, the character is at %v, ceiling %v, want its head stopped against it", body.Position, body.OnCeiling)
+	}
+}
+
+func TestPhysicsFromAModel(t *testing.T) {
+	// A floor, and a pond marked collide = false in Blender.
+	b := gltf.NewBuilder()
+	square := b.Add("meshes", map[string]any{"primitives": []any{map[string]any{
+		"attributes": map[string]any{
+			"POSITION": b.Floats([]float32{-1, 0, 1, 1, 0, 1, 1, 0, -1, -1, 0, -1}, 3),
+			"NORMAL":   b.Floats([]float32{0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0}, 3),
+		},
+		"indices": b.Indices([]uint16{0, 1, 2, 0, 2, 3}),
+	}}})
+	floor := b.Add("nodes", map[string]any{"name": "Floor", "mesh": square})
+	pond := b.Add("nodes", map[string]any{"name": "Pond", "mesh": square, "translation": []float32{0, 1, 0},
+		"extras": map[string]any{"collide": false}})
+	b.Root(b.Add("nodes", map[string]any{"name": "Level", "children": []any{floor, pond}}))
+	useAssets(t, map[string][]byte{"models/level.glb": b.GLB()})
+
+	w := NewPhysicsWorld()
+	level := w.AddModel(NewModel("models/level.glb"), Transform{Position: Vector3{Y: 2}})
+	hit, ok := w.Raycast(Vector3{Y: 10}, Vector3{Y: -1}, 20)
+	if !ok || hit.Body != level || !within(hit.Position.Y, 2, 1e-4) {
+		t.Errorf("a ray down onto the level hits %+v, %v, want its floor at 2, through the pond", hit, ok)
+	}
+}
+
+func TestCameraAvoidsWalls(t *testing.T) {
+	w, _ := floorWorld()
+	w.AddMesh(NewBoxMesh(), Transform{Position: Vector3{Y: 1, Z: -3}, Scale: Vector3{X: 10, Y: 4, Z: 0.5}})
+	camera := NewCamera3D(800, 600)
+	camera.Orbit(Vector3{Y: 1}, 0, -10, 6) // behind the target, past the wall at z = -3, 3 m high
+	camera.AvoidWalls(w)
+	if _, hidden := w.Raycast(camera.Target, camera.Position.Sub(camera.Target), camera.Position.Distance(camera.Target)); hidden || camera.Position.Distance(camera.Target) < 2.9 {
+		t.Errorf("the camera behind a 3 m wall is at %v, want risen over it, at least half its 6 m away, with nothing between it and its target", camera.Position)
+	}
+	// Under a ceiling it can't rise: it comes in front of the wall.
+	w.AddMesh(NewBoxMesh(), Transform{Position: Vector3{Y: 3.5}, Scale: Vector3{X: 20, Y: 1, Z: 20}})
+	camera.Orbit(Vector3{Y: 1}, 0, -10, 6)
+	camera.AvoidWalls(w)
+	if camera.Position.Z < -2.75 || camera.Position.Z > -2 {
+		t.Errorf("the camera behind a wall under a ceiling is at %v, want in front of the wall's face at z = -2.75", camera.Position)
+	}
+	camera.Orbit(Vector3{Y: 1}, 180, -10, 2)
+	before := camera.Position
+	camera.AvoidWalls(w)
+	if camera.Position != before {
+		t.Errorf("a camera with nothing in the way moved from %v to %v", before, camera.Position)
+	}
+}
+
+func TestSoundsAreHeardFromTheCamera(t *testing.T) {
+	camera := NewCamera3D(800, 600)
+	camera.Orbit(Vector3{}, 0, 0, 5) // looking towards +Z: the screen's right is -X
+	for _, c := range []struct {
+		at          Vector3
+		volume, pan float32
+	}{
+		{Vector3{Z: 1}, 1, 0},
+		{Vector3{X: -10}, 0.2, 0.8},
+		{Vector3{X: 10}, 0.2, -0.8},
+		{Vector3{Z: 60}, 0, 0},
+	} {
+		volume, pan := heardFrom(c.at, camera)
+		if !within(volume, c.volume, 0.01) || !within(pan, c.pan, 0.01) {
+			t.Errorf("a sound at %v is heard at volume %v from %v, want %v from %v", c.at, volume, pan, c.volume, c.pan)
+		}
+	}
+}
+
+func TestNavMeshFindsTheWayRound(t *testing.T) {
+	// A floor with a wall across it, a gap at its east end, and a pit to the
+	// west; a raised platform reached by a ramp.
+	w, _ := floorWorld()
+	w.AddMesh(NewBoxMesh(), Transform{Position: Vector3{X: -2, Y: 1}, Scale: Vector3{X: 14, Y: 2, Z: 0.5}}) // from x = -9 to 5
+	nav := NewNavMesh(w, CharacterController{Height: 1.8, Radius: 0.4})
+	from, to := Vector3{Z: -4}, Vector3{Z: 4}
+	path, ok := nav.Path(from, to)
+	if !ok {
+		t.Fatal("found no way round the wall")
+	}
+	if path[0] != from || path[len(path)-1] != to {
+		t.Errorf("the path runs from %v to %v, want from %v to %v", path[0], path[len(path)-1], from, to)
+	}
+	east := false
+	for _, p := range path {
+		east = east || p.X > 5
+	}
+	if !east || len(path) > 6 {
+		t.Errorf("the path %v should go round the wall's east end, past x = 5, in a few straight lines", path)
+	}
+	// Each leg is walkable: nothing solid in the way.
+	for i := 1; i < len(path); i++ {
+		a, b := path[i-1].Add(Vector3{Y: 1}), path[i].Add(Vector3{Y: 1})
+		if _, hit := w.Raycast(a, b.Sub(a), b.Sub(a).Length()); hit {
+			t.Errorf("the leg from %v to %v goes through the wall", path[i-1], path[i])
+		}
+	}
+
+	// Closed off, there is no way.
+	w.AddMesh(NewBoxMesh(), Transform{Position: Vector3{X: 7.5, Y: 1}, Scale: Vector3{X: 6, Y: 2, Z: 0.5}})
+	w.AddMesh(NewBoxMesh(), Transform{Position: Vector3{X: -9.5, Y: 1}, Scale: Vector3{X: 2, Y: 2, Z: 0.5}})
+	if path, ok := NewNavMesh(w, CharacterController{Radius: 0.4}).Path(from, to); ok {
+		t.Errorf("found a way %v through a wall from side to side", path)
+	}
+}
+
+func TestCharacterStepsNoHigherThanStepHeight(t *testing.T) {
+	for _, c := range []struct {
+		ledge  float32
+		climbs bool
+	}{{0.25, true}, {0.35, false}, {0.5, false}} {
+		w, _ := floorWorld()
+		w.AddMesh(NewBoxMesh(), Transform{Position: Vector3{Y: c.ledge / 2, Z: 6}, Scale: Vector3{X: 4, Y: c.ledge, Z: 10}})
+		body := &CharacterController{Radius: 0.4, StepHeight: 0.3, OnGround: true}
+		for range 120 {
+			body.Move(w, Vector3{Z: 2.0 / 60, Y: -0.05})
+		}
+		if climbed := body.Position.Y > c.ledge-0.01; climbed != c.climbs {
+			t.Errorf("a %v m ledge, step height 0.3, radius 0.4: the character ended at %v, climbing it is %v, want %v", c.ledge, body.Position, climbed, c.climbs)
+		}
+	}
+}
+
+func TestCharacterRidesALift(t *testing.T) {
+	w, _ := floorWorld()
+	lift := w.AddMesh(NewBoxMesh(), Transform{Position: Vector3{X: 3, Y: 0.25}, Scale: Vector3{X: 2, Y: 0.5, Z: 2}})
+	body := &CharacterController{Position: Vector3{X: 3, Y: 0.5}}
+	body.Move(w, Vector3{Y: -0.05})
+	if !body.OnGround || body.GroundBody != lift {
+		t.Fatalf("on the lift, ground %v on body %d, want body %d", body.OnGround, body.GroundBody, lift)
+	}
+	for frame := 1; frame <= 60; frame++ {
+		w.SetTransform(lift, Transform{Position: Vector3{X: 3, Y: 0.25 + float32(frame)*0.05}, Scale: Vector3{X: 2, Y: 0.5, Z: 2}})
+		body.Move(w, Vector3{Y: -0.05})
+	}
+	if !body.OnGround || !within(body.Position.Y, 3.5, 0.02) {
+		t.Errorf("after the lift rose 3 m the character is at %v, on ground %v, want carried up on it, at 3.5", body.Position, body.OnGround)
+	}
+	if !within(body.Moved.Y, 0.05, 0.01) {
+		t.Errorf("Moved = %v, want the lift's 5 cm a frame", body.Moved)
+	}
+}
+
+func TestNavMeshPathToAPointInTheAir(t *testing.T) {
+	w, _ := floorWorld()
+	nav := NewNavMesh(w, CharacterController{Radius: 0.4})
+	path, ok := nav.Path(Vector3{X: -3}, Vector3{X: 3, Y: 4})
+	if !ok || !within(path[len(path)-1].Y, 0, 0.01) || !within(path[len(path)-1].X, 3, 0.3) {
+		t.Errorf("a path to a point 4 m up ends at %v, %v, want on the floor under it", path, ok)
+	}
+}
+
+// needJolt skips a test when this machine has no native library yet.
+func needJolt(t *testing.T, w *PhysicsWorld) {
+	t.Helper()
+	if !w.startJolt() {
+		takeError()
+		t.Skip("no golibnative here: run golib setup")
+	}
+}
+
+func TestRigidBodiesFallStackAndArePushed(t *testing.T) {
+	w, _ := floorWorld()
+	needJolt(t, w)
+	box := BoxShape(Vector3{X: 1, Y: 1, Z: 1})
+	bottom := w.AddRigidBody(box, Transform{Position: Vector3{Y: 2}}, RigidBodyOptions{})
+	top := w.AddRigidBody(box, Transform{Position: Vector3{Y: 4}, Rotation: Rotation{Yaw: 20}}, RigidBodyOptions{})
+	ball := w.AddRigidBody(SphereShape(0.25), Transform{Position: Vector3{X: 3, Y: 3}}, RigidBodyOptions{Bounce: 0.8})
+	highest := float32(0)
+	for frame := range 240 {
+		w.Update(1.0 / 60)
+		if frame > 60 {
+			highest = max(highest, ball.Position().Y)
+		}
+	}
+	if !within(bottom.Position().Y, 0.5, 0.03) || !within(top.Position().Y, 1.5, 0.05) {
+		t.Errorf("two crates dropped on each other rest at %v and %v, want stacked at 0.5 and 1.5", bottom.Position(), top.Position())
+	}
+	if !bottom.Resting() {
+		t.Error("the bottom crate is still moving after four seconds")
+	}
+	if highest < 0.6 {
+		t.Errorf("a bouncy ball dropped from 3 m bounced up to %v, want back above 0.6", highest)
+	}
+	if bottom.Mass() != 250 {
+		t.Errorf("a meter-wide crate weighs %v, want 250 kg of light wood", bottom.Mass())
+	}
+
+	// A ray hits the top crate; the triangles follow the body.
+	hit, ok := w.Raycast(Vector3{Y: 10}, Vector3{Y: -1}, 20)
+	if !ok || hit.Body != top.ID() || !within(hit.Position.Y, 2, 0.05) {
+		t.Errorf("a ray down onto the stack hits %+v, %v, want the top crate's top at 2", hit, ok)
+	}
+
+	// A character walking into the ball pushes it ahead.
+	ball.Teleport(Transform{Position: Vector3{X: 3, Y: 0.25, Z: 1}})
+	ball.SetVelocity(Vector3{})
+	walker := &CharacterController{Position: Vector3{X: 3, Z: -1}, OnGround: true}
+	for range 60 {
+		walker.Move(w, Vector3{Z: 3.0 / 60, Y: -0.05})
+		w.Update(1.0 / 60)
+	}
+	if ball.Position().Z < 2 {
+		t.Errorf("the character walked into the ball at z = 1, and it is now at %v, want pushed ahead", ball.Position())
+	}
+
+	// A character stands on a crate.
+	stander := &CharacterController{Position: Vector3{Y: 2.2}}
+	for range 30 {
+		stander.Move(w, Vector3{Y: -0.1})
+	}
+	if !stander.OnGround || stander.GroundBody != top.ID() {
+		t.Errorf("dropped on the stack the character stands on body %d (ground %v), want the top crate, %d", stander.GroundBody, stander.OnGround, top.ID())
+	}
+	top.Remove()
+	if _, ok := w.Raycast(Vector3{Y: 10}, Vector3{Y: -1}, 8.6); ok {
+		t.Error("the removed crate is still hit")
+	}
+}
+
+// A crate dropped on a character lands on its head, or falls off beside it,
+// instead of passing into it and squashing it into the ground; a rolling
+// ball bounces off its legs; a heavy stack doesn't move when walked into.
+func TestRigidBodiesMeetCharacters(t *testing.T) {
+	w, _ := floorWorld()
+	needJolt(t, w)
+	box := BoxShape(Vector3{X: 1, Y: 1, Z: 1})
+	crate := w.AddRigidBody(box, Transform{Position: Vector3{Y: 4}}, RigidBodyOptions{})
+	ball := w.AddRigidBody(SphereShape(0.25), Transform{Position: Vector3{X: 4, Y: 0.25}}, RigidBodyOptions{})
+	ball.SetVelocity(Vector3{X: -4})
+	standing := &CharacterController{}
+	lowest := float32(0)
+	for range 180 {
+		w.Update(1.0 / 60)
+		standing.Move(w, Vector3{Y: -0.05})
+		lowest = min(lowest, standing.Position.Y)
+	}
+	if lowest < -0.02 {
+		t.Errorf("a crate fell on a character, which sank to %v, want it standing at 0", lowest)
+	}
+	if p := crate.Position(); p.Y < 0.45 || (p.Y < 1.8 && Vector3{X: p.X, Z: p.Z}.Length() < 0.75) {
+		t.Errorf("a crate dropped on a character is at %v, inside it", p)
+	}
+	if p := ball.Position(); p.X < 0.2 {
+		t.Errorf("a ball rolled at a character is at %v, through it", p)
+	}
+
+	// Two stacked crates and more stay where they are when walked into;
+	// one slides.
+	w, _ = floorWorld()
+	needJolt(t, w)
+	for i := range 3 {
+		w.AddRigidBody(box, Transform{Position: Vector3{X: -3, Y: 0.5 + float32(i), Z: 2}}, RigidBodyOptions{})
+	}
+	single := w.AddRigidBody(box, Transform{Position: Vector3{X: 3, Y: 0.5, Z: 2}}, RigidBodyOptions{})
+	for range 60 {
+		w.Update(1.0 / 60)
+	}
+	stack := w.rigid[0]
+	walkers := []*CharacterController{{Position: Vector3{X: -3, Z: 1}}, {Position: Vector3{X: 3, Z: 1}}}
+	for range 120 {
+		w.Update(1.0 / 60)
+		for _, c := range walkers {
+			c.Move(w, Vector3{Z: 4.0 / 60, Y: -0.05})
+		}
+	}
+	if z := stack.Position().Z; z > 2.1 {
+		t.Errorf("a stack of three crates walked into moved to z = %v, want it to stay at 2", z)
+	}
+	if z := single.Position().Z; z < 3 {
+		t.Errorf("a crate walked into for two seconds is at z = %v, want pushed ahead", z)
+	}
+}
+
+// Bodies at rest keep their triangles: questions after Update don't place
+// them again, so a world of crates that have landed costs nothing.
+func TestRigidBodiesAtRestAreNotPlacedAgain(t *testing.T) {
+	w, _ := floorWorld()
+	needJolt(t, w)
+	crate := w.AddRigidBody(BoxShape(Vector3{X: 1, Y: 1, Z: 1}), Transform{Position: Vector3{Y: 0.5}}, RigidBodyOptions{})
+	for range 120 {
+		w.Update(1.0 / 60)
+	}
+	if !crate.Resting() {
+		t.Fatal("a crate on the floor is still moving after two seconds")
+	}
+	if _, ok := w.Raycast(Vector3{Y: 5}, Vector3{Y: -1}, 10); !ok {
+		t.Fatal("a ray down misses the crate")
+	}
+	w.Update(1.0 / 60)
+	if b := w.bodies[crate.ID()]; !b.placedOK || !b.boxOK {
+		t.Error("Update placed a crate at rest again")
+	}
+	crate.Push(Vector3{X: 500})
+	w.Update(1.0 / 60)
+	if hit, ok := w.Raycast(Vector3{Y: 5}, Vector3{Y: -1}, 10); !ok || hit.Body != crate.ID() || hit.Position.X == 0 && crate.Position().X > 0.05 {
+		t.Errorf("after a push the ray hits %+v, %v; the crate is at %v", hit, ok, crate.Position())
+	}
+}
+
+// A world the game keeps no longer, as when a level ends, has its Jolt
+// world freed at the next Update of another.
+func TestPhysicsWorldsNobodyKeepsAreFreed(t *testing.T) {
+	keep, _ := floorWorld()
+	needJolt(t, keep)
+	count := func() int {
+		joltWorlds.Lock()
+		defer joltWorlds.Unlock()
+		return len(joltWorlds.live)
+	}
+	before := count()
+	var levels []*PhysicsWorld
+	for range 10 {
+		w, _ := floorWorld()
+		w.AddRigidBody(SphereShape(0.5), Transform{Position: Vector3{Y: 1}}, RigidBodyOptions{})
+		levels = append(levels, w)
+	}
+	if count() < 10 {
+		t.Fatalf("10 worlds made and kept: %d live", count())
+	}
+	runtime.KeepAlive(levels)
+	levels = nil
+	for range 5 {
+		runtime.GC()
+	}
+	keep.Update(1.0 / 60)
+	if count() > before {
+		t.Errorf("after the 10 worlds were dropped, %d are live, want %d at most", count(), before)
+	}
+	joltWorlds.Lock()
+	_, kept := joltWorlds.live[keep.jolt.ID]
+	joltWorlds.Unlock()
+	if !kept {
+		t.Error("the world kept was freed")
+	}
+	keep.Update(1.0 / 60) // the kept one still works
+}
+
+// A barrel stands on its flat end, and on its side rolls down a slope.
+func TestCylinderShapeStandsAndRolls(t *testing.T) {
+	w, _ := floorWorld()
+	needJolt(t, w)
+	barrel := CylinderShape(1, 0.4)
+	standing := w.AddRigidBody(barrel, Transform{Position: Vector3{X: -3, Y: 0.6}}, RigidBodyOptions{})
+	lying := w.AddRigidBody(barrel, Transform{Position: Vector3{X: 3, Y: 0.5}, Rotation: Rotation{Roll: 90}}, RigidBodyOptions{})
+	lying.SetVelocity(Vector3{Z: 2})
+	for range 120 {
+		w.Update(1.0 / 60)
+	}
+	if p := standing.Position(); !within(p.Y, 0.5, 0.02) || !standing.Resting() {
+		t.Errorf("a barrel on its end is at %v (resting %v), want standing at 0.5", p, standing.Resting())
+	}
+	if p := lying.Position(); !within(p.Y, 0.4, 0.02) || p.Z < 1.5 {
+		t.Errorf("a barrel on its side, set rolling, is at %v, want rolled along Z at height 0.4", p)
+	}
+	if !within(standing.Mass(), 250*math.Pi*0.16, 0.5) {
+		t.Errorf("a barrel weighs %v kg", standing.Mass())
+	}
+}

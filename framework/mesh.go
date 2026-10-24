@@ -32,6 +32,17 @@ type Mesh struct {
 	gpu     device.Mesh // on the graphics card, once drawn
 	edges   []uint32    // the wireframe's lines, two indices each, made when first drawn
 	wireGPU device.Mesh
+
+	// A model's mesh may be bent by bones and shape keys. skin holds four
+	// joints and their four weights for each vertex, or nil; morphs, for
+	// each of morphCount shape keys, how much each vertex moves and its
+	// normal turns at weight 1, as two texels of four numbers.
+	skin       []float32
+	morphs     []float32
+	morphCount int
+	morphReach []float32 // for each shape key, the farthest it moves a vertex
+	shapeKeys  []string  // their names, as Blender gave them
+	morphGPU   device.DataTexture
 }
 
 // sphereSlices and sphereRings are how finely spheres and cylinders are cut:
@@ -333,13 +344,34 @@ func (m *Mesh) addQuad(a, b, c, d uint32) {
 	m.indices = append(m.indices, a, b, c, a, c, d)
 }
 
-// upload puts the mesh on the graphics card, the first time it is drawn.
+// upload puts the mesh on the graphics card, the first time it is drawn: a
+// skinned one with its joints and weights after each vertex.
 func (m *Mesh) upload() device.Mesh {
 	if m.gpu.ID == 0 {
-		m.gpu = device.NewMesh(device.LayoutLit, m.vertices, m.indices, false)
+		if m.skin == nil {
+			m.gpu = device.NewMesh(device.LayoutLit, m.vertices, m.indices, false)
+		} else {
+			stride := device.LayoutFloats[device.LayoutLit]
+			count := int(m.vertexCount())
+			vertices := make([]float32, 0, count*device.LayoutFloats[device.LayoutSkinned])
+			for i := 0; i < count; i++ {
+				vertices = append(vertices, m.vertices[i*stride:(i+1)*stride]...)
+				vertices = append(vertices, m.skin[i*8:i*8+8]...)
+			}
+			m.gpu = device.NewMesh(device.LayoutSkinned, vertices, m.indices, false)
+		}
 		loadedMeshes.add(m)
 	}
 	return m.gpu
+}
+
+// uploadMorphs puts the mesh's shape keys on the graphics card, the first
+// time it is drawn with them.
+func (m *Mesh) uploadMorphs() device.DataTexture {
+	if m.morphGPU.ID == 0 && len(m.morphs) > 0 {
+		m.morphGPU = device.NewDataTexture(m.morphs)
+	}
+	return m.morphGPU
 }
 
 // uploadWire puts the mesh's wireframe on the graphics card, the first time
@@ -419,7 +451,8 @@ func (m *Mesh) outlineEdges() []uint32 {
 func (m *Mesh) unload() {
 	device.UnloadMesh(m.gpu)
 	device.UnloadMesh(m.wireGPU)
-	m.gpu, m.wireGPU = device.Mesh{}, device.Mesh{}
+	device.UnloadDataTexture(m.morphGPU)
+	m.gpu, m.wireGPU, m.morphGPU = device.Mesh{}, device.Mesh{}, device.DataTexture{}
 }
 
 // loadedMeshes are the meshes on the graphics card, for Run to free when it

@@ -1,0 +1,25 @@
+{
+  "name": "The fort",
+  "par": 12,
+  "start": {"x": 0, "z": 6.5},
+  "focus": {"x": 0, "z": -3},
+  "platforms": [
+    {"x": 0, "z": -4.5, "width": 4.5, "height": 1.2, "depth": 2.5,
+     "stacks": [
+       {"x": -1.2, "z": 0, "along": "z", "layers": ["CCC", "CC", "B"]},
+       {"x": 1.2, "z": 0, "along": "z", "layers": ["CCC", "BB", "C"]}
+     ]},
+    {"x": -6, "z": -1, "width": 2, "height": 1.8, "depth": 2,
+     "stacks": [{"x": 0, "z": 0, "along": "z", "layers": ["BBB", "CC", "C"]}]},
+    {"x": 6, "z": -2, "width": 2, "height": 1, "depth": 2,
+     "stacks": [{"x": 0, "z": 0, "along": "x", "layers": ["CCC", "CCC", "CCC"]}]}
+  ],
+  "stones": [
+    {"x": 0, "z": -1.8, "width": 4, "height": 1.7, "depth": 1}
+  ],
+  "loose": [
+    {"x": 4, "z": 1.5, "kind": "C"},
+    {"x": 4, "z": 2.2, "kind": "C"},
+    {"x": 4.7, "z": 1.85, "kind": "C"}
+  ]
+}

@@ -67,7 +67,8 @@ Commands:
                           --web takes the same shots of the web build, in a browser with no
                           window, into build/<game>/shots-web/
   test [game]             Vet and test the framework, every game and GoLib's Go tools,
-                          or only games/<game>
+                          or only games/<game>. --run <pattern> runs only the tests whose
+                          names match, and shows what they log
   web [game] [--port n]   Build games/<game> for the browser into build/<game>/web/ and serve it
                           on this machine. --no-open keeps the browser closed; --lan also
                           serves it to this network, to play on a phone or a tablet
@@ -446,6 +447,20 @@ cmd_doctor() {
     fi
   done
 
+  # Rigid bodies: GoLib's native library and JoltPhysics.js, which setup downloads. Only games
+  # with rigid bodies need them, so a missing one is information, not a warning.
+  if [ "$goos" = darwin ]; then cd_native=golibnative.dylib; else cd_native=golibnative.so; fi
+  if [ -f "$tools_dir/native/$cd_native" ]; then
+    check ok "GoLib's native library, for rigid bodies, in .tools/native/"
+  else
+    check info "GoLib's native library, for rigid bodies, not in .tools/native/ (run: golib setup; only games with rigid bodies need it)"
+  fi
+  if [ -f "$tools_dir/jolt/jolt-physics.wasm.js" ] && [ -f "$tools_dir/jolt/jolt-physics.wasm.wasm" ]; then
+    check ok "JoltPhysics.js, for rigid bodies in web builds, in .tools/jolt/"
+  else
+    check info "JoltPhysics.js, for rigid bodies in web builds, not in .tools/jolt/ (run: golib setup; only games with rigid bodies need it)"
+  fi
+
   summary doctor
   if [ "$failures" -gt 0 ]; then exit 1; fi
   exit 0
@@ -456,13 +471,14 @@ cmd_go() {
   assert_toolchain go
   # go run and go test start programs that load raylib when they do, as games do. build, run,
   # shot and test put the libraries next to the executable; here they come from .tools/raylib/,
-  # so that "golib go test ./..." and generators written against raylib work.
+  # so that "golib go test ./..." and generators written against raylib work. GoLib's native
+  # library, for rigid bodies, comes from .tools/native/ after them.
   if [ -d "$raylib_dir" ]; then
     if [ "$goos" = darwin ]; then
-      DYLD_LIBRARY_PATH="$raylib_dir${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
+      DYLD_LIBRARY_PATH="$raylib_dir:$tools_dir/native${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
       export DYLD_LIBRARY_PATH
     else
-      LD_LIBRARY_PATH="$raylib_dir${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+      LD_LIBRARY_PATH="$raylib_dir:$tools_dir/native${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
       export LD_LIBRARY_PATH
     fi
   fi

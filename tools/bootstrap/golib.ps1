@@ -75,7 +75,8 @@ Commands:
                           --web takes the same shots of the web build, in a browser with no
                           window, into build/<game>/shots-web/
   test [game]             Vet and test the framework, every game and GoLib's Go tools,
-                          or only games/<game>
+                          or only games/<game>. --run <pattern> runs only the tests whose
+                          names match, and shows what they log
   web [game] [--port n]   Build games/<game> for the browser into build/<game>/web/ and serve it
                           on this machine. --no-open keeps the browser closed; --lan also
                           serves it to this network, to play on a phone or a tablet
@@ -419,6 +420,20 @@ function Invoke-Doctor([string[]]$Options) {
         }
     }
 
+    # Rigid bodies: GoLib's native library and JoltPhysics.js, which setup downloads. Only games
+    # with rigid bodies need them, so a missing one is information, not a warning.
+    if (Test-Path -LiteralPath (Join-Path $ToolsDir 'native\golibnative.dll') -PathType Leaf) {
+        Write-Check ok "GoLib's native library, for rigid bodies, in .tools/native/"
+    } else {
+        Write-Check info "GoLib's native library, for rigid bodies, not in .tools/native/ (run: golib setup; only games with rigid bodies need it)"
+    }
+    $joltDir = Join-Path $ToolsDir 'jolt'
+    if ((Test-Path -LiteralPath (Join-Path $joltDir 'jolt-physics.wasm.js') -PathType Leaf) -and (Test-Path -LiteralPath (Join-Path $joltDir 'jolt-physics.wasm.wasm') -PathType Leaf)) {
+        Write-Check ok 'JoltPhysics.js, for rigid bodies in web builds, in .tools/jolt/'
+    } else {
+        Write-Check info 'JoltPhysics.js, for rigid bodies in web builds, not in .tools/jolt/ (run: golib setup; only games with rigid bodies need it)'
+    }
+
     Write-Summary 'doctor'
     if ($script:Failures -gt 0) { exit 1 }
     exit 0
@@ -429,8 +444,9 @@ function Invoke-GoCommand([string[]]$Options) {
     Assert-Toolchain 'go'
     # go run and go test start programs that load raylib when they do, as games do. build, run,
     # shot and test put the libraries next to the executable; here they come from .tools/raylib/,
-    # so that "golib go test ./..." and generators written against raylib work.
-    if (Test-Path -LiteralPath $RaylibDir) { $env:PATH = $RaylibDir + ';' + $env:PATH }
+    # so that "golib go test ./..." and generators written against raylib work. GoLib's native
+    # library, for rigid bodies, comes from .tools/native/ after them.
+    if (Test-Path -LiteralPath $RaylibDir) { $env:PATH = $RaylibDir + ';' + (Join-Path $ToolsDir 'native') + ';' + $env:PATH }
     & $GoExe @Options
     exit $LASTEXITCODE
 }

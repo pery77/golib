@@ -36,6 +36,11 @@ type testProject struct {
 
 	signed    []string // the macOS apps signed, by path
 	signError error    // what signing an app returns
+
+	rigidBodies bool // the games built make worlds of rigid bodies
+
+	served    map[string]string // the files download finds, by URL
+	downloads []string          // the URLs downloaded
 }
 
 // newTestProject returns a project that builds for goos on amd64 processors,
@@ -89,6 +94,29 @@ func newTestProject(t *testing.T, goos string, games ...string) *testProject {
 		tp.signed = append(tp.signed, app)
 		return tp.signError
 	}
+	// Jolt's files are served from here, as fakes with their own checksums.
+	tp.served = map[string]string{}
+	p.natives = map[string]string{}
+	for _, platform := range []string{"windows/amd64", "linux/amd64", "darwin/amd64"} {
+		system, arch, _ := strings.Cut(platform, "/")
+		ext := map[string]string{"windows": ".dll", "linux": ".so", "darwin": ".dylib"}[system]
+		content := "golibnative for " + platform
+		tp.served["https://github.com/"+nativeRepository+"/releases/download/"+nativeRelease+"/golibnative-"+system+"-"+arch+ext] = content
+		p.natives[platform] = sha256Hex([]byte(content))
+	}
+	for _, f := range joltJSFiles {
+		content := "JoltPhysics.js's " + f.name
+		tp.served["https://cdn.jsdelivr.net/npm/jolt-physics@"+joltJSVersion+"/dist/"+f.name] = content
+		p.joltJS = append(p.joltJS, namedSum{f.name, sha256Hex([]byte(content))})
+	}
+	p.download = func(url string) ([]byte, error) {
+		tp.downloads = append(tp.downloads, url)
+		content, found := tp.served[url]
+		if !found {
+			return nil, errors.New(url + " answered 404 Not Found")
+		}
+		return []byte(content), nil
+	}
 	tp.c = &cli{project: p, stdout: &tp.stdout, stderr: &tp.stderr}
 	return tp
 }
@@ -111,7 +139,11 @@ func (tp *testProject) fakeGo(t *testing.T, call goCall) ([]byte, error) {
 			tp.resources[filepath.Base(path)] = data
 		}
 		output := args[slices.Index(args, "-o")+1]
-		writeFile(t, output, "the game")
+		if tp.rigidBodies {
+			writeFile(t, output, "the game, with "+physicsMarker)
+		} else {
+			writeFile(t, output, "the game")
+		}
 	case "list":
 		var values []any
 		if args[1] == "-m" {

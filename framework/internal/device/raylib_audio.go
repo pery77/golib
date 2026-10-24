@@ -93,6 +93,18 @@ func SetSoundVolume(sound Sound, volume float32) {
 	rl.SetSoundVolume(sound, volume)
 }
 
+// SetSoundPan sets which side a sound plays from: -1 left, 0 the middle,
+// 1 right.
+func SetSoundPan(sound Sound, pan float32) {
+	rl.SetSoundPan(sound, pan)
+}
+
+// SetMusicPan sets which side a music plays from: -1 left, 0 the middle, 1
+// right.
+func SetMusicPan(music Music, pan float32) {
+	rl.SetMusicPan(music, pan)
+}
+
 // SetSoundPitch sets how high a sound plays: 1 as it is, 2 an octave higher.
 func SetSoundPitch(sound Sound, pitch float32) {
 	rl.SetSoundPitch(sound, pitch)

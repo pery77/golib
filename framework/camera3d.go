@@ -166,6 +166,66 @@ func (c *Camera3D) Update(dt float32) {
 	}
 }
 
+// AvoidWalls keeps anything solid in world from coming between the camera
+// and Target, so a wall, a pillar or a block never hides what it looks at:
+// a third-person camera indoors. When something is in the way, the camera
+// first rises over it, up to a view from above, and comes in front of it
+// only when rising isn't enough, never nearer than 0.6 meters. Call it
+// after Follow or Orbit, and before Update; with Lag, the view comes in at
+// once and goes back out smoothly.
+//
+//	s.camera.Follow(p.body.Position.Add(golib.Vector3{Y: 1.5}), p.body.Moved.Scale(1/dt), 6, -20, dt)
+//	s.camera.AvoidWalls(s.physics)
+//	s.camera.Update(dt)
+func (c *Camera3D) AvoidWalls(world *PhysicsWorld) {
+	if world == nil {
+		return
+	}
+	away := c.Position.Sub(c.Target)
+	distance := away.Length()
+	if distance < 1e-4 {
+		return
+	}
+	// A little short of the wall, so its near side doesn't cut the view.
+	const margin, nearest = 0.25, 0.6
+	clearAlong := func(direction Vector3) float32 {
+		if hit, ok := world.Raycast(c.Target, direction, distance+margin); ok {
+			return min(distance, max(0, hit.Distance-margin))
+		}
+		return distance
+	}
+	direction := away.Scale(1 / distance)
+	best, bestClear := direction, clearAlong(direction)
+	if bestClear < distance*0.5 {
+		// Rising over what is in the way, a sixth of a turn at a time.
+		ground := Vector3{X: direction.X, Z: direction.Z}
+		pitch := math.Atan2(float64(direction.Y), float64(ground.Length()))
+		if ground.Length() > 1e-4 {
+			ground = ground.Normalize()
+			for k := 1; k <= 4; k++ {
+				angle := pitch + float64(k)*(math.Pi/2-pitch)/4
+				d := ground.Scale(float32(math.Cos(angle))).Add(Vector3{Y: float32(math.Sin(angle))})
+				if clear := clearAlong(d); clear > bestClear {
+					best, bestClear = d, clear
+					if clear >= distance*0.5 {
+						break
+					}
+				}
+			}
+		}
+	}
+	if bestClear >= distance && best == direction {
+		return
+	}
+	clear := max(nearest, bestClear)
+	c.Position = c.Target.Add(best.Scale(clear))
+	if c.started {
+		if view := c.eye.Sub(c.look); view.Length() > clear {
+			c.eye = c.look.Add(view.Normalize().Scale(clear))
+		}
+	}
+}
+
 // Snap puts the view on Position and Target at once, without Lag: at the
 // start of a level, or after the player moves to another place.
 func (c *Camera3D) Snap() {

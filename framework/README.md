@@ -82,7 +82,7 @@ func main() {
 4. **Pressed happens once, Down lasts.** `KeyPressed`, `MousePressed` and `GamepadPressed` are true in exactly one update per press: use them for jumping, firing and menus. `KeyDown`, `MouseDown` and `GamepadDown` stay true while held: use them for walking and thrust.
 5. **Use `Input` only in `Update`, and `Screen` only in `Draw`.** Don't keep them in the game's state.
 6. **Draw in screen pixels, or through a camera.** By default the screen is `Config.Width` by `Config.Height` pixels, with 0, 0 at the top-left corner and y growing downwards, whatever the window's size. With `Config.WindowScale` it follows the window instead: use `Config.OnScreenResize` to update the layout and camera. With `Config.FillWindow` it takes the window's shape, so there are no bars; `screen.Width()` and `screen.Height()` say its size. `WindowScale` takes precedence when both are set. `Run` scales the screen to the window and reports the mouse in the same pixels. After `screen.SetCamera(camera)`, positions are in the world instead, until `screen.SetCamera(nil)`.
-7. **Make sprites, maps, fonts, meshes, sounds, music and shaders once, and keep them.** Create them as package variables or in `main`, never in `Update`, in `Draw` or in a scene that is made again for every new game: each one loads the first time it is used and stays loaded until `Run` returns.
+7. **Make sprites, maps, fonts, meshes, sounds, music and shaders once, and keep them.** Create them as package variables or in `main`, never in `Update`, in `Draw` or in a scene that is made again for every new game: each one loads the first time it is used and stays loaded until `Run` returns. Making one reads nothing; asking it something does (`Markers`, `Bounds`, `Err`, `Animations`): ask in `main` or in a scene, never in a package variable's initializer, which runs before `assets.go` gives a dist or web build its assets, so the file isn't found there.
 8. **Random numbers come from `RandomInt` and `RandomFloat`**, never from `math/rand`: `golib shot` starts them from the same seed, so its screenshots repeat.
 9. **No key quits on its own, not even Esc.** Call `Quit` when the game should end; the game decides what Esc does.
 10. **`SwitchScene` and `Quit` don't stop the current update.** The code after them still runs, so `return` right after unless that is what you want.
@@ -737,7 +737,7 @@ width := golib.Clamp(barWidth*s.health/maxHealth, 0, barWidth)
 
 The easings take a share of the way from 0 to 1, which is usually `Timer.Progress`, and clamp anything outside it.
 
-That is all the geometry GoLib has: no physics. Pushing a player out of a wall is game code: `games/platformer/world.go` moves one axis at a time and pushes the player back out of any solid tile of the map it overlaps.
+That is all the 2D geometry GoLib has: no physics in 2D (in 3D, see [Collisions and paths](#collisions-and-paths)). Pushing a player out of a wall is game code: `games/platformer/world.go` moves one axis at a time and pushes the player back out of any solid tile of the map it overlaps.
 
 ## Camera
 
@@ -802,7 +802,7 @@ func (s *playScene) Draw(screen *golib.Screen) {
 
 ## 3D
 
-A 3D world, seen through a `Camera3D`, drawn between `screen.Begin3D` and `screen.End3D` in the same `Draw` as the 2D: the score and the menus go over it. In meters, with Y up; a model's front faces +Z. GoLib draws models from glTF files, as Blender exports them, with their textures and materials, and shapes made in code, lit physically by a sun that casts shadows, the sky's soft light and lamps of the game's own, with fog and a sky behind; FBX files and animation come in the next stages of M7 (see [docs/roadmap.md](../docs/roadmap.md#m7-3d-planned)).
+A 3D world, seen through a `Camera3D`, drawn between `screen.Begin3D` and `screen.End3D` in the same `Draw` as the 2D: the score and the menus go over it. In meters, with Y up; a model's front faces +Z. GoLib draws models from glTF and FBX files, as Blender, Mixamo and most tools export them, with their textures and materials, and shapes made in code, lit physically by a sun that casts shadows, the sky's soft light and lamps of the game's own, with fog and a sky behind, and plays their animations: characters bent by their bones, shape keys, blends between animations and layers of them. Characters walk through it with collisions and find their way along paths, and crates, barrels and balls fall, roll and stack as rigid bodies (see [Rigid bodies](#rigid-bodies)).
 
 ### Points, turns and places
 
@@ -882,12 +882,13 @@ screen.DrawMeshWith(s.sphere, golib.Transform{Position: coin}, gold)
 
 ### Models from Blender
 
-A model is a glTF file, `.glb` or `.gltf`, in the game's assets folder: Blender's File > Export > glTF 2.0, and most other 3D tools and asset packs. GoLib reads its meshes, their materials (color, texture, emission, unlit, see-through or cut out, one or two sides), vertex colors and the empties placed in it, with their custom properties: a level made in Blender carries where things go. Make each model once and keep it.
+A model is a glTF file, `.glb` or `.gltf`, or an FBX file, `.fbx`, in the game's assets folder; a level is one too, made in Blender, or a text file of the game's own read with `ReadAsset` that places a pack's models, as [games/grove](../games/grove) does: Blender's File > Export > glTF 2.0, Mixamo's downloads, and most other 3D tools and asset packs. Both are read the same way, and everything below works with both. GoLib reads its meshes, their materials (color, texture, emission, unlit, see-through or cut out, one or two sides), vertex colors and the empties placed in it, with their custom properties: a level made in Blender carries where things go. Make each model once and keep it.
 
 | Name | What it does |
 | --- | --- |
-| `Model` | A model from a glTF file. Read the first time it is drawn or asked about; its textures go to the graphics card the first time it is drawn. |
-| `NewModel` | `NewModel(name string) *Model`: the model in the assets folder named `name`, such as `"models/ship.glb"`. A `.gltf` file's `.bin` and textures are read from its folder. |
+| `Model` | A model from a glTF or FBX file. Read the first time it is drawn or asked about; its textures go to the graphics card the first time it is drawn. |
+| `NewModel` | `NewModel(name string) *Model`: the model in the assets folder named `name`, such as `"models/ship.glb"` or `"models/knight.fbx"`. A `.gltf` file's `.bin` and textures, and an FBX file's textures that aren't inside it, are read from its folder. |
+| `Model.AddAnimations` | `AddAnimations(names ...string) *Model`: reads the animations of other files into the model, matching their bones by name: Mixamo's way, each animation an FBX file of its own without the character. A file with one animation names it after the file, so `"models/run.fbx"` plays as `"run"`. It returns the model: `golib.NewModel("models/hero.fbx").AddAnimations("models/idle.fbx", "models/run.fbx")`. |
 | `Screen.DrawModel` | `DrawModel(model *Model, transform Transform, tint Color)`: the model, placed by `transform`. `golib.White` draws it as made; another tint multiplies its colors, and `A` below 255 makes it see-through. |
 | `Model.Bounds` | `Bounds() (lowest, upmost Vector3)`: the box around it, in its own space: how big it is, and where its feet are. |
 | `Model.Markers` | `Markers() []ModelMarker`: the empties placed in it, and any other node without a mesh, in the file's order. |
@@ -923,10 +924,232 @@ func (s *playScene) Draw(screen *golib.Screen) {
 }
 ```
 
+- **FBX files:** binary FBX 7.1 and later, as every current tool saves them. A take ends where its last movement does: Blender exports each action over the scene's whole timeline, 250 frames unless it was set, holding the last pose after the moves, and GoLib leaves that out; it also starts at the scene's first frame, so an action keyed from frame 0 loses that frame unless the scene starts there. GoLib turns their units and axes into meters, Y up and +Z forward, and reads their meshes, materials (color, texture, normal map, emission, opacity), skins with four bones a vertex, shape keys with their names, custom properties as a marker's `Properties`, and each take as an animation, named as Blender names its action. Textures are read from inside the file, or from beside it. An FBX file saved as text, or older than 2011, is refused with what to do instead; a file's lights, cameras and in-between shapes are left out.
+- **Mixamo:** download the character as FBX Binary, With Skin, and each animation as FBX Binary, Without Skin, at 30 frames a second, then read them together with `AddAnimations`. Tick In Place for animations the game moves itself, or leave it unticked and play them with `Animator.RootMotion`. Mixamo names its bones `"mixamorig:Hips"`, `"mixamorig:Spine"` and so on: `Model.Bones` lists them.
 - **Exporting from Blender:** File > Export > glTF 2.0, format glTF Binary (`.glb`), with +Y Up ticked, as it is by default. Tick Include > Custom Properties for the markers' properties. Leave Compression off: GoLib refuses Draco and says so. Keep the source `.blend` in `sources/`, at the same path as the `.glb` in `assets/`.
 - **Size and facing:** Blender's meter is GoLib's meter, and a model's front, Blender's -Y, faces +Z, as a zero `Rotation` faces. Check a new model's size with `Bounds`.
-- **Materials are drawn as made:** color and texture, metallic and roughness, normal and occlusion maps, emission, unlit, see-through or cut out. Not read yet: skins and animations (stage 4), and a file's own lights and cameras; light a model with `Screen.AddLight`.
+- **Materials are drawn as made:** color and texture, metallic and roughness, normal and occlusion maps, emission, unlit, see-through or cut out. Not read yet: a file's own lights and cameras; light a model with `Screen.AddLight`.
+- **A rigged model is drawn at rest by `DrawModel`**, bent by its bones as the file's rest pose has them. To play its animations, draw it through an `Animator` (below).
 - **Copies are cheap.** Every copy of the same model or mesh in a frame is drawn together, and what the camera doesn't see is left out: a forest of the same tree costs little more than one tree.
+
+### Animation
+
+A model's animations, as Blender exports its actions, play through an `Animator`: one for each thing that moves, since each character is in its own pose, while the `Model` is shared. Bones bend the meshes skinned to them (on the graphics card, up to four bones a vertex), shape keys blend a mesh towards other shapes, and any other node moves too: a door, a windmill's sails. Animations fade into each other, play once or loop, at any speed, and play on part of a skeleton over the rest.
+
+| Name | What it does |
+| --- | --- |
+| `Animator` | Plays a model's animations for one character, enemy or door. Make one each, keep it in the thing it moves. |
+| `NewAnimator` | `NewAnimator(model *Model) *Animator`: shows the model at rest until it plays something. |
+| `Model.Animations` | `Animations() []string`: the names of its animations, in the file's order: Blender's actions, such as `"Run"` or `"Idle"`. |
+| `Model.AnimationLength` | `AnimationLength(name string) float32`: how many seconds it lasts at its own speed, 0 for a name it doesn't have. |
+| `Model.Bones` | `Bones() []string`: the names of its bones, what `AnimationOptions.Bone` and `Animator.Bone` take. Print them from a test with `t.Log`, and read them with `golib test <game> --run <TestName>`. |
+| `Animator.Play` | `Play(name string)`: fades into the animation called `name` in 0.2 seconds and loops it. Playing what already plays changes nothing, so call it every update with what should play; the first animation an Animator plays starts at once. |
+| `Animator.PlayWith` | `PlayWith(name string, options AnimationOptions)`: plays it as the options say. |
+| `AnimationOptions` | How `PlayWith` plays an animation; the zero value is what `Play` does. |
+| `AnimationOptions.Fade`, `AnimationOptions.NoFade` | Seconds to blend into it from what played: 0.2 when zero. `NoFade` switches at once. |
+| `AnimationOptions.Speed` | How fast: 1 when zero, 2 twice as fast, -1 backwards. Playing it again with another speed changes it as it plays, such as a walk that follows how fast the character goes. |
+| `AnimationOptions.Once` | Plays to its end and holds the last pose there, instead of looping: a jump, an attack, a death. |
+| `AnimationOptions.Then` | With `Once`, the animation to fade into when it ends: `"Idle"` after `"Attack"`. |
+| `AnimationOptions.Bone` | Plays only on that bone and the ones below it, over what plays on the rest: `"Spine"` swings a sword while the legs run. Each `Bone` is a layer of its own, and the one played last goes over the others where they share bones, so a nod on `"Spine"` covers an arm holding a stick until the arm's animation is played again; any node of the model can be named. A layer played `Once` without `Then` fades out at its end. Shape key animations on a layer go over the rest too, whatever the bone: a face's expression over the walk. |
+| `AnimationOptions.Restart` | Starts it again from the beginning even if it is playing: a second punch. |
+| `Animator.Stop` | `Stop(bone string)`: fades out the layer of `bone`, back to what plays under it; `Stop("")` fades the whole model back to its rest pose. |
+| `Animator.Update` | `Update(dt float32)`: moves the animations on. Call it in every `Update`. |
+| `Screen.DrawAnimated` | `DrawAnimated(animator *Animator, transform Transform, tint Color)`: draws the model posed as its animations have it now, as `DrawModel` draws it. |
+| `Animator.Playing` | `Playing() string`: the animation the whole model plays or fades into, the last played without a `Bone`; `""` at rest. |
+| `Animator.Time` | `Time() float32`: seconds into it, in the animation's own time, from 0 to its length, starting again as it loops: the moment a swing hits. At `Speed` 2 it reaches the length in half the real time. |
+| `Animator.Finished` | `Finished() bool`: what `Playing` names was played `Once` and has reached its end. |
+| `Animator.PlayingOn`, `Animator.TimeOn` | `PlayingOn(bone string) string` and `TimeOn(bone string) float32`: the same for the layer of `bone`. `PlayingOn` is `""` once the layer has faded out, as one played `Once` does at its end: the swing is over. |
+| `Animator.Bone` | `Bone(name string) Transform`: where a bone is now, in the model's own space, without its scale: place what the character holds with `Transform.Child`. Its position is the bone's head, the joint it turns around, such as the shoulder for an arm, and its axes are the file's own: in Blender, a bone's Y runs along it, though a model from elsewhere may differ. A marker parented to a bone in Blender follows it, and is the best way to say where a held thing sits and how it is turned; without one, place the thing with a `Child` of the bone, and check it in a shot. |
+| `Animator.SetShapeKey` | `SetShapeKey(name string, weight float32)`: holds the shape key called `name` at `weight`, 0 as modeled to 1 fully the shape, over what the animations give it: a blink, a smile, a bulge. |
+| `Animator.RootMotion` | When true, the movement of the skeleton's top bone across the ground is taken out of the pose and given to `Moved`, for the game to move the character by, so its feet don't slide: for walks animated moving forward rather than in place. Up and down stays in the pose. |
+| `Animator.Moved` | `Moved() Vector3`: how far the animations carried the top bone across the ground in the last `Update`, with `RootMotion` on, in the model's own space: turn it as the model is turned. |
+
+```go
+var hero = golib.NewModel("models/hero.glb")
+
+type player struct {
+	position golib.Vector3
+	yaw      float32
+	velocity golib.Vector3
+	onGround bool
+	animator *golib.Animator
+}
+
+func newPlayer() *player {
+	return &player{animator: golib.NewAnimator(hero)}
+}
+
+func (p *player) update(input *golib.Input, dt float32) {
+	// ... move the player, then say what plays, every update:
+	switch {
+	case !p.onGround:
+		p.animator.Play("Fall")
+	case p.velocity.Length() > 4:
+		p.animator.Play("Run")
+	case p.velocity.Length() > 0.1:
+		p.animator.PlayWith("Walk", golib.AnimationOptions{Speed: p.velocity.Length() / 2})
+	default:
+		p.animator.Play("Idle")
+	}
+	if input.KeyPressed(golib.KeyX) {
+		p.animator.PlayWith("Attack", golib.AnimationOptions{Bone: "Spine", Once: true, Restart: true})
+	}
+	p.animator.Update(dt)
+}
+
+func (s *playScene) Draw(screen *golib.Screen) {
+	screen.Clear(golib.SkyBlue)
+	screen.Begin3D(s.camera)
+	body := golib.Transform{Position: s.player.position, Rotation: golib.Rotation{Yaw: s.player.yaw}}
+	screen.DrawAnimated(s.player.animator, body, golib.White)
+	hand := body.Child(s.player.animator.Bone("SwordSocket")) // an empty parented to the hand in Blender
+	screen.DrawModel(sword, hand, golib.White)
+	screen.End3D()
+}
+```
+
+- **Animations are named as the file names them.** `Model.Animations` lists them, and playing a name the model doesn't have stops `Run` with the names it has, as a missing bone or shape key does. Kenney's characters name theirs `"idle"`, `"walk"`, `"sprint"`, `"jump"` and more, in lowercase.
+- **Exporting animations from Blender:** each action becomes an animation of its name, with Animation ticked in the glTF export, as it is by default. Keep every action the export should find in the NLA editor (Push Down) or with a fake user, and leave Include all bone influences unticked: GoLib reads four bones a vertex. Shape keys export with Shape Keys ticked, their names with them, and a shape key action becomes an animation too.
+- **The state is the game's; the blending is the Animator's.** Work out what should play from the game's own state, as above, and call `Play` every update: the same name goes on, another fades in. Put the moment an attack lands in the rules, as a time, and check it against `Time` or a timer, rather than in the drawing.
+- **Copies are still cheap.** Every animated copy of one model is drawn together, each in its own pose: 400 of Kenney's characters walking took 2 ms of each frame on the iMac of [docs/3d.md](../docs/3d.md).
+- `Update`, `Bone`, `Playing`, `Time`, `Finished` and `Moved` work without a window, so a test can check that a jump plays `"Jump"`, or where a hand is.
+
+### Collisions and paths
+
+A `PhysicsWorld` is what is solid in a 3D world, as triangles: a level from Blender, the meshes a game places. Ask it where a ray hits, for the mouse or a shadow, move a `CharacterController` through it, as a player walks, and find paths across it for enemies with a `NavMesh`, and add rigid bodies to it, things that fall, roll, topple and stack on their own: crates, barrels, balls.
+
+| Name | What it does |
+| --- | --- |
+| `PhysicsWorld` | What is solid: add things once, in the scene's constructor, and ask it in `Update`. |
+| `NewPhysicsWorld` | `NewPhysicsWorld() *PhysicsWorld`: an empty one. |
+| `PhysicsWorld.AddModel` | `AddModel(model *Model, transform Transform) int`: every mesh of a model, at rest, placed by `transform`, and its number. A mesh whose object has the custom property `collide` set to `false` in Blender is left out: water, grass, leaves. |
+| `PhysicsWorld.AddMesh` | `AddMesh(mesh *Mesh, transform Transform) int`: a mesh, such as a box scaled into a wall, and its number. |
+| `PhysicsWorld.Remove` | `Remove(id int)`: takes a thing out: a door opened, a wall broken. |
+| `PhysicsWorld.SetTransform` | `SetTransform(id int, transform Transform)`: moves a thing, as a lift moves, and carries a `CharacterController` standing on it at its next `Move`: move a lift once each update, before the characters. |
+| `PhysicsWorld.Raycast` | `Raycast(origin, direction Vector3, distance float32) (RayHit, bool)`: where a ray first hits, within `distance` meters, from either side of a surface. With `Camera3D.Ray`, what the mouse points at. |
+| `PhysicsWorld.SphereCast` | `SphereCast(origin, direction Vector3, radius, distance float32) (RayHit, bool)`: the same for a ball `radius` meters across: where its center is when it first touches. |
+| `RayHit` | `RayHit.Position`, where it hits; `RayHit.Normal`, the way the surface faces there; `RayHit.Distance`, how far along; `RayHit.Body`, the number of what it hit. |
+| `CharacterController` | A character as a capsule standing on its feet, moved through a `PhysicsWorld`: it slides along walls, walks up slopes and steps up ledges, stands on the ground and stops under ceilings. Keep one in the player and in each enemy. |
+| `CharacterController.Position` | Where its feet are: draw the character's model there. |
+| `CharacterController.Height`, `CharacterController.Radius` | The capsule's height and how far it reaches from its middle: 1.8 and 0.3 meters when zero. Set them to the model's size. |
+| `CharacterController.StepHeight`, `CharacterController.MaxSlope` | The tallest ledge it steps up as it walks, 0.3 meters when zero; the steepest ground it stands and walks up on, in degrees, 45 when zero: steeper is a wall it slides down. |
+| `CharacterController.Move` | `Move(world *PhysicsWorld, motion Vector3)`: moves it by `motion`, its velocity times `dt`, as far as the world lets it. |
+| `CharacterController.OnGround`, `CharacterController.GroundNormal`, `CharacterController.OnCeiling`, `CharacterController.OnWall` | What the last `Move` ended touching: standing on the ground, which way that ground faces, its head against a ceiling, a wall in the way. |
+| `CharacterController.GroundBody` | The number of what it stands on, as the `Add` method returned it, or 0: is the player on the lift? |
+| `CharacterController.Moved` | How far the last `Move` really took it, along walls and carried by a lift included: `Moved.Scale(1 / dt)` is its real velocity, the one to give `Camera3D.Follow`. |
+| `NavMesh` | Where characters of one size can walk in a `PhysicsWorld`, to find their way round what is in it. |
+| `NewNavMesh` | `NewNavMesh(world *PhysicsWorld, character CharacterController) *NavMesh`: where characters sized as `character` walk: its `Height`, `Radius`, `StepHeight` and `MaxSlope`. A grid of places `Radius` apart, on ground above ground too: make it once the world is built, which takes about half a second for 100 by 100 meters, and again when the world changes where they can go. |
+| `NavMesh.Path` | `Path(from, to Vector3) ([]Vector3, bool)`: the points to walk through in turn, straight from one to the next, from `from` to `to`, or to the ground under `to` when it is in the air; false when there is no way. |
+
+#### Rigid bodies
+
+Rigid bodies are simulated by [Jolt Physics](https://github.com/jrouwe/JoltPhysics), the engine of Horizon Forbidden West and of Godot: in GoLib's native library on the desktop and as JoltPhysics.js in a browser, which `golib setup` downloads and the game's builds carry, only when it uses them (see [native/README.md](../native/README.md)). They meet what else is in the `PhysicsWorld`: they land on the level, rays hit them, characters stand on them and push them.
+
+| Name | What it does |
+| --- | --- |
+| `PhysicsWorld.AddRigidBody` | `AddRigidBody(shape BodyShape, transform Transform, options RigidBodyOptions) *RigidBody`: a body of `shape`, placed by `transform`, whose `Scale` stretches the shape, as it stretches a mesh. Add the level first. |
+| `PhysicsWorld.Update` | `Update(dt float32)`: moves the rigid bodies on by `dt`. Call it in every `Update` that has rigid bodies, after moving lifts with `SetTransform` and before moving characters. |
+| `PhysicsWorld.Gravity` | What pulls the rigid bodies, in meters per second per second: Earth's, 9.81 down, when zero. Characters fall as the game makes them, as before. |
+| `BodyShape` | A rigid body's shape. Boxes, balls and capsules are the cheapest, and roll and stack best. |
+| `BoxShape`, `SphereShape`, `CapsuleShape`, `CylinderShape` | `BoxShape(size Vector3)`, a box `size` wide, high and deep, centered on the body's position: a crate; `SphereShape(radius float32)`: a ball; `CapsuleShape(height, radius float32)`: a capsule standing on Y, centered, round at both ends: a bowling pin; `CylinderShape(height, radius float32)`: a cylinder standing on Y, centered, flat at both ends, as `NewCylinderMesh` scaled by `Vector3{X: 2 * radius, Y: height, Z: 2 * radius}`: a barrel, a log, a column. |
+| `ModelShape`, `MeshShape` | `ModelShape(model *Model)` and `MeshShape(mesh *Mesh)`: the shape around a model's meshes, at rest, or a mesh's, with any hollows filled in: a rock, a chair, a statue. Make the shape once and add as many bodies of it as the game needs. |
+| `RigidBodyOptions` | What it is made of and how it moves; the zero value is light wood that falls, slides and bounces a little. |
+| `RigidBodyOptions.Mass` | Kilograms: when zero, its size of light wood, 250 kilograms a cubic meter, so a meter-wide crate is 250 and a character pushes it. Heavier things push lighter ones aside. A game where thrown balls knock things over sets lighter masses, as toys are: a 5 kg ball barely moves a 250 kg crate. |
+| `RigidBodyOptions.Friction`, `RigidBodyOptions.NoFriction` | How it grips, from 0, ice, to 1, rubber: 0.5 when zero; `NoFriction` makes it ice. |
+| `RigidBodyOptions.Bounce` | How much of its speed it keeps as it hits something, from 0, a sack, to 1, a rubber ball. |
+| `RigidBodyOptions.Moved` | A body the game moves itself with `MoveTo`, which pushes what is in its way and that nothing pushes back: a piston, a swinging door, a paddle. |
+| `RigidBodyOptions.Fast` | Checks the whole way it moves each update, so a small, fast thing doesn't pass through a thin wall: a ball hit hard. It costs more: only the few that need it. |
+| `RigidBodyOptions.NoGravity` | Floats where it is pushed: a balloon, a thing in space. |
+| `RigidBody` | A body that moves on its own. Keep the pointer to draw it and push it. |
+| `RigidBody.Transform`, `RigidBody.Position` | Where it is and how it is turned now, with the `Scale` it was added with: draw its mesh or model with `Transform()`. |
+| `RigidBody.Velocity`, `RigidBody.Resting`, `RigidBody.Mass` | How fast it moves, in meters per second; whether it has come to rest, a crate that has landed; how heavy it is. |
+| `RigidBody.ID` | Its number in the world: what `RayHit.Body` and `CharacterController.GroundBody` say when they meet it. |
+| `RigidBody.SetVelocity` | `SetVelocity(velocity Vector3)`: how fast it moves, at once: a ball thrown. |
+| `RigidBody.Push`, `RigidBody.PushAt` | `Push(impulse Vector3)`: a blow through its middle, in kilograms times meters per second, so the same kick sends a ball flying and nudges a car; `PushAt(impulse, point Vector3)`: a blow at a point on it, which spins it too: a crate hit at a corner. |
+| `RigidBody.Teleport` | `Teleport(transform Transform)`: puts it somewhere else at once, still moving as it moved: a ball respawned. |
+| `RigidBody.MoveTo` | `MoveTo(transform Transform)`: moves a body added with `Moved` there by the next `Update`, pushing what is in its way. Call it in every update the body moves. |
+| `RigidBody.Remove` | `Remove()`: takes it out of the world: a crate broken, a ball lost. |
+
+```go
+var crateMesh = golib.NewBoxMesh() // one meter each way, as the shape
+
+func newPlayScene() *playScene {
+	s := &playScene{physics: golib.NewPhysicsWorld()}
+	s.physics.AddModel(level, golib.Transform{})
+	box := golib.BoxShape(golib.Vector3{X: 1, Y: 1, Z: 1})
+	for i := range 5 { // a stack of crates
+		at := golib.Vector3{Y: 0.5 + float32(i)}
+		s.crates = append(s.crates, s.physics.AddRigidBody(box, golib.Transform{Position: at}, golib.RigidBodyOptions{}))
+	}
+	return s
+}
+
+func (s *playScene) Update(input *golib.Input, dt float32) {
+	s.physics.Update(dt) // before the characters
+	s.player.body.Move(s.physics, s.player.velocity.Scale(dt)) // walks into the crates and pushes them
+}
+
+func (s *playScene) Draw(screen *golib.Screen) {
+	// ...inside Begin3D and End3D:
+	for _, c := range s.crates {
+		screen.DrawMesh(crateMesh, c.Transform(), golib.Brown)
+	}
+}
+```
+
+- **A character pushes what it walks into** as a strong person would: a ball rolls away at its pace, a meter-wide crate slides briskly, two stacked slowly, three or a 2000-kilogram block not at all. It stands on rigid bodies, and is carried when they move under it. Rigid bodies meet a character as a post: a crate dropped on its head lands there or slides off, a ball bounces off its legs; they never push it. Jolt keeps a capsule for each character that moved since the last `Update`, a little thinner than its `CharacterController`.
+- **The simulation follows the world's still and moved things**: a lift moved with `SetTransform` carries the crates on it, a wall taken out with `Remove` lets them fall. Add rigid bodies once the level is in.
+- **Hundreds of bodies are fine**, and thousands when most are at rest: Jolt stops working out what has come to rest until something touches it. 118 crates and balls, most of them moving, took 0.15 to 0.35 milliseconds an update on an Intel Mac, and 0.7 in Chrome; a character's `Move` beside 118 falling balls took 0.4 milliseconds more, and 0.01 once they had come to rest, since bodies at rest keep their triangles where they are.
+- **A world the game keeps no longer is freed**, Jolt's copy included, at the next `Update` of another: make a new `PhysicsWorld` for each level and drop the old one.
+- **No collision events yet**: a sound when things hit is a sudden change in a body's `Velocity` from one update to the next, which the game checks.
+- **When the native library is missing** (for every message and its fix, see [docs/tooling.md](../docs/tooling.md#when-rigid-bodies-dont-work)), `AddRigidBody` reports why, `golib build` fails and says to run `golib setup`, and the bodies stay where they were added.
+
+```go
+type player struct {
+	body     golib.CharacterController
+	velocity golib.Vector3
+}
+
+func newPlayScene() *playScene {
+	s := &playScene{physics: golib.NewPhysicsWorld(), camera: golib.NewCamera3D(screenWidth, screenHeight)}
+	s.physics.AddModel(level, golib.Transform{})
+	start, _ := level.Marker("Start")
+	s.player.body = golib.CharacterController{Position: start.Position, Height: 1.8, Radius: 0.3}
+	s.nav = golib.NewNavMesh(s.physics, golib.CharacterController{Height: 1.8, Radius: 0.4})
+	return s
+}
+
+func (s *playScene) Update(input *golib.Input, dt float32) {
+	p := &s.player
+	var forward, right float32
+	if input.KeyDown(golib.KeyUp) {
+		forward = 1
+	}
+	if input.KeyDown(golib.KeyRight) {
+		right = 1
+	}
+	move := s.camera.Direction(forward, right) // as the player sees it
+	p.velocity.X, p.velocity.Z = move.X*runSpeed, move.Z*runSpeed
+	p.velocity.Y -= gravity * dt
+	if p.body.OnGround && input.KeyPressed(golib.KeySpace) {
+		p.velocity.Y = jumpSpeed
+	}
+	p.body.Move(s.physics, p.velocity.Scale(dt))
+	if p.body.OnGround && p.velocity.Y < 0 || p.body.OnCeiling && p.velocity.Y > 0 {
+		p.velocity.Y = 0
+	}
+	s.camera.Follow(p.body.Position.Add(golib.Vector3{Y: 1.5}), p.body.Moved.Scale(1/dt), 6, -20, dt)
+	s.camera.AvoidWalls(s.physics)
+	s.camera.Update(dt)
+}
+```
+
+- **Give `Follow` the movement the character really made**, `body.Moved.Scale(1 / dt)`, not the velocity the keys ask for: pushing into a wall, the character slides one way while the keys push another, and the camera would swing round the wrong way. With a `Follow` camera, a sideways key makes the character run in a circle, since the camera swings round behind it: steer by turning the camera, and in a `golib shot --input` script, by its turning keys and forward.
+
+- **Gravity and jumps are the game's.** `Move` moves by what it is given: add gravity to the velocity every update, and set the vertical speed to 0 on the ground and under a ceiling, as above.
+- **Enemies walk the same way:** a `CharacterController` each, moved towards the next point of their path. Ask for a new path every half second or so rather than every update: a path across a large level takes a few milliseconds. Characters don't collide with each other: keep them apart in the game, by their distance. A line of sight is a `Raycast` from eyes to eyes. Making a `NavMesh` again takes tens of milliseconds for a level of rooms: do it when a door opens, not every update.
+- **Picking:** `origin, direction := s.camera.Ray(input.MousePosition())` and `s.physics.Raycast(origin, direction, 100)`. Things the game moves itself every frame, such as enemies, aren't in the world: check them against the ray in the game, by their distance from it.
+- **Triangles are solid from both sides, and thin ones can be passed through** by something fast: a wall should be a box, not a plane, and a bullet a ray from where it was to where it is.
 
 ### Light, sky and fog
 
@@ -977,8 +1200,9 @@ screen.End3D()
 | `Camera3D.Orbit` | `Orbit(center Vector3, yaw, pitch, distance float32)`: `distance` meters from `center`, looking at it, facing `yaw` and `pitch` as a `Rotation` does. The yaw a player faces puts the camera behind them; a negative pitch looks down from above. The third-person camera. |
 | `Camera3D.Look` | `Look(position Vector3, yaw, pitch float32)`: the eye at `position`, looking `yaw` and `pitch`. The first-person camera. |
 | `Camera3D.Follow` | `Follow(target, velocity Vector3, distance, pitch, dt float32)`: behind `target`, `distance` meters away, looking down `pitch` degrees (negative), swinging round behind the way `velocity` moves it along the ground, but not while it moves back towards the camera. The third-person camera; call it in every `Update`. |
+| `Camera3D.AvoidWalls` | `AvoidWalls(world *PhysicsWorld)`: keeps anything solid from coming between the camera and `Target`, so a wall or a block never hides what it looks at: it rises over what is in the way, up to looking down from above, and comes in front of it only when rising isn't enough, never nearer than 0.6 meters. Call it after `Follow` or `Orbit`, before `Update`. |
 | `Camera3D.Heading` | The yaw `Follow` keeps the camera behind. `Follow` turns it; a game can turn it too, such as with the right stick. |
-| `Camera3D.Direction` | `Direction(forward, right float32) Vector3`: the way to move on the ground for keys or a stick pushed `forward` and `right`, from -1 to 1, as the player sees it: forward is away from the camera. At most length 1. A stick's Y grows downwards, so `Direction(-stickY, stickX)`. |
+| `Camera3D.Direction` | `Direction(forward, right float32) Vector3`: the way to move on the ground for keys or a stick pushed `forward` and `right`, from -1 to 1, as the player sees it: forward is away from the camera. As long as the push, at most 1: a stick tilted half way gives half, for a walk rather than a run. A stick's Y grows downwards, so `Direction(-stickY, stickX)`. |
 | `Camera3D.FieldOfView` | Degrees seen from the bottom of the screen to the top: 60, the default, is usual; less zooms in. With `Orthographic`, meters seen from bottom to top instead. |
 | `Camera3D.Orthographic` | No perspective: far things are as large as near ones, for isometric and top-down games. |
 | `Camera3D.Near`, `Camera3D.Far` | The closest and the farthest the camera draws. 0 counts as 0.1 and 1000 meters. |
@@ -1102,6 +1326,8 @@ GoLib makes sound effects in code from a few numbers, so a game needs no sound f
 | `Sound.Play` | `Play()`: plays the sound, over any copy of it that is still playing; up to four copies at once, and a fifth cuts off the oldest. |
 | `Sound.PlayWith` | `PlayWith(volume, pitch float32)`: plays it like `Play`, but louder, quieter, higher or lower, so the same sound over and over doesn't tire the ear. `volume` is 0 to 1, under the sound's own `SetVolume`; `pitch` is 1 for the sound as it is, 2 an octave up, 0.5 an octave down, from 0.25 to 4. Both are kept inside their limits, and the next `Play` sounds as it always did. |
 | `Sound.Loop` | `Loop()`: plays the sound over and over, with no gap, until `Stop`: an engine, an alarm, rain. Calling it while it loops changes nothing, so a game can call it in every update. |
+| `Sound.PlayAt` | `PlayAt(position Vector3, camera *Camera3D)`: in a 3D game, plays it as if it came from `position`, heard from what `camera` looks at: as loud as `Play` within 2 meters, quieter farther away, silent past 50, and from the left or the right as the camera turns. |
+| `Sound.LoopAt` | `LoopAt(position Vector3, camera *Camera3D)`: loops it as `Loop` does, from `position`, as `PlayAt` plays it: a waterfall, an engine. Call it in every update, so it follows the thing and the camera; `Loop` puts it back in the middle. |
 | `Sound.Stop` | `Stop()`: silences the sound, its loop and every copy `Play` started. |
 | `Sound.Looping` | `Looping() bool`: `Loop` was called, and `Stop` wasn't since. True in tests and shots too, where nothing is heard. |
 | `Sound.SetVolume` | `SetVolume(volume float32)`: how loud this sound is, from 0 to 1, under `SetVolume`. Use it to even out sound files. |
@@ -1623,9 +1849,9 @@ func TestJumpOnlyFromTheGround(t *testing.T) {
 }
 ```
 
-- `Rectangle`, the random numbers, `ReadAsset`, `Animation`, a sprite's `Width`, `Height`, `Frames` and `Animation`, and everything a `Map` has but drawing work in tests; `golib test` runs them in the game's folder, so a test can check that a level has a start and the player can reach the exit.
+- `Rectangle`, the random numbers, `ReadAsset`, `Animation`, a sprite's `Width`, `Height`, `Frames` and `Animation`, and everything a `Map` has but drawing work in tests; `golib test` runs them in the game's folder, so a test can check that a level has a start and the player can reach the exit. `golib test <game> --run <TestName>` runs only that test and shows what it logs with `t.Log`.
 - `Sound.Play` and `Music.Play` play nothing in tests; `Sound.Play` still reads a sound file, so a test that plays it checks the file.
-- In 3D, `Vector3`, `Rotation`, `Transform`, `Camera3D` (`ToScreen`, `Ray`, `Orbit`, `Look`, `Update`), and a model's `Err`, `Bounds` and `Markers` work in tests: check which way a key moves a character on the screen, and that a level's markers are where they should be, as `games/hopper/level_test.go` does.
+- In 3D, `Vector3`, `Rotation`, `Transform`, `Camera3D` (`ToScreen`, `Ray`, `Orbit`, `Look`, `Follow`, `AvoidWalls`, `Direction`, `Update`), a model's `Err`, `Bounds`, `Markers`, `Animations`, `AnimationLength` and `Bones`, an `Animator` (`Play`, `Update`, `Playing`, `Time`, `Bone`, `Moved`), and a `PhysicsWorld` with its `CharacterController`s, `NavMesh` and rigid bodies (with the native library `golib setup` downloads, which `golib test` finds) work in tests: check which way a key moves a character on the screen, that a level's markers are where they should be, as `games/hopper/level_test.go` does, that a jump plays the jump, that a wall stops the player, and that every key can be reached, as `games/crypt`'s tests do.
 - `Run` and `Screen` need a window: check drawing with `golib shot` instead.
 
 ## Using raylib directly
@@ -1677,10 +1903,11 @@ A web build is what a phone plays, so a game meant for one is a game meant for t
 | --- | --- | --- |
 | Parts of an image that aren't on a grid, Aseprite slices and tilemap layers | Not on the roadmap yet | Save each part as its own PNG file, or put the parts on a grid |
 | Isometric and hexagonal maps; drawing a map's shapes and text | Not on the roadmap yet | Orthogonal maps; draw what objects stand for with sprites and shapes |
-| Positional sound: louder on the side it comes from | Planned with 3D (M7, stage 6) | `Sound.PlayWith` at a lower volume for what is far away |
-| Physics | Planned with 3D (M7, stage 6): collisions and a character controller in Go, then rigid bodies with Jolt | Simple movement and `Rectangle` overlap checks in the game |
+| Positional sound in 2D | Not on the roadmap yet: 3D has `Sound.PlayAt` | `Sound.PlayWith` at a lower volume for what is far away |
+| Physics in 2D: things that fall, roll and bounce on their own | Not on the roadmap yet: 3D has rigid bodies, with Jolt | Simple movement and `Rectangle` overlap checks in the game |
+| Joints between rigid bodies (hinges, chains, ragdolls), cars, rigid bodies that push characters, and collision events | Not on the roadmap yet | A swinging door is a `Moved` body turned by the game; a falling crate the game checks against the player; a hit is a sudden change in `Velocity` |
 | Trigger pressure, vibration | Not on the roadmap yet | Triggers read as buttons |
-| 3D shadows from lamps, FBX files, skeletal animation, collisions against a model's meshes, and hiding or reading one part of a model | Planned (M7, stages 4 to 7): see [docs/roadmap.md](../docs/roadmap.md#m7-3d-planned) | Models, materials, lights, the sun's shadows and fog work; for solid level geometry, mark it with empties and custom properties, as [games/hopper](../games/hopper) does, and check collisions in the game |
+| 3D shadows from lamps, inverse kinematics, and hiding or reading one part of a model | Planned (M7, stage 7): see [docs/roadmap.md](../docs/roadmap.md#m7-3d-planned); inverse kinematics isn't on the roadmap yet | Models, materials, lights, the sun's shadows and fog work |
 | Reflections of the world in water and mirrors, a tint for each draw of one `Material`, and hiding or dimming part of an HDRI | Planned (M7, stage 7) | Shiny things reflect the HDRI or the sky; make a `Material` for each color; paint the HDRI over in a copy made offline, as [games/sunset](../games/sunset)'s `sources/skies/lakesky.go` does |
 | `.qoa`, `.xm` and `.mod` in a browser | Not planned: browsers cannot decode them | Save the sound as `.wav`, `.ogg` or `.mp3`. For music, put that file next to the `.xm` under the same name: a web build plays it, and the desktop keeps playing the module |
 
