@@ -118,6 +118,28 @@ The prebuilt Linux library links against `libX11.so.6` and loads `libGL.so.1` wh
 
 To update raylib-go, run `golib go -C framework get github.com/gen2brain/raylib-go/raylib@<version>`, then `golib go -C <module folder> mod tidy` for the framework and every game, then `golib setup` and `golib test`. If the new version brings a new raylib version, `golib test` asks for its [third-party notices](#third-party-licenses).
 
+## GoLib's native library and JoltPhysics.js
+
+Rigid bodies (`golib.PhysicsWorld.AddRigidBody`) are simulated by Jolt Physics: on the desktop in GoLib's native library, `golibnative`, built from `native/` (see [native/README.md](../native/README.md)), and in a browser by JoltPhysics.js. `golib setup` downloads both, after the raylib libraries, in `tools/cli/native.go`:
+
+| What | From | Into | Checked against |
+| --- | --- | --- | --- |
+| `golibnative.dll`, `.so` or `.dylib` for this machine | The GitHub release `nativeRelease` of `nativeRepository`, made by `.github/workflows/native.yml` | `.tools/native/` | `nativeChecksums`, one SHA-256 per platform |
+| `jolt-physics.wasm.js` and `jolt-physics.wasm.wasm` | The npm package `jolt-physics` `joltJSVersion`, through jsDelivr | `.tools/jolt/` | `joltJSFiles` |
+
+A file already there with the right checksum isn't downloaded again; a download with the wrong one is thrown away with a `[fail]` line. A platform with no checksum in `nativeChecksums` has no release yet: setup prints an `[info]` line, and keeps a library built by hand with `native/build.sh`. Until the first release, every platform is in that case.
+
+A game needs them only if it makes rigid bodies. `framework/internal/device` keeps the text `PhysicsMarker` in a variable the first time a world of rigid bodies is made, so the linker leaves the text in that game's builds and in no other, and golib looks for it in the executable or the `.wasm` (`usesRigidBodies`):
+
+| Command | With the marker |
+| --- | --- |
+| `build`, `run`, `shot` | `golibnative` copied next to the executable; `[fail]` without it in `.tools/native/` |
+| `dist` | `golibnative` next to the executable, or in the app's `Contents/Frameworks/` on macOS, signed before the app; Jolt's license in `THIRD-PARTY-LICENSES.txt` |
+| `web`, `dist --web`, `shot --web` | `jolt-physics.wasm.js` and `.wasm` next to the game's `.wasm`, which `web.js` imports the first time the game makes a world; for `dist --web`, JoltPhysics.js's and Jolt's licenses |
+| `test` | `.tools/native/` goes on the library search path after `.tools/raylib/`, as it does for `golib go`; the framework's rigid body tests skip without it |
+
+The game finds `golibnative` next to its executable, then in `../Frameworks/`, then on the library search path, and checks `golib_version()` against the interface it knows (`framework/internal/device/raylib_physics.go`). Without it, `AddRigidBody` reports why and the bodies stay where they were added.
+
 ## Screenshots
 
 `golib shot [game] [frame...] [--input "<script>"] [--save <file>] [--scale <n>]` builds a game and runs it with these environment variables set:
@@ -244,6 +266,7 @@ The licenses of Go, jfxr, purego (Apache-2.0), ffi and libffi ask for their noti
 | jfxr | `framework/LICENSE-jfxr.txt` (BSD-3-Clause): GoLib's framework carries a Go version of jfxr's synthesizer, `framework/jfxr.go`, in every executable. Without the file, `dist` prints a `[warn]` line and leaves the heading empty |
 | Each Go module the game is built from, as `go list -deps` reports with the dist build tags, except the game's own and GoLib's | The files in the module's folder whose names start with `LICENSE`, `LICENCE`, `COPYING`, `COPYRIGHT` or `NOTICE`. A module without one gets a `[warn]` line: find its license and add its notice by hand |
 | raylib, and libffi when the platform has it | `libs/LICENSE` in raylib-go, `assets/libffi/LICENSE` in ffi. For raylib, also `tools/cli/notices/raylib-<version>.txt` (below) |
+| Jolt Physics, in a game with rigid bodies; in a web build, JoltPhysics.js with it | `tools/cli/notices/jolt-physics.txt` and `jolt-physics-js.txt` (MIT), copied from Jolt's source at the pinned commit and from the npm package. Change them with `native/CMakeLists.txt`'s commit or `joltJSVersion` |
 | `assets/ATTRIBUTION.md`, when the game has one | The file itself: where the files in the assets folder that weren't made for the game come from, and their licenses (see [framework/README.md](../framework/README.md)) |
 
 GoLib is left out because its license, zlib, asks for nothing in games (see [roadmap.md](roadmap.md#decisions)); jfxr's code inside it is the exception. The file starts with the game's title from `game.json`. `dist` writes it again on every build, so don't edit it: put what it should say in `assets/ATTRIBUTION.md`.
@@ -380,9 +403,12 @@ PowerShell also reads words joined by commas as a list, so `--tags demo,steam` d
 | `.tools/gopath/` | Downloaded Go modules. Go makes them read-only; `clean --all` handles that. |
 | `.tools/gocache/` | Go's build cache |
 | `.tools/raylib/` | The raylib library, extracted from raylib-go; libffi, copied from the ffi module on Windows amd64 and macOS; and a `VERSION` file naming both versions |
+| `.tools/native/` | GoLib's native library, `golibnative`, downloaded from its release or built by `native/build.sh` |
+| `.tools/jolt/` | JoltPhysics.js, for web builds of games with rigid bodies |
 | `.tools/config/`, `.tools/home/` | Go's telemetry counters (Windows and Linux; macOS) |
 | `.tools/gotools/` | Tools the VS Code Go extension installs, such as gopls |
-| `build/<game>/` | A game's debug executable, next to its copies of the raylib libraries |
+| `build/<game>/` | A game's debug executable, next to its copies of the raylib libraries, and of `golibnative` when it uses rigid bodies |
+| `build/native/` | `native/build.sh`'s CMake build |
 | `build/<game>/shots/` | Screenshots from the latest `golib shot` |
 | `build/<game>/dist/` | The latest `golib dist` build: the folder to share, `<game>/`, and its zip |
 | `build/golib/` | [The Go program](#the-go-program), `golib.exe` (`golib` on Linux and macOS), built by the scripts when a command needs it, and on Windows `golib-2.exe` and so on, built while `golib.exe` is running. `new` refuses `golib` as a game name, so no game's folder clashes with it. |
