@@ -21,11 +21,18 @@ type project struct {
 	root         string
 	goos, goarch string
 
-	// runGo runs the project's go command, runGame a game's executable, and
-	// signApp signs a macOS app with macOS's codesign. Tests replace them.
-	runGo   func(call goCall) ([]byte, error)
-	runGame func(run gameRun) (exitCode int, timedOut bool, err error)
-	signApp func(app string) error
+	// runGo runs the project's go command, runGame a game's executable,
+	// signApp signs a macOS app with macOS's codesign, and download fetches
+	// a file from the internet. Tests replace them.
+	runGo    func(call goCall) ([]byte, error)
+	runGame  func(run gameRun) (exitCode int, timedOut bool, err error)
+	signApp  func(app string) error
+	download func(url string) ([]byte, error)
+
+	// natives and joltJS are the files of Jolt that setup downloads, with
+	// their checksums: nativeChecksums and joltJSFiles, which tests replace.
+	natives map[string]string
+	joltJS  []namedSum
 }
 
 // goCall is one run of the project's go command.
@@ -53,7 +60,7 @@ func newProject(exe string, stdout, stderr io.Writer) (*project, error) {
 	if !isFile(filepath.Join(root, "tools", "cli", "go.mod")) {
 		return nil, fmt.Errorf("%s is not in the build/golib/ folder of a GoLib project: start it with golib, which builds it there", exe)
 	}
-	p := &project{root: root, goos: runtime.GOOS, goarch: runtime.GOARCH}
+	p := &project{root: root, goos: runtime.GOOS, goarch: runtime.GOARCH, download: download, natives: nativeChecksums, joltJS: joltJSFiles}
 	p.runGo = func(call goCall) ([]byte, error) {
 		cmd := p.goCommand(call.dir, call.args)
 		cmd.Env = append(cmd.Env, call.env...)

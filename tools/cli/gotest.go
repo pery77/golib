@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 )
@@ -68,12 +69,13 @@ func (c *cli) test(options []string) int {
 		var env []string
 		if !isToolModule(module) {
 			// Test binaries load raylib and libffi when they start, so
-			// .tools/raylib/ goes on the library search path.
+			// .tools/raylib/ goes on the library search path, and
+			// .tools/native/ after it, for tests of rigid bodies.
 			if _, err := c.syncRaylib(dir); err != nil {
 				c.check("fail", module+": "+err.Error())
 				continue
 			}
-			libraryPath := c.libraryPath(c.path(".tools", "raylib"), c.goEnv())
+			libraryPath := c.libraryPath(c.path(".tools", "raylib")+string(os.PathListSeparator)+c.path(".tools", "native"), c.goEnv())
 			env = append(env, libraryPath)
 			if c.goos == "darwin" {
 				exec, err := testExec(libraryPath)

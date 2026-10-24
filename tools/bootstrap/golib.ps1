@@ -430,8 +430,9 @@ function Invoke-GoCommand([string[]]$Options) {
     Assert-Toolchain 'go'
     # go run and go test start programs that load raylib when they do, as games do. build, run,
     # shot and test put the libraries next to the executable; here they come from .tools/raylib/,
-    # so that "golib go test ./..." and generators written against raylib work.
-    if (Test-Path -LiteralPath $RaylibDir) { $env:PATH = $RaylibDir + ';' + $env:PATH }
+    # so that "golib go test ./..." and generators written against raylib work. GoLib's native
+    # library, for rigid bodies, comes from .tools/native/ after them.
+    if (Test-Path -LiteralPath $RaylibDir) { $env:PATH = $RaylibDir + ';' + (Join-Path $ToolsDir 'native') + ';' + $env:PATH }
     & $GoExe @Options
     exit $LASTEXITCODE
 }

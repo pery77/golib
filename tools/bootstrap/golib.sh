@@ -457,13 +457,14 @@ cmd_go() {
   assert_toolchain go
   # go run and go test start programs that load raylib when they do, as games do. build, run,
   # shot and test put the libraries next to the executable; here they come from .tools/raylib/,
-  # so that "golib go test ./..." and generators written against raylib work.
+  # so that "golib go test ./..." and generators written against raylib work. GoLib's native
+  # library, for rigid bodies, comes from .tools/native/ after them.
   if [ -d "$raylib_dir" ]; then
     if [ "$goos" = darwin ]; then
-      DYLD_LIBRARY_PATH="$raylib_dir${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
+      DYLD_LIBRARY_PATH="$raylib_dir:$tools_dir/native${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
       export DYLD_LIBRARY_PATH
     else
-      LD_LIBRARY_PATH="$raylib_dir${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+      LD_LIBRARY_PATH="$raylib_dir:$tools_dir/native${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
       export LD_LIBRARY_PATH
     fi
   fi

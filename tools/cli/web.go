@@ -149,6 +149,12 @@ func (c *cli) buildWebInto(game, folder string) (gameInfo, bool) {
 		return info, false
 	}
 	c.check("ok", fmt.Sprintf("wrote %s, %s and %s next to it", webPageFile, wasmExecFile, webGlueFile))
+	if copied, err := c.copyJoltJS(game, wasm); err != nil {
+		c.check("fail", err.Error())
+		return info, false
+	} else if copied {
+		c.check("ok", fmt.Sprintf("copied JoltPhysics.js %s next to it, for the game's rigid bodies", joltJSVersion))
+	}
 	return info, true
 }
 
@@ -291,6 +297,9 @@ func (c *cli) distWeb(game string) bool {
 	}
 	modules := thirdPartyModules(packages)
 	notices := c.gameNotices(game, game+".wasm", modules, nil, false)
+	if uses, _ := usesRigidBodies(filepath.Join(folder, game+".wasm")); uses {
+		notices = append(notices, joltNotice("jolt-physics.wasm.js and jolt-physics.wasm.wasm, next to "+game+".wasm: the rigid bodies", true))
+	}
 	text, err := thirdPartyNotices(info.Title, notices)
 	if err != nil {
 		c.check("fail", fmt.Sprintf("cannot write %s: %v", noticesFile, err))

@@ -102,7 +102,8 @@ func (c *cli) runDist(game string) int {
 // or "" after reporting a failure. Debug builds keep their debug symbols,
 // open a console window on Windows, read the game's assets from disk, and
 // load raylib and libffi from their own folder, where buildGame copies them
-// from .tools/raylib/. On Windows they carry the game's icon and details, as
+// from .tools/raylib/, and golibnative from .tools/native/ when the game
+// uses rigid bodies. On Windows they carry the game's icon and details, as
 // dist builds do, without reporting them.
 func (c *cli) buildGame(game string) string {
 	dir := c.path("games", game)
@@ -162,6 +163,10 @@ func (c *cli) buildGame(game string) string {
 			c.check("fail", fmt.Sprintf("cannot copy %s into build/%s/ (is the game still running?): %v", filepath.Base(library), game, err))
 			return ""
 		}
+	}
+	if _, err := c.copyNative(game, exe, outDir); err != nil {
+		c.check("fail", fmt.Sprintf("cannot copy %s into build/%s/: %v", c.nativeName(), game, err))
+		return ""
 	}
 	c.check("ok", fmt.Sprintf("built games/%s into %s", game, c.shown(exe)))
 	return exe

@@ -455,7 +455,7 @@ test: 0 failed, 0 warning(s)
 	if tp.stdout.String() != want {
 		t.Errorf("output:\n%s\nwant:\n%s", tp.stdout.String(), want)
 	}
-	libraryPath := "PATH=" + tp.c.path(".tools", "raylib") + string(os.PathListSeparator) + tp.c.path(".tools", "go", "bin") + string(os.PathListSeparator) + "user-path"
+	libraryPath := "PATH=" + tp.c.path(".tools", "raylib") + string(os.PathListSeparator) + tp.c.path(".tools", "native") + string(os.PathListSeparator) + tp.c.path(".tools", "go", "bin") + string(os.PathListSeparator) + "user-path"
 	var tests []goCall
 	for _, call := range tp.calls {
 		if call.args[0] == "test" {
@@ -546,7 +546,7 @@ func TestTestOnMacOSGivesTestBinariesTheLibraries(t *testing.T) {
 	if code := tp.c.test([]string{"--tags", "demo"}); code != 0 {
 		t.Fatalf("exit code %d, output:\n%s%s", code, tp.stdout.String(), tp.stderr.String())
 	}
-	libraryPath := "DYLD_LIBRARY_PATH=" + tp.c.path(".tools", "raylib") + string(os.PathListSeparator) + "/opt/lib"
+	libraryPath := "DYLD_LIBRARY_PATH=" + tp.c.path(".tools", "raylib") + string(os.PathListSeparator) + tp.c.path(".tools", "native") + string(os.PathListSeparator) + "/opt/lib"
 	want := map[string][]string{
 		"framework":   {"test", "-tags=raylib_no_embed,ffi_no_embed,demo", "-exec", "/usr/bin/env " + libraryPath, "./..."},
 		"games/rocks": {"test", "-tags=raylib_no_embed,ffi_no_embed,demo", "-exec", "/usr/bin/env " + libraryPath, "./..."},
@@ -777,6 +777,8 @@ func TestSetup(t *testing.T) {
 	}
 	want := `[ok]   framework: modules downloaded, raylib library for raylib-go v0.60.1 in .tools/raylib/
 [ok]   games/rocks: modules downloaded, raylib library for raylib-go v0.60.1 in .tools/raylib/
+[ok]   GoLib's native library native-1, for rigid bodies, downloaded into .tools/native/
+[ok]   JoltPhysics.js 1.1.0, for rigid bodies in web builds, downloaded into .tools/jolt/
 
 setup: 0 failed, 2 warning(s)
 Setup complete.
@@ -796,6 +798,19 @@ Setup complete.
 	if tools := readFolder(t, tp.c.path(".tools", "raylib")); tools["VERSION"] != "v0.60.1\nffi v0.7.0\n" {
 		t.Errorf(".tools/raylib/ holds %q", tools)
 	}
+	if native := readFolder(t, tp.c.path(".tools", "native")); native["golibnative.dll"] != "golibnative for windows/amd64" || len(native) != 1 {
+		t.Errorf(".tools/native/ holds %q", native)
+	}
+	if jolt := readFolder(t, tp.c.path(".tools", "jolt")); len(jolt) != 2 || jolt["jolt-physics.wasm.js"] != "JoltPhysics.js's jolt-physics.wasm.js" {
+		t.Errorf(".tools/jolt/ holds %q", jolt)
+	}
+
+	// Run again, setup downloads nothing it already has.
+	tp.downloads = nil
+	tp.stdout.Reset()
+	if code := tp.c.setup(nil); code != 0 || len(tp.downloads) != 0 || !strings.Contains(tp.stdout.String(), "[ok]   JoltPhysics.js 1.1.0, for rigid bodies in web builds, in .tools/jolt/\n") {
+		t.Errorf("setup again: exit code %d, downloaded %q, output:\n%s", code, tp.downloads, tp.stdout.String())
+	}
 
 	tp = newTestProject(t, "windows", "rocks", "snake")
 	tp.failing = "mod"
@@ -804,6 +819,8 @@ Setup complete.
 	}
 	want = `[fail] could not download the Go modules for games/rocks (see the errors above)
 [fail] could not download the Go modules for games/snake (see the errors above)
+[ok]   GoLib's native library native-1, for rigid bodies, downloaded into .tools/native/
+[ok]   JoltPhysics.js 1.1.0, for rigid bodies in web builds, downloaded into .tools/jolt/
 
 setup: 2 failed, 0 warning(s)
 Setup incomplete. Fix the [fail] items above, then run setup again.

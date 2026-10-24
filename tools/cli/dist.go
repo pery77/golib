@@ -131,7 +131,26 @@ func (c *cli) distGame(game string) string {
 		}
 	}
 
+	// A game with rigid bodies loads golibnative, next to the executable,
+	// or in the app's Frameworks folder on macOS.
+	// makeApp has put it in the app.
+	nativeWhere := c.nativeName() + ", next to " + exe
+	var usesNative bool
+	if c.goos == "darwin" {
+		nativeWhere = built + "/Contents/Frameworks/" + c.nativeName()
+		usesNative, err = usesRigidBodies(exePath)
+	} else {
+		usesNative, err = c.copyNative(game, exePath, folder)
+	}
+	if err != nil {
+		c.check("fail", fmt.Sprintf("cannot copy %s into the game: %v", c.nativeName(), err))
+		return ""
+	}
 	notices := c.gameNotices(game, exe, modules, libraries, beside)
+	if usesNative {
+		c.check("ok", fmt.Sprintf("put GoLib's native library in the game, %s, for its rigid bodies", nativeWhere))
+		notices = append(notices, joltNotice(nativeWhere+": GoLib's native library, for the rigid bodies", false))
+	}
 	text, err := thirdPartyNotices(info.Title, notices)
 	if err == nil {
 		err = os.WriteFile(filepath.Join(folder, noticesFile), text, 0o644)
@@ -167,7 +186,11 @@ func (c *cli) distGame(game string) string {
 	case "linux":
 		c.check("info", fmt.Sprintf("players unzip it and start %s, which needs the files next to it, and libX11.so.6, libGL.so.1 and libffi.so.8 from their system. What the game saves with golib.SaveData goes in ~/.config/GoLib games/%s", exe, game))
 	default:
-		c.check("info", fmt.Sprintf("players unzip it and open %s, which carries %s inside, and copies them into the player's ~/Library/Caches folder when it first starts. What the game saves with golib.SaveData goes in ~/Library/Application Support/GoLib games/%s. No Apple developer account signs the app, so the first time macOS stops it: players open it from System Settings, Privacy & Security, Open Anyway", built, joinWords(names), game))
+		native := ""
+		if usesNative {
+			native = ", and golibnative.dylib, which it loads from Contents/Frameworks/"
+		}
+		c.check("info", fmt.Sprintf("players unzip it and open %s, which carries %s inside, and copies them into the player's ~/Library/Caches folder when it first starts%s. What the game saves with golib.SaveData goes in ~/Library/Application Support/GoLib games/%s. No Apple developer account signs the app, so the first time macOS stops it: players open it from System Settings, Privacy & Security, Open Anyway", built, joinWords(names), native, game))
 	}
 	return exePath
 }
