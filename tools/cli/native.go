@@ -34,7 +34,7 @@ const physicsMarker = "golib-uses-rigid-bodies:jolt-physics"
 // with the system's extension.
 const (
 	nativeRepository = "supercanocoder/golib"
-	nativeRelease    = "native-1"
+	nativeRelease    = "native-2"
 )
 
 // nativeChecksums holds the SHA-256 of golibnative in nativeRelease for each

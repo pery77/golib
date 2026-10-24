@@ -44,6 +44,9 @@ set(TARGET_PERFORMANCE_TEST OFF CACHE BOOL "" FORCE)
 set(TARGET_SAMPLES OFF CACHE BOOL "" FORCE)
 set(TARGET_VIEWER OFF CACHE BOOL "" FORCE)
 set(USE_STATIC_MSVC_RUNTIME_LIBRARY ON CACHE BOOL "" FORCE)
+# The same C++ runtime, inside the library, for golib_physics.cpp as Jolt
+# has, or Visual Studio's linker refuses to put them together.
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 FetchContent_MakeAvailable(JoltPhysics)
 
 add_library(golibnative SHARED golib_physics.cpp)

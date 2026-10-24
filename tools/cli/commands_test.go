@@ -777,7 +777,7 @@ func TestSetup(t *testing.T) {
 	}
 	want := `[ok]   framework: modules downloaded, raylib library for raylib-go v0.60.1 in .tools/raylib/
 [ok]   games/rocks: modules downloaded, raylib library for raylib-go v0.60.1 in .tools/raylib/
-[ok]   GoLib's native library native-1, for rigid bodies, downloaded into .tools/native/
+[ok]   GoLib's native library native-2, for rigid bodies, downloaded into .tools/native/
 [ok]   JoltPhysics.js 1.1.0, for rigid bodies in web builds, downloaded into .tools/jolt/
 
 setup: 0 failed, 2 warning(s)
@@ -819,7 +819,7 @@ Setup complete.
 	}
 	want = `[fail] could not download the Go modules for games/rocks (see the errors above)
 [fail] could not download the Go modules for games/snake (see the errors above)
-[ok]   GoLib's native library native-1, for rigid bodies, downloaded into .tools/native/
+[ok]   GoLib's native library native-2, for rigid bodies, downloaded into .tools/native/
 [ok]   JoltPhysics.js 1.1.0, for rigid bodies in web builds, downloaded into .tools/jolt/
 
 setup: 2 failed, 0 warning(s)
