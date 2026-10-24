@@ -55,11 +55,10 @@ func NewNavMesh(world *PhysicsWorld, character CharacterController) *NavMesh {
 	}
 	height, radius, step, minGround := character.sizes()
 	n := &NavMesh{world: world, cell: radius, height: height, radius: radius, step: step, columns: map[int][]int32{}}
-	world.build()
-	if len(world.nodes) == 0 {
+	lo, hi, ok := world.bounds()
+	if !ok {
 		return n
 	}
-	lo, hi := world.nodes[0].lo, world.nodes[0].hi
 	for float64(hi.X-lo.X)*float64(hi.Z-lo.Z)/float64(n.cell*n.cell) > maxNavPlaces {
 		n.cell *= 1.5
 	}

@@ -123,6 +123,8 @@ func (c *CharacterController) Move(world *PhysicsWorld, motion Vector3) {
 
 	c.Position = moved.position
 	c.Moved = c.Position.Sub(before)
+	c.push(world, moved.pushed, motion)
+	world.placeCharacter(c, height, radius)
 	c.OnGround, c.GroundNormal = moved.ground, moved.groundNormal
 	c.OnCeiling, c.OnWall = moved.ceiling, moved.wall
 	c.GroundBody = 0
@@ -136,6 +138,43 @@ func (c *CharacterController) Move(world *PhysicsWorld, motion Vector3) {
 	}
 }
 
+// characterPush is how heavy a character pushes as, in kilograms: what it
+// walks into moves at its pace when lighter than this, and slower the
+// heavier it is. characterForce is the hardest it pushes, in newtons: a
+// meter-wide crate of light wood slides briskly, two stacked slowly, three
+// not at all.
+const (
+	characterPush  = 80
+	characterForce = 3000
+)
+
+// fixedStep is how long an update lasts, which turns a Move's motion into a
+// speed.
+const fixedStep = 1.0 / updatesPerSecond
+
+// push shoves the rigid bodies the character walked into, across the
+// ground, towards the speed it walks at.
+func (c *CharacterController) push(world *PhysicsWorld, pushed map[int]Vector3, motion Vector3) {
+	for id, away := range pushed {
+		b := world.bodies[id]
+		if b == nil || b.rigid == nil {
+			continue
+		}
+		away = Vector3{X: away.X, Z: away.Z}.Normalize()
+		speed := Vector3{X: motion.X, Z: motion.Z}.Dot(away) / fixedStep
+		if speed <= 0 {
+			continue
+		}
+		r := b.rigid
+		short := speed - r.Velocity().Dot(away)
+		if short <= 0 {
+			continue
+		}
+		// Its strength shared among what it pushes at once.
+		r.Push(away.Scale(min(short*min(r.mass, characterPush), characterForce*fixedStep/float32(len(pushed)))))
+	}
+}
+
 func flat(v Vector3) float32 {
 	return Vector3{X: v.X, Z: v.Z}.Length()
 }
@@ -146,6 +185,8 @@ type moveResult struct {
 	ground, ceiling, wall bool
 	groundNormal          Vector3
 	groundBody            int
+	pushed                map[int]Vector3 // rigid bodies it walked into, and which way
+	motion                Vector3         // the sweep's last step
 }
 
 // sweep moves a capsule from position by motion, a little at a time so it
@@ -156,6 +197,7 @@ func (c *CharacterController) sweep(world *PhysicsWorld, position, motion Vector
 	length := motion.Length()
 	steps := max(1, int(math.Ceil(float64(length/(radius*0.5)))))
 	part := motion.Scale(1 / float32(steps))
+	r.motion = part
 	for range steps {
 		r.position = r.position.Add(part)
 		c.resolve(world, &r, height, radius, step, minGround)
@@ -213,9 +255,26 @@ func (c *CharacterController) resolve(world *PhysicsWorld, r *moveResult, height
 				r.ground = true
 				r.groundNormal, r.groundBody = n, t.body
 			case n.Y <= -0.7:
-				r.position = r.position.Add(n.Scale(depth))
+				// A rigid body on its head rests on the character's capsule
+				// in Jolt, a little inside this one: not a ceiling to be
+				// pushed down by, into the ground.
+				if b := world.bodies[t.body]; b == nil || b.rigid == nil || b.rigid.moved {
+					r.position = r.position.Add(n.Scale(depth))
+				}
 				r.ceiling = true
 			default:
+				if b := world.bodies[t.body]; b != nil && b.rigid != nil && !b.rigid.moved {
+					// A rigid body that came to the character leans on its
+					// capsule in Jolt, a little inside this one: only
+					// walking into one steps the character back from it.
+					if (Vector3{X: r.motion.X, Z: r.motion.Z}).Dot(Vector3{X: n.X, Z: n.Z}) >= 0 {
+						continue
+					}
+					if r.pushed == nil {
+						r.pushed = map[int]Vector3{}
+					}
+					r.pushed[t.body] = n.Scale(-1)
+				}
 				// Pushed back across the ground, not up a ledge's edge.
 				if flat := (Vector3{X: n.X, Z: n.Z}); n.Y > 0 && flat.Length() > 1e-3 {
 					n = flat.Normalize()

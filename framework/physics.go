@@ -4,6 +4,8 @@ import (
 	"errors"
 	"math"
 	"slices"
+
+	"golib/internal/device"
 )
 
 // PhysicsWorld is the solid part of a 3D world, as triangles: a level from
@@ -20,12 +22,34 @@ import (
 //		s.marker = hit.Position
 //	}
 //
-// It holds still things and things the game moves itself, such as a lift,
-// with SetTransform. Things that fall, roll and topple on their own, rigid
-// bodies, come later in M7.
+// It holds still things, things the game moves itself, such as a lift, with
+// SetTransform, and rigid bodies, which fall, roll and topple on their own,
+// simulated by Jolt Physics: see AddRigidBody.
 type PhysicsWorld struct {
-	bodies    map[int]*physicsBody
-	next      int
+	// Gravity pulls the rigid bodies, in meters per second per second:
+	// Earth's, 9.81 down, when zero. Characters fall as the game makes them.
+	Gravity Vector3
+
+	bodies map[int]*physicsBody
+	next   int
+	still  bvh // what never moves, made again only when it changes
+	moving bvh // what moves: lifts and rigid bodies, made again as they move
+
+	rigid      []*RigidBody // in the order they were added
+	jolt       device.Physics
+	joltFailed bool
+	gravity    Vector3 // as Jolt last had it
+
+	// The characters moved through the world, as capsules in Jolt, and how
+	// many times Update has run, which says which have stopped moving.
+	characters []*joltCharacter
+	updates    int
+}
+
+// bvh is a tree of boxes the triangles of some of the world's bodies are
+// sorted into, so a question looks at the few triangles near it rather than
+// all of them.
+type bvh struct {
 	triangles []physicsTriangle
 	nodes     []bvhNode
 	dirty     bool // the triangles or the tree are out of date
@@ -34,10 +58,16 @@ type PhysicsWorld struct {
 // physicsBody is one thing added to a PhysicsWorld: its triangles, three
 // corners each, in its own space, and where it is.
 type physicsBody struct {
-	corners  []Vector3
-	place    matrix
-	previous matrix // where SetTransform moved it from
-	moves    int    // how many times SetTransform moved it
+	corners   []Vector3
+	place     matrix
+	transform Transform // as given, for Jolt
+	previous  matrix    // where SetTransform moved it from
+	moves     int       // how many times it moved
+	moving    bool      // moved since it was added: in the moving tree
+	rigid     *RigidBody
+	joltID    uint32 // its body in Jolt, or device.NoBody
+	joltMoved bool   // a kinematic body in Jolt, which SetTransform moves
+	joltTo    bool   // SetTransform moved it since the last Update
 }
 
 // physicsTriangle is a triangle of a body, placed in the world.
@@ -86,7 +116,7 @@ func (w *PhysicsWorld) AddMesh(mesh *Mesh, transform Transform) int {
 		reportError(errors.New("golib: PhysicsWorld.AddMesh got a nil mesh: make one with golib.NewBoxMesh or another New...Mesh"))
 		return 0
 	}
-	return w.add(meshCorners(mesh, identityMatrix(), nil), transform.matrix())
+	return w.add(meshCorners(mesh, identityMatrix(), nil), transform)
 }
 
 // AddModel adds every mesh of model, at rest and placed by transform, as
@@ -118,7 +148,7 @@ func (w *PhysicsWorld) AddModel(model *Model, transform Transform) int {
 		reportError(err)
 		return 0
 	}
-	return w.add(corners, transform.matrix())
+	return w.add(corners, transform)
 }
 
 // meshCorners returns the corners of mesh's triangles, placed by place, or
@@ -148,72 +178,128 @@ func meshCorners(mesh *Mesh, place matrix, joints []float32) []Vector3 {
 	return out
 }
 
-func (w *PhysicsWorld) add(corners []Vector3, place matrix) int {
+func (w *PhysicsWorld) add(corners []Vector3, transform Transform) int {
 	id := w.next
 	w.next++
-	w.bodies[id] = &physicsBody{corners: corners, place: place}
-	w.dirty = true
+	b := &physicsBody{corners: corners, place: transform.matrix(), transform: transform, joltID: device.NoBody}
+	w.bodies[id] = b
+	w.still.dirty = true
+	w.mirror(b)
 	return id
 }
 
 // Remove takes the body numbered id out of the world: a door opened, a
-// wall broken.
+// wall broken, a rigid body as RigidBody.Remove takes it.
 func (w *PhysicsWorld) Remove(id int) {
+	b := w.bodies[id]
+	if b == nil {
+		return
+	}
+	if b.rigid != nil {
+		b.rigid.Remove()
+		return
+	}
+	if b.joltID != device.NoBody && w.jolt.ID != 0 {
+		device.RemovePhysicsBody(w.jolt, b.joltID)
+	}
 	delete(w.bodies, id)
-	w.dirty = true
+	w.tree(b).dirty = true
 }
 
 // SetTransform moves the body numbered id to transform, as a lift or a
 // drawbridge moves: what is added with a transform is moved by this one in
 // its place. A CharacterController standing on it is carried along at its
-// next Move: move a lift once each update, before the characters.
+// next Move, and rigid bodies are pushed by it at the next Update: move a
+// lift once each update, before the characters and Update.
 func (w *PhysicsWorld) SetTransform(id int, transform Transform) {
-	if b := w.bodies[id]; b != nil {
-		b.previous, b.place = b.place, transform.matrix()
-		b.moves++
-		w.dirty = true
+	b := w.bodies[id]
+	if b == nil || b.rigid != nil {
+		return
+	}
+	if !b.moving {
+		b.moving = true
+		w.still.dirty = true
+		if b.joltID != device.NoBody && w.jolt.ID != 0 {
+			// Still in Jolt until now: moved by the game from here on.
+			device.RemovePhysicsBody(w.jolt, b.joltID)
+			b.joltID = device.NoBody
+			w.mirror(b)
+		}
+	}
+	b.previous, b.place, b.transform = b.place, transform.matrix(), transform
+	b.moves++
+	b.joltTo = true
+	w.moving.dirty = true
+}
+
+// tree returns the tree b's triangles are in.
+func (w *PhysicsWorld) tree(b *physicsBody) *bvh {
+	if b.moving || b.rigid != nil {
+		return &w.moving
+	}
+	return &w.still
+}
+
+// build places the bodies' triangles and sorts them into their trees, when
+// something changed since the last question.
+func (w *PhysicsWorld) build() {
+	for _, t := range []*bvh{&w.still, &w.moving} {
+		if !t.dirty {
+			continue
+		}
+		t.dirty = false
+		t.triangles = t.triangles[:0]
+		ids := make([]int, 0, len(w.bodies))
+		for id, b := range w.bodies {
+			if w.tree(b) == t {
+				ids = append(ids, id)
+			}
+		}
+		slices.Sort(ids) // the same tree every time, so questions answer alike
+		for _, id := range ids {
+			b := w.bodies[id]
+			for i := 0; i+2 < len(b.corners); i += 3 {
+				tri := physicsTriangle{
+					a: b.place.transformPoint(b.corners[i]), b: b.place.transformPoint(b.corners[i+1]),
+					c: b.place.transformPoint(b.corners[i+2]), body: id,
+				}
+				n := tri.b.Sub(tri.a).Cross(tri.c.Sub(tri.a))
+				if n.Length() < 1e-12 {
+					continue // no area: nothing to hit
+				}
+				tri.normal = n.Normalize()
+				t.triangles = append(t.triangles, tri)
+			}
+		}
+		t.nodes = t.nodes[:0]
+		if len(t.triangles) > 0 {
+			t.nodes = append(t.nodes, bvhNode{})
+			t.split(0, 0, len(t.triangles))
+		}
 	}
 }
 
-// build places every body's triangles and sorts them into the tree, when
-// something changed since the last question.
-func (w *PhysicsWorld) build() {
-	if !w.dirty {
-		return
-	}
-	w.dirty = false
-	w.triangles = w.triangles[:0]
-	ids := make([]int, 0, len(w.bodies))
-	for id := range w.bodies {
-		ids = append(ids, id)
-	}
-	slices.Sort(ids) // the same tree every time, so questions answer alike
-	for _, id := range ids {
-		b := w.bodies[id]
-		for i := 0; i+2 < len(b.corners); i += 3 {
-			t := physicsTriangle{
-				a: b.place.transformPoint(b.corners[i]), b: b.place.transformPoint(b.corners[i+1]),
-				c: b.place.transformPoint(b.corners[i+2]), body: id,
-			}
-			n := t.b.Sub(t.a).Cross(t.c.Sub(t.a))
-			if n.Length() < 1e-12 {
-				continue // no area: nothing to hit
-			}
-			t.normal = n.Normalize()
-			w.triangles = append(w.triangles, t)
+// bounds returns the box around everything in the world, and false when it
+// is empty.
+func (w *PhysicsWorld) bounds() (lo, hi Vector3, ok bool) {
+	w.build()
+	for _, t := range []*bvh{&w.still, &w.moving} {
+		if len(t.nodes) == 0 {
+			continue
 		}
+		if !ok {
+			lo, hi, ok = t.nodes[0].lo, t.nodes[0].hi, true
+			continue
+		}
+		lo, hi = lowest(lo, t.nodes[0].lo), highest(hi, t.nodes[0].hi)
 	}
-	w.nodes = w.nodes[:0]
-	if len(w.triangles) > 0 {
-		w.nodes = append(w.nodes, bvhNode{})
-		w.split(0, 0, len(w.triangles))
-	}
+	return lo, hi, ok
 }
 
 // split makes node the box around triangles first to first+count, and,
 // when there are more than a few, splits them in two along the box's
 // longest side.
-func (w *PhysicsWorld) split(node, first, count int) {
+func (w *bvh) split(node, first, count int) {
 	lo, hi := w.triangles[first].bounds()
 	for _, t := range w.triangles[first+1 : first+count] {
 		l, h := t.bounds()
@@ -265,6 +351,11 @@ func highest(a, b Vector3) Vector3 {
 // to hi.
 func (w *PhysicsWorld) near(lo, hi Vector3, visit func(t *physicsTriangle)) {
 	w.build()
+	w.still.near(lo, hi, visit)
+	w.moving.near(lo, hi, visit)
+}
+
+func (w *bvh) near(lo, hi Vector3, visit func(t *physicsTriangle)) {
 	if len(w.nodes) == 0 {
 		return
 	}

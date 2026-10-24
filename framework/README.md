@@ -1016,7 +1016,7 @@ func (s *playScene) Draw(screen *golib.Screen) {
 
 ### Collisions and paths
 
-A `PhysicsWorld` is what is solid in a 3D world, as triangles: a level from Blender, the meshes a game places. Ask it where a ray hits, for the mouse or a shadow, move a `CharacterController` through it, as a player walks, and find paths across it for enemies with a `NavMesh`. Things that fall, roll and bounce on their own, rigid bodies, are not there yet.
+A `PhysicsWorld` is what is solid in a 3D world, as triangles: a level from Blender, the meshes a game places. Ask it where a ray hits, for the mouse or a shadow, move a `CharacterController` through it, as a player walks, and find paths across it for enemies with a `NavMesh`, and add rigid bodies to it, things that fall, roll, topple and stack on their own: crates, barrels, balls.
 
 | Name | What it does |
 | --- | --- |
@@ -1040,6 +1040,67 @@ A `PhysicsWorld` is what is solid in a 3D world, as triangles: a level from Blen
 | `NavMesh` | Where characters of one size can walk in a `PhysicsWorld`, to find their way round what is in it. |
 | `NewNavMesh` | `NewNavMesh(world *PhysicsWorld, character CharacterController) *NavMesh`: where characters sized as `character` walk: its `Height`, `Radius`, `StepHeight` and `MaxSlope`. A grid of places `Radius` apart, on ground above ground too: make it once the world is built, which takes about half a second for 100 by 100 meters, and again when the world changes where they can go. |
 | `NavMesh.Path` | `Path(from, to Vector3) ([]Vector3, bool)`: the points to walk through in turn, straight from one to the next, from `from` to `to`, or to the ground under `to` when it is in the air; false when there is no way. |
+
+#### Rigid bodies
+
+Rigid bodies are simulated by [Jolt Physics](https://github.com/jrouwe/JoltPhysics), the engine of Horizon Forbidden West and of Godot: in GoLib's native library on the desktop and as JoltPhysics.js in a browser, which `golib setup` downloads and the game's builds carry, only when it uses them (see [native/README.md](../native/README.md)). They meet what else is in the `PhysicsWorld`: they land on the level, rays hit them, characters stand on them and push them.
+
+| Name | What it does |
+| --- | --- |
+| `PhysicsWorld.AddRigidBody` | `AddRigidBody(shape BodyShape, transform Transform, options RigidBodyOptions) *RigidBody`: a body of `shape`, placed by `transform`, whose `Scale` stretches the shape, as it stretches a mesh. Add the level first. |
+| `PhysicsWorld.Update` | `Update(dt float32)`: moves the rigid bodies on by `dt`. Call it in every `Update` that has rigid bodies, after moving lifts with `SetTransform` and before moving characters. |
+| `PhysicsWorld.Gravity` | What pulls the rigid bodies, in meters per second per second: Earth's, 9.81 down, when zero. Characters fall as the game makes them, as before. |
+| `BodyShape` | A rigid body's shape. Boxes, balls and capsules are the cheapest, and roll and stack best. |
+| `BoxShape`, `SphereShape`, `CapsuleShape` | `BoxShape(size Vector3)`, a box `size` wide, high and deep, centered on the body's position: a crate; `SphereShape(radius float32)`: a ball; `CapsuleShape(height, radius float32)`: a capsule standing on Y, centered, round at both ends: a barrel on its end. |
+| `ModelShape`, `MeshShape` | `ModelShape(model *Model)` and `MeshShape(mesh *Mesh)`: the shape around a model's meshes, at rest, or a mesh's, with any hollows filled in: a rock, a chair, a statue. Make the shape once and add as many bodies of it as the game needs. |
+| `RigidBodyOptions` | What it is made of and how it moves; the zero value is light wood that falls, slides and bounces a little. |
+| `RigidBodyOptions.Mass` | Kilograms: when zero, its size of light wood, 250 kilograms a cubic meter, so a meter-wide crate is 250 and a character pushes it. Heavier things push lighter ones aside. |
+| `RigidBodyOptions.Friction`, `RigidBodyOptions.NoFriction` | How it grips, from 0, ice, to 1, rubber: 0.5 when zero; `NoFriction` makes it ice. |
+| `RigidBodyOptions.Bounce` | How much of its speed it keeps as it hits something, from 0, a sack, to 1, a rubber ball. |
+| `RigidBodyOptions.Moved` | A body the game moves itself with `MoveTo`, which pushes what is in its way and that nothing pushes back: a piston, a swinging door, a paddle. |
+| `RigidBodyOptions.Fast` | Checks the whole way it moves each update, so a small, fast thing doesn't pass through a thin wall: a ball hit hard. It costs more: only the few that need it. |
+| `RigidBodyOptions.NoGravity` | Floats where it is pushed: a balloon, a thing in space. |
+| `RigidBody` | A body that moves on its own. Keep the pointer to draw it and push it. |
+| `RigidBody.Transform`, `RigidBody.Position` | Where it is and how it is turned now, with the `Scale` it was added with: draw its mesh or model with `Transform()`. |
+| `RigidBody.Velocity`, `RigidBody.Resting`, `RigidBody.Mass` | How fast it moves, in meters per second; whether it has come to rest, a crate that has landed; how heavy it is. |
+| `RigidBody.ID` | Its number in the world: what `RayHit.Body` and `CharacterController.GroundBody` say when they meet it. |
+| `RigidBody.SetVelocity` | `SetVelocity(velocity Vector3)`: how fast it moves, at once: a ball thrown. |
+| `RigidBody.Push`, `RigidBody.PushAt` | `Push(impulse Vector3)`: a blow through its middle, in kilograms times meters per second, so the same kick sends a ball flying and nudges a car; `PushAt(impulse, point Vector3)`: a blow at a point on it, which spins it too: a crate hit at a corner. |
+| `RigidBody.Teleport` | `Teleport(transform Transform)`: puts it somewhere else at once, still moving as it moved: a ball respawned. |
+| `RigidBody.MoveTo` | `MoveTo(transform Transform)`: moves a body added with `Moved` there by the next `Update`, pushing what is in its way. Call it in every update the body moves. |
+| `RigidBody.Remove` | `Remove()`: takes it out of the world: a crate broken, a ball lost. |
+
+```go
+var crateMesh = golib.NewBoxMesh() // one meter each way, as the shape
+
+func newPlayScene() *playScene {
+	s := &playScene{physics: golib.NewPhysicsWorld()}
+	s.physics.AddModel(level, golib.Transform{})
+	box := golib.BoxShape(golib.Vector3{X: 1, Y: 1, Z: 1})
+	for i := range 5 { // a stack of crates
+		at := golib.Vector3{Y: 0.5 + float32(i)}
+		s.crates = append(s.crates, s.physics.AddRigidBody(box, golib.Transform{Position: at}, golib.RigidBodyOptions{}))
+	}
+	return s
+}
+
+func (s *playScene) Update(input *golib.Input, dt float32) {
+	s.physics.Update(dt) // before the characters
+	s.player.body.Move(s.physics, s.player.velocity.Scale(dt)) // walks into the crates and pushes them
+}
+
+func (s *playScene) Draw(screen *golib.Screen) {
+	// ...inside Begin3D and End3D:
+	for _, c := range s.crates {
+		screen.DrawMesh(crateMesh, c.Transform(), golib.Brown)
+	}
+}
+```
+
+- **A character pushes what it walks into** as a strong person would: a ball rolls away at its pace, a meter-wide crate slides briskly, two stacked slowly, three or a 2000-kilogram block not at all. It stands on rigid bodies, and is carried when they move under it. Rigid bodies meet a character as a post: a crate dropped on its head lands there or slides off, a ball bounces off its legs; they never push it. Jolt keeps a capsule for each character that moved since the last `Update`, a little thinner than its `CharacterController`.
+- **The simulation follows the world's still and moved things**: a lift moved with `SetTransform` carries the crates on it, a wall taken out with `Remove` lets them fall. Add rigid bodies once the level is in.
+- **Hundreds of bodies are fine**, and thousands when most are at rest: Jolt stops working out what has come to rest until something touches it. 118 crates and balls, most of them moving, took 0.15 to 0.35 milliseconds an update on an Intel Mac, and 0.7 in Chrome.
+- **When the native library is missing**, `AddRigidBody` reports why, `golib build` fails and says to run `golib setup`, and the bodies stay where they were added.
 
 ```go
 type player struct {
@@ -1788,7 +1849,7 @@ func TestJumpOnlyFromTheGround(t *testing.T) {
 
 - `Rectangle`, the random numbers, `ReadAsset`, `Animation`, a sprite's `Width`, `Height`, `Frames` and `Animation`, and everything a `Map` has but drawing work in tests; `golib test` runs them in the game's folder, so a test can check that a level has a start and the player can reach the exit. `golib test <game> --run <TestName>` runs only that test and shows what it logs with `t.Log`.
 - `Sound.Play` and `Music.Play` play nothing in tests; `Sound.Play` still reads a sound file, so a test that plays it checks the file.
-- In 3D, `Vector3`, `Rotation`, `Transform`, `Camera3D` (`ToScreen`, `Ray`, `Orbit`, `Look`, `Follow`, `AvoidWalls`, `Direction`, `Update`), a model's `Err`, `Bounds`, `Markers`, `Animations`, `AnimationLength` and `Bones`, an `Animator` (`Play`, `Update`, `Playing`, `Time`, `Bone`, `Moved`), and a `PhysicsWorld` with its `CharacterController`s and `NavMesh` work in tests: check which way a key moves a character on the screen, that a level's markers are where they should be, as `games/hopper/level_test.go` does, that a jump plays the jump, that a wall stops the player, and that every key can be reached, as `games/crypt`'s tests do.
+- In 3D, `Vector3`, `Rotation`, `Transform`, `Camera3D` (`ToScreen`, `Ray`, `Orbit`, `Look`, `Follow`, `AvoidWalls`, `Direction`, `Update`), a model's `Err`, `Bounds`, `Markers`, `Animations`, `AnimationLength` and `Bones`, an `Animator` (`Play`, `Update`, `Playing`, `Time`, `Bone`, `Moved`), and a `PhysicsWorld` with its `CharacterController`s, `NavMesh` and rigid bodies (with the native library `golib setup` downloads, which `golib test` finds) work in tests: check which way a key moves a character on the screen, that a level's markers are where they should be, as `games/hopper/level_test.go` does, that a jump plays the jump, that a wall stops the player, and that every key can be reached, as `games/crypt`'s tests do.
 - `Run` and `Screen` need a window: check drawing with `golib shot` instead.
 
 ## Using raylib directly
@@ -1841,7 +1902,8 @@ A web build is what a phone plays, so a game meant for one is a game meant for t
 | Parts of an image that aren't on a grid, Aseprite slices and tilemap layers | Not on the roadmap yet | Save each part as its own PNG file, or put the parts on a grid |
 | Isometric and hexagonal maps; drawing a map's shapes and text | Not on the roadmap yet | Orthogonal maps; draw what objects stand for with sprites and shapes |
 | Positional sound in 2D | Not on the roadmap yet: 3D has `Sound.PlayAt` | `Sound.PlayWith` at a lower volume for what is far away |
-| Physics: things that fall, roll and bounce on their own | Planned (M7, stage 6): rigid bodies with Jolt, after the collisions, the character controller and the paths in Go, which are there | In 2D, simple movement and `Rectangle` overlap checks in the game; in 3D, a `CharacterController` for what walks, and movement the game works out for what flies or rolls, checked with `SphereCast` |
+| Physics in 2D: things that fall, roll and bounce on their own | Not on the roadmap yet: 3D has rigid bodies, with Jolt | Simple movement and `Rectangle` overlap checks in the game |
+| Joints between rigid bodies (hinges, chains, ragdolls), cars, and rigid bodies that push characters | Not on the roadmap yet | A swinging door is a `Moved` body turned by the game; a falling crate the game checks against the player |
 | Trigger pressure, vibration | Not on the roadmap yet | Triggers read as buttons |
 | 3D shadows from lamps, inverse kinematics, and hiding or reading one part of a model | Planned (M7, stage 7): see [docs/roadmap.md](../docs/roadmap.md#m7-3d-planned); inverse kinematics isn't on the roadmap yet | Models, materials, lights, the sun's shadows and fog work |
 | Reflections of the world in water and mirrors, a tint for each draw of one `Material`, and hiding or dimming part of an HDRI | Planned (M7, stage 7) | Shiny things reflect the HDRI or the sky; make a `Material` for each color; paint the HDRI over in a copy made offline, as [games/sunset](../games/sunset)'s `sources/skies/lakesky.go` does |

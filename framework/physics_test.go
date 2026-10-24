@@ -290,3 +290,125 @@ func TestNavMeshPathToAPointInTheAir(t *testing.T) {
 		t.Errorf("a path to a point 4 m up ends at %v, %v, want on the floor under it", path, ok)
 	}
 }
+
+// needJolt skips a test when this machine has no native library yet.
+func needJolt(t *testing.T, w *PhysicsWorld) {
+	t.Helper()
+	if !w.startJolt() {
+		takeError()
+		t.Skip("no golibnative here: run golib setup")
+	}
+}
+
+func TestRigidBodiesFallStackAndArePushed(t *testing.T) {
+	w, _ := floorWorld()
+	needJolt(t, w)
+	box := BoxShape(Vector3{X: 1, Y: 1, Z: 1})
+	bottom := w.AddRigidBody(box, Transform{Position: Vector3{Y: 2}}, RigidBodyOptions{})
+	top := w.AddRigidBody(box, Transform{Position: Vector3{Y: 4}, Rotation: Rotation{Yaw: 20}}, RigidBodyOptions{})
+	ball := w.AddRigidBody(SphereShape(0.25), Transform{Position: Vector3{X: 3, Y: 3}}, RigidBodyOptions{Bounce: 0.8})
+	highest := float32(0)
+	for frame := range 240 {
+		w.Update(1.0 / 60)
+		if frame > 60 {
+			highest = max(highest, ball.Position().Y)
+		}
+	}
+	if !within(bottom.Position().Y, 0.5, 0.03) || !within(top.Position().Y, 1.5, 0.05) {
+		t.Errorf("two crates dropped on each other rest at %v and %v, want stacked at 0.5 and 1.5", bottom.Position(), top.Position())
+	}
+	if !bottom.Resting() {
+		t.Error("the bottom crate is still moving after four seconds")
+	}
+	if highest < 0.6 {
+		t.Errorf("a bouncy ball dropped from 3 m bounced up to %v, want back above 0.6", highest)
+	}
+	if bottom.Mass() != 250 {
+		t.Errorf("a meter-wide crate weighs %v, want 250 kg of light wood", bottom.Mass())
+	}
+
+	// A ray hits the top crate; the triangles follow the body.
+	hit, ok := w.Raycast(Vector3{Y: 10}, Vector3{Y: -1}, 20)
+	if !ok || hit.Body != top.ID() || !within(hit.Position.Y, 2, 0.05) {
+		t.Errorf("a ray down onto the stack hits %+v, %v, want the top crate's top at 2", hit, ok)
+	}
+
+	// A character walking into the ball pushes it ahead.
+	ball.Teleport(Transform{Position: Vector3{X: 3, Y: 0.25, Z: 1}})
+	ball.SetVelocity(Vector3{})
+	walker := &CharacterController{Position: Vector3{X: 3, Z: -1}, OnGround: true}
+	for range 60 {
+		walker.Move(w, Vector3{Z: 3.0 / 60, Y: -0.05})
+		w.Update(1.0 / 60)
+	}
+	if ball.Position().Z < 2 {
+		t.Errorf("the character walked into the ball at z = 1, and it is now at %v, want pushed ahead", ball.Position())
+	}
+
+	// A character stands on a crate.
+	stander := &CharacterController{Position: Vector3{Y: 2.2}}
+	for range 30 {
+		stander.Move(w, Vector3{Y: -0.1})
+	}
+	if !stander.OnGround || stander.GroundBody != top.ID() {
+		t.Errorf("dropped on the stack the character stands on body %d (ground %v), want the top crate, %d", stander.GroundBody, stander.OnGround, top.ID())
+	}
+	top.Remove()
+	if _, ok := w.Raycast(Vector3{Y: 10}, Vector3{Y: -1}, 8.6); ok {
+		t.Error("the removed crate is still hit")
+	}
+}
+
+// A crate dropped on a character lands on its head, or falls off beside it,
+// instead of passing into it and squashing it into the ground; a rolling
+// ball bounces off its legs; a heavy stack doesn't move when walked into.
+func TestRigidBodiesMeetCharacters(t *testing.T) {
+	w, _ := floorWorld()
+	needJolt(t, w)
+	box := BoxShape(Vector3{X: 1, Y: 1, Z: 1})
+	crate := w.AddRigidBody(box, Transform{Position: Vector3{Y: 4}}, RigidBodyOptions{})
+	ball := w.AddRigidBody(SphereShape(0.25), Transform{Position: Vector3{X: 4, Y: 0.25}}, RigidBodyOptions{})
+	ball.SetVelocity(Vector3{X: -4})
+	standing := &CharacterController{}
+	lowest := float32(0)
+	for range 180 {
+		w.Update(1.0 / 60)
+		standing.Move(w, Vector3{Y: -0.05})
+		lowest = min(lowest, standing.Position.Y)
+	}
+	if lowest < -0.02 {
+		t.Errorf("a crate fell on a character, which sank to %v, want it standing at 0", lowest)
+	}
+	if p := crate.Position(); p.Y < 0.45 || (p.Y < 1.8 && Vector3{X: p.X, Z: p.Z}.Length() < 0.75) {
+		t.Errorf("a crate dropped on a character is at %v, inside it", p)
+	}
+	if p := ball.Position(); p.X < 0.2 {
+		t.Errorf("a ball rolled at a character is at %v, through it", p)
+	}
+
+	// Two stacked crates and more stay where they are when walked into;
+	// one slides.
+	w, _ = floorWorld()
+	needJolt(t, w)
+	for i := range 3 {
+		w.AddRigidBody(box, Transform{Position: Vector3{X: -3, Y: 0.5 + float32(i), Z: 2}}, RigidBodyOptions{})
+	}
+	single := w.AddRigidBody(box, Transform{Position: Vector3{X: 3, Y: 0.5, Z: 2}}, RigidBodyOptions{})
+	for range 60 {
+		w.Update(1.0 / 60)
+	}
+	stack := w.rigid[0]
+	walkers := []*CharacterController{{Position: Vector3{X: -3, Z: 1}}, {Position: Vector3{X: 3, Z: 1}}}
+	for range 120 {
+		w.Update(1.0 / 60)
+		for _, c := range walkers {
+			c.Move(w, Vector3{Z: 4.0 / 60, Y: -0.05})
+		}
+	}
+	if z := stack.Position().Z; z > 2.1 {
+		t.Errorf("a stack of three crates walked into moved to z = %v, want it to stay at 2", z)
+	}
+	if z := single.Position().Z; z < 3 {
+		t.Errorf("a crate walked into for two seconds is at z = %v, want pushed ahead", z)
+	}
+}
