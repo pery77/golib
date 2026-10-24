@@ -1,0 +1,19 @@
+{
+  "name": "Warm-up",
+  "par": 5,
+  "start": {"x": 0, "z": 6},
+  "focus": {"x": 1, "z": -2.5},
+  "platforms": [
+    {"x": -1, "z": -3, "width": 3, "height": 1.2, "depth": 2,
+     "stacks": [{"x": 0, "z": 0, "along": "x", "layers": ["CCC", "CC", "C"]}]},
+    {"x": 3.5, "z": -2, "width": 2, "height": 1, "depth": 2,
+     "stacks": [{"x": 0, "z": 0, "along": "x", "layers": ["BB", "C"]}]}
+  ],
+  "stones": [
+    {"x": -3.8, "z": 0.5, "width": 1.4, "height": 1.2, "depth": 1.4}
+  ],
+  "loose": [
+    {"x": -3, "z": 2, "kind": "C"},
+    {"x": 2.5, "z": 3, "kind": "B"}
+  ]
+}
