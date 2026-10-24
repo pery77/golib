@@ -1128,6 +1128,228 @@ void main() {
 		dataTextures.delete(id);
 	}
 
+	// ---------------------------------------------------------------- physics
+
+	// Rigid bodies, from JoltPhysics.js, Jolt Physics built for
+	// WebAssembly, which web builds of games that use them carry beside
+	// this file as jolt-physics.wasm.js and its .wasm. It loads the first
+	// time a game makes a world.
+	let Jolt = null, joltLoading = null;
+	const physicsWorlds = new Map(); // id -> { jolt, system, bodies, ids, v, w, r, q }
+
+	function loadJolt(done) {
+		if (Jolt) { done(''); return; }
+		if (!joltLoading) {
+			joltLoading = import(new URL('jolt-physics.wasm.js', document.baseURI).href)
+				.then(function (m) { return m.default(); })
+				.then(function (j) { Jolt = j; });
+		}
+		joltLoading.then(function () { done(''); }, function (e) {
+			done('the page could not load jolt-physics.wasm.js, which rigid bodies need: build the game again with golib web or golib dist --web (' + e + ')');
+		});
+	}
+
+	function newPhysics(maxBodies) {
+		const settings = new Jolt.JoltSettings();
+		const most = Math.max(1024, maxBodies);
+		settings.mMaxBodies = most;
+		settings.mMaxBodyPairs = Math.min(most, 16384);
+		settings.mMaxContactConstraints = Math.min(most, 8192);
+		// Two layers, as golibnative has them: what never moves, and what
+		// does; still things don't collide with each other.
+		const pairs = new Jolt.ObjectLayerPairFilterTable(2);
+		pairs.EnableCollision(0, 1);
+		pairs.EnableCollision(1, 1);
+		const broad = new Jolt.BroadPhaseLayerInterfaceTable(2, 2);
+		broad.MapObjectToBroadPhaseLayer(0, new Jolt.BroadPhaseLayer(0));
+		broad.MapObjectToBroadPhaseLayer(1, new Jolt.BroadPhaseLayer(1));
+		settings.mObjectLayerPairFilter = pairs;
+		settings.mBroadPhaseLayerInterface = broad;
+		settings.mObjectVsBroadPhaseLayerFilter = new Jolt.ObjectVsBroadPhaseLayerFilterTable(broad, 2, pairs, 2);
+		const jolt = new Jolt.JoltInterface(settings);
+		Jolt.destroy(settings);
+		const system = jolt.GetPhysicsSystem();
+		system.SetGravity(new Jolt.Vec3(0, -9.81, 0));
+		const id = nextID++;
+		physicsWorlds.set(id, {
+			jolt: jolt, system: system, bodies: system.GetBodyInterface(), ids: new Map(),
+			v: new Jolt.Vec3(), w: new Jolt.Vec3(), r: new Jolt.RVec3(), q: new Jolt.Quat(),
+		});
+		return id;
+	}
+
+	function freePhysics(id) {
+		const world = physicsWorlds.get(id);
+		if (!world) return;
+		Jolt.destroy(world.jolt);
+		physicsWorlds.delete(id);
+	}
+
+	function physicsGravity(id, x, y, z) {
+		const world = physicsWorlds.get(id);
+		if (world) world.system.SetGravity(new Jolt.Vec3(x, y, z));
+	}
+
+	// floatsOf reads bytes from Go as the floats they are.
+	function floatsOf(bytes) {
+		return new Float32Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 4);
+	}
+
+	// keepBody keeps a new body's id, and returns its number, as the
+	// desktop's library numbers bodies.
+	function keepBody(world, bodyID) {
+		const number = bodyID.GetIndexAndSequenceNumber();
+		world.ids.set(number, new Jolt.BodyID(number));
+		return number;
+	}
+
+	// addPhysicsMesh adds a body of triangles in its own space, placed as
+	// moreBytes says: friction, restitution, position, rotation, and 1 for a
+	// body the game moves.
+	function addPhysicsMesh(id, bytes, moreBytes) {
+		const world = physicsWorlds.get(id);
+		const c = floatsOf(bytes), m = floatsOf(moreBytes);
+		const triangles = new Jolt.TriangleList();
+		const a = new Jolt.Vec3(), b = new Jolt.Vec3(), d = new Jolt.Vec3();
+		for (let i = 0; i + 8 < c.length; i += 9) {
+			a.Set(c[i], c[i + 1], c[i + 2]);
+			b.Set(c[i + 3], c[i + 4], c[i + 5]);
+			d.Set(c[i + 6], c[i + 7], c[i + 8]);
+			const t = new Jolt.Triangle(a, b, d);
+			triangles.push_back(t);
+			Jolt.destroy(t);
+		}
+		const result = new Jolt.MeshShapeSettings(triangles).Create();
+		Jolt.destroy(triangles);
+		if (result.HasError()) return 0xffffffff;
+		const moved = m[9] === 1;
+		const settings = new Jolt.BodyCreationSettings(result.Get(), new Jolt.RVec3(m[2], m[3], m[4]), new Jolt.Quat(m[5], m[6], m[7], m[8]),
+			moved ? Jolt.EMotionType_Kinematic : Jolt.EMotionType_Static, moved ? 1 : 0);
+		settings.mFriction = m[0];
+		settings.mRestitution = m[1];
+		const number = keepBody(world, world.bodies.CreateAndAddBody(settings, moved ? Jolt.EActivation_Activate : Jolt.EActivation_DontActivate));
+		Jolt.destroy(settings);
+		return number;
+	}
+
+	// addPhysicsBody reads a body's description, in the order of
+	// physics.go's Body constants.
+	function addPhysicsBody(id, bytes) {
+		const world = physicsWorlds.get(id);
+		const d = floatsOf(bytes);
+		let result = null;
+		switch (d[0]) {
+			case 0:
+				result = new Jolt.BoxShapeSettings(new Jolt.Vec3(d[1], d[2], d[3]), Math.min(0.05, 0.5 * Math.min(d[1], d[2], d[3]))).Create();
+				break;
+			case 1:
+				result = new Jolt.SphereShapeSettings(d[1]).Create();
+				break;
+			case 2:
+				result = new Jolt.CapsuleShapeSettings(d[2], d[1]).Create();
+				break;
+			case 3: {
+				const hull = new Jolt.ConvexHullShapeSettings();
+				for (let i = 0; i < d[19]; i++) {
+					hull.mPoints.push_back(new Jolt.Vec3(d[20 + i * 3], d[21 + i * 3], d[22 + i * 3]));
+				}
+				hull.mMaxConvexRadius = 0.02;
+				result = hull.Create();
+				break;
+			}
+		}
+		if (!result || result.HasError()) return 0xffffffff;
+		const motion = d[11] === 2 ? Jolt.EMotionType_Dynamic : (d[11] === 1 ? Jolt.EMotionType_Kinematic : Jolt.EMotionType_Static);
+		const settings = new Jolt.BodyCreationSettings(result.Get(), new Jolt.RVec3(d[4], d[5], d[6]),
+			new Jolt.Quat(d[7], d[8], d[9], d[10]), motion, motion === Jolt.EMotionType_Static ? 0 : 1);
+		if (d[12] > 0) {
+			settings.mOverrideMassProperties = Jolt.EOverrideMassProperties_CalculateInertia;
+			settings.mMassPropertiesOverride.mMass = d[12];
+		}
+		settings.mFriction = d[13];
+		settings.mRestitution = d[14];
+		settings.mLinearDamping = d[15];
+		settings.mAngularDamping = d[16];
+		settings.mGravityFactor = d[17];
+		if (d[18] !== 0) settings.mMotionQuality = Jolt.EMotionQuality_LinearCast;
+		const activation = motion === Jolt.EMotionType_Static ? Jolt.EActivation_DontActivate : Jolt.EActivation_Activate;
+		const number = keepBody(world, world.bodies.CreateAndAddBody(settings, activation));
+		Jolt.destroy(settings);
+		return number;
+	}
+
+	function removePhysicsBody(id, number) {
+		const world = physicsWorlds.get(id);
+		const body = world && world.ids.get(number);
+		if (!body) return;
+		world.bodies.RemoveBody(body);
+		world.bodies.DestroyBody(body);
+		Jolt.destroy(body);
+		world.ids.delete(number);
+	}
+
+	function stepPhysics(id, dt, steps) {
+		const world = physicsWorlds.get(id);
+		if (world) world.jolt.Step(dt, Math.max(1, steps));
+	}
+
+	// readPhysicsBodies writes 14 floats for each body numbered in idBytes
+	// into out: position, rotation, velocity, spin, awake.
+	function readPhysicsBodies(id, idBytes, out) {
+		const world = physicsWorlds.get(id);
+		const numbers = new Uint32Array(idBytes.buffer, idBytes.byteOffset, idBytes.byteLength / 4);
+		const o = new Float32Array(numbers.length * 14);
+		for (let i = 0; i < numbers.length; i++) {
+			const body = world.ids.get(numbers[i]);
+			if (!body) continue;
+			world.bodies.GetPositionAndRotation(body, world.r, world.q);
+			const v = world.bodies.GetLinearVelocity(body);
+			const k = i * 14;
+			o[k] = world.r.GetX(); o[k + 1] = world.r.GetY(); o[k + 2] = world.r.GetZ();
+			o[k + 3] = world.q.GetX(); o[k + 4] = world.q.GetY(); o[k + 5] = world.q.GetZ(); o[k + 6] = world.q.GetW();
+			o[k + 7] = v.GetX(); o[k + 8] = v.GetY(); o[k + 9] = v.GetZ();
+			const s = world.bodies.GetAngularVelocity(body);
+			o[k + 10] = s.GetX(); o[k + 11] = s.GetY(); o[k + 12] = s.GetZ();
+			o[k + 13] = world.bodies.IsActive(body) ? 1 : 0;
+		}
+		out.set(new Uint8Array(o.buffer));
+	}
+
+	// setPhysicsBody changes a body as physics.go's Set constants say.
+	function setPhysicsBody(id, number, what, bytes) {
+		const world = physicsWorlds.get(id);
+		const body = world && world.ids.get(number);
+		if (!body) return;
+		const v = floatsOf(bytes);
+		const b = world.bodies;
+		switch (what) {
+			case 0:
+				world.r.Set(v[0], v[1], v[2]);
+				world.q.Set(v[3], v[4], v[5], v[6]);
+				b.SetPositionAndRotation(body, world.r, world.q, Jolt.EActivation_Activate);
+				break;
+			case 1:
+				world.v.Set(v[0], v[1], v[2]);
+				world.w.Set(v[3], v[4], v[5]);
+				b.SetLinearAndAngularVelocity(body, world.v, world.w);
+				break;
+			case 2:
+				world.v.Set(v[0], v[1], v[2]);
+				world.r.Set(v[3], v[4], v[5]);
+				b.AddImpulse(body, world.v, world.r);
+				break;
+			case 3:
+				world.r.Set(v[0], v[1], v[2]);
+				world.q.Set(v[3], v[4], v[5], v[6]);
+				b.MoveKinematic(body, world.r, world.q, v[7]);
+				break;
+			case 4:
+				world.v.Set(v[0], v[1], v[2]);
+				b.AddForce(body, world.v, Jolt.EActivation_Activate);
+				break;
+		}
+	}
+
 	// Work targets: pictures a pass draws into and reads back on the way to
 	// the screen, in half floats where the browser can render into them.
 	const workTargets = new Map(); // id -> { framebuffer, texture, width, height }
@@ -2216,6 +2438,9 @@ void main() {
 		newShadowMap: newShadowMap, unloadShadowMap: unloadShadowMap,
 		newWorkTarget: newWorkTarget, unloadWorkTarget: unloadWorkTarget,
 		newDataTexture: newDataTexture, unloadDataTexture: unloadDataTexture,
+		loadJolt: loadJolt, newPhysics: newPhysics, freePhysics: freePhysics, physicsGravity: physicsGravity,
+		addPhysicsMesh: addPhysicsMesh, addPhysicsBody: addPhysicsBody, removePhysicsBody: removePhysicsBody,
+		stepPhysics: stepPhysics, readPhysicsBodies: readPhysicsBodies, setPhysicsBody: setPhysicsBody,
 		newProgram3D: newProgram3D, unloadProgram3D: unloadProgram3D, location3D: location3D,
 		readFont: readFont,
 		openAudio: openAudio, closeAudio: closeAudio, setMasterVolume: setMasterVolume,
