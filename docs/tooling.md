@@ -140,6 +140,24 @@ A game needs them only if it makes rigid bodies. `framework/internal/device` kee
 
 The game finds `golibnative` next to its executable, then in `../Frameworks/`, then on the library search path, and checks `golib_version()` against the interface it knows (`framework/internal/device/raylib_physics.go`). Without it, `AddRigidBody` reports why and the bodies stay where they were added.
 
+### When rigid bodies don't work
+
+Run `golib doctor` first: it says whether `.tools/native/` and `.tools/jolt/` hold what setup downloads. Then find the message:
+
+| Message | Cause | Fix |
+| --- | --- | --- |
+| `setup`: `[fail] cannot download GoLib's native library native-2: ...` or `cannot download JoltPhysics.js 1.1.0: ...` | No connection to github.com or cdn.jsdelivr.net, a proxy in the way, or a download that isn't the file GoLib expects (`isn't the file GoLib expects: its SHA-256 is ...`) | Run `golib setup` again with a connection. A checksum that keeps failing means the release changed: compare `SHA256SUMS` in the release with `nativeChecksums` in `tools/cli/native.go`, and never replace the checksum without knowing why |
+| `setup`: `[info] GoLib's native library has no release for <os>/<arch> yet` | A platform the release doesn't cover, such as Windows on ARM | Build it with `native/build.sh`, or CMake on Windows (see [native/README.md](../native/README.md)), or add the platform to the workflow |
+| `build`, `run` or `shot`: `[fail] ... games/<game> uses rigid bodies, which need GoLib's native library, and .tools/native/ has no golibnative...` | Setup hasn't run since rigid bodies came, or `.tools/` was cleaned | `golib setup`, then the command again |
+| `web` or `dist --web`: `[fail] games/<game> uses rigid bodies, which need JoltPhysics.js in a browser...` | The same, for `.tools/jolt/` | `golib setup` |
+| The game stops with `rigid bodies need GoLib's native library, golibnative..., which isn't next to the game` | The executable was started from somewhere golib didn't put the library: copied out of `build/<game>/`, or built with `golib go build` | Start it with `golib run`, or share it with `golib dist`, which puts the library next to it |
+| The game stops with `golibnative... is version N, and this GoLib needs version M` or `has no golib_...` | An old library left in `.tools/native/` or next to the game, after GoLib changed the library's interface | `golib setup`, which downloads the release this GoLib names, then build the game again |
+| A page with rigid bodies says `the page could not load jolt-physics.wasm.js` | The page was opened from the disk (`file://`), which can't load modules, or the two JoltPhysics.js files weren't uploaded with it | Open it with `golib web`; upload the whole folder `golib dist --web` makes, or its zip |
+| macOS says the app is damaged | A file changed inside the app after `dist` signed it | Make it again with `golib dist`, and don't add files to the `.app` |
+| The framework's rigid body tests are skipped: `no golibnative here: run golib setup` | `golib test` didn't find the library | `golib setup` |
+
+On Windows the library carries the C++ runtime inside it and imports only `KERNEL32.dll`, so it needs nothing installed; Linux's carries libstdc++ and needs only the system's C library, glibc 2.34 or later (Ubuntu 22.04 and newer, Debian 12, Fedora 35). These two builds come from the workflow and have been built, not yet run in a game: a message other than those above on Windows or Linux is new, and worth writing into this table once it is understood.
+
 ## Screenshots
 
 `golib shot [game] [frame...] [--input "<script>"] [--save <file>] [--scale <n>]` builds a game and runs it with these environment variables set:

@@ -1102,7 +1102,7 @@ func (s *playScene) Draw(screen *golib.Screen) {
 - **Hundreds of bodies are fine**, and thousands when most are at rest: Jolt stops working out what has come to rest until something touches it. 118 crates and balls, most of them moving, took 0.15 to 0.35 milliseconds an update on an Intel Mac, and 0.7 in Chrome; a character's `Move` beside 118 falling balls took 0.4 milliseconds more, and 0.01 once they had come to rest, since bodies at rest keep their triangles where they are.
 - **A world the game keeps no longer is freed**, Jolt's copy included, at the next `Update` of another: make a new `PhysicsWorld` for each level and drop the old one.
 - **No collision events yet**: a sound when things hit is a sudden change in a body's `Velocity` from one update to the next, which the game checks.
-- **When the native library is missing**, `AddRigidBody` reports why, `golib build` fails and says to run `golib setup`, and the bodies stay where they were added.
+- **When the native library is missing** (for every message and its fix, see [docs/tooling.md](../docs/tooling.md#when-rigid-bodies-dont-work)), `AddRigidBody` reports why, `golib build` fails and says to run `golib setup`, and the bodies stay where they were added.
 
 ```go
 type player struct {

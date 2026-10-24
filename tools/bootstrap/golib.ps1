@@ -420,6 +420,20 @@ function Invoke-Doctor([string[]]$Options) {
         }
     }
 
+    # Rigid bodies: GoLib's native library and JoltPhysics.js, which setup downloads. Only games
+    # with rigid bodies need them, so a missing one is information, not a warning.
+    if (Test-Path -LiteralPath (Join-Path $ToolsDir 'native\golibnative.dll') -PathType Leaf) {
+        Write-Check ok "GoLib's native library, for rigid bodies, in .tools/native/"
+    } else {
+        Write-Check info "GoLib's native library, for rigid bodies, not in .tools/native/ (run: golib setup; only games with rigid bodies need it)"
+    }
+    $joltDir = Join-Path $ToolsDir 'jolt'
+    if ((Test-Path -LiteralPath (Join-Path $joltDir 'jolt-physics.wasm.js') -PathType Leaf) -and (Test-Path -LiteralPath (Join-Path $joltDir 'jolt-physics.wasm.wasm') -PathType Leaf)) {
+        Write-Check ok 'JoltPhysics.js, for rigid bodies in web builds, in .tools/jolt/'
+    } else {
+        Write-Check info 'JoltPhysics.js, for rigid bodies in web builds, not in .tools/jolt/ (run: golib setup; only games with rigid bodies need it)'
+    }
+
     Write-Summary 'doctor'
     if ($script:Failures -gt 0) { exit 1 }
     exit 0

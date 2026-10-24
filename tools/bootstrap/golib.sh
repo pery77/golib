@@ -447,6 +447,20 @@ cmd_doctor() {
     fi
   done
 
+  # Rigid bodies: GoLib's native library and JoltPhysics.js, which setup downloads. Only games
+  # with rigid bodies need them, so a missing one is information, not a warning.
+  if [ "$goos" = darwin ]; then cd_native=golibnative.dylib; else cd_native=golibnative.so; fi
+  if [ -f "$tools_dir/native/$cd_native" ]; then
+    check ok "GoLib's native library, for rigid bodies, in .tools/native/"
+  else
+    check info "GoLib's native library, for rigid bodies, not in .tools/native/ (run: golib setup; only games with rigid bodies need it)"
+  fi
+  if [ -f "$tools_dir/jolt/jolt-physics.wasm.js" ] && [ -f "$tools_dir/jolt/jolt-physics.wasm.wasm" ]; then
+    check ok "JoltPhysics.js, for rigid bodies in web builds, in .tools/jolt/"
+  else
+    check info "JoltPhysics.js, for rigid bodies in web builds, not in .tools/jolt/ (run: golib setup; only games with rigid bodies need it)"
+  fi
+
   summary doctor
   if [ "$failures" -gt 0 ]; then exit 1; fi
   exit 0
