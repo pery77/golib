@@ -88,8 +88,11 @@ func (spec SoundSpec) resolve() SoundSpec {
 	spec.Duration = min(spec.Duration, 10)
 	spec.Volume = max(0, min(spec.Volume, 1))
 	spec.Duty = max(0.05, min(spec.Duty, 0.95))
-	spec.Attack = max(0, min(spec.Attack, spec.Duration))
-	spec.Release = max(0, min(spec.Release, spec.Duration))
+	// A negative fade, none, stays negative: kept at 0 it would read as
+	// unset, and resolving the recipe again, as samples does with the one
+	// NewSound resolved, would give it the default fade back.
+	spec.Attack = min(spec.Attack, spec.Duration)
+	spec.Release = min(spec.Release, spec.Duration)
 	return spec
 }
 
