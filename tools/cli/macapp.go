@@ -17,7 +17,7 @@ import (
 //
 //	<title>.app/Contents/
 //	  Info.plist         the details macOS reads: the title, version and icon
-//	  MacOS/<game>       the executable
+//	  MacOS/<fileName>   the executable, named after game.json's "fileName" or the folder
 //	  Resources/icon.icns  the icon, from icon.png, when the game has one
 
 // macIconImages are the images an .icns file holds: the type macOS reads
@@ -83,8 +83,9 @@ func appName(title, game string) string {
 }
 
 // bundleIdentifier returns the identifier macOS knows the game's app by, made
-// from the game's folder name, which golib dist also names the save folder
-// after: letters, digits, hyphens and dots only, as macOS requires.
+// from game, game.json's "fileName" or the folder's name, which golib dist
+// also names the save folder after: letters, digits, hyphens and dots only,
+// as macOS requires.
 func bundleIdentifier(game string) string {
 	name := strings.Map(func(r rune) rune {
 		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '.' {
@@ -99,10 +100,10 @@ func bundleIdentifier(game string) string {
 	return "golib.games." + name
 }
 
-// appInfo returns the Info.plist of the app of game, whose executable is
+// appInfo returns the Info.plist of a game's app, whose executable is
 // called exe, with the details from info, and icon.icns as its icon when
 // withIcon.
-func appInfo(info gameInfo, game, exe string, withIcon bool) []byte {
+func appInfo(info gameInfo, exe string, withIcon bool) []byte {
 	v := info.version
 	number := fmt.Sprintf("%d.%d.%d", v.major, v.minor, v.patch) // macOS takes no label
 	entries := []struct {
@@ -113,7 +114,7 @@ func appInfo(info gameInfo, game, exe string, withIcon bool) []byte {
 		{"CFBundleDisplayName", info.Title},
 		{"CFBundleExecutable", exe},
 		{"CFBundleIconFile", "icon.icns"},
-		{"CFBundleIdentifier", bundleIdentifier(game)},
+		{"CFBundleIdentifier", bundleIdentifier(info.FileName)},
 		{"CFBundleInfoDictionaryVersion", "6.0"},
 		{"CFBundleName", info.Title},
 		{"CFBundlePackageType", "APPL"},
@@ -151,7 +152,7 @@ func appInfo(info gameInfo, game, exe string, withIcon bool) []byte {
 // GoLib's native library when the game uses rigid bodies, and signs it. It returns the app's name, or "" after reporting a failure.
 func (c *cli) makeApp(game, folder, exe string, info gameInfo) string {
 	name := appName(info.Title, game)
-	shown := "build/" + game + "/dist/" + game + "/" + name
+	shown := "build/" + game + "/dist/" + filepath.Base(folder) + "/" + name
 	fail := func(err error) string {
 		c.check("fail", fmt.Sprintf("cannot make %s: %v", shown, err))
 		return ""
@@ -175,7 +176,7 @@ func (c *cli) makeApp(game, folder, exe string, info gameInfo) string {
 			return fail(err)
 		}
 	}
-	if err := os.WriteFile(filepath.Join(contents, "Info.plist"), appInfo(info, game, exe, withIcon), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(contents, "Info.plist"), appInfo(info, exe, withIcon), 0o644); err != nil {
 		return fail(err)
 	}
 	// A game with rigid bodies loads golibnative from the app's Frameworks

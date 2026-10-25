@@ -23,7 +23,8 @@ import (
 const saveFolderName = "GoLib games"
 
 // saveName names a dist build's folder in saveFolderName. golib dist sets it
-// to the game's folder name, with -ldflags=-X golib.saveName=<game>.
+// to game.json's "fileName", or the game's folder name, with
+// -ldflags=-X golib.saveName=<name>.
 var saveName string
 
 // memorySaves holds the saved data of a program that saves nothing to disk:
@@ -96,7 +97,8 @@ func readShotSaves(path string, readFile func(string) ([]byte, error)) error {
 // lowercase letters, digits, - and _.
 //
 // A golib dist build saves in the player's settings folder, in "GoLib
-// games/<game>" (on Windows, %AppData%\GoLib games\<game>). A debug build
+// games/<game>" (on Windows, %AppData%\GoLib games\<game>), <game> being
+// the game's folder name or game.json's "fileName". A debug build
 // saves next to its executable, in build/<game>/save/, which golib clean
 // deletes. Under golib shot and go test nothing is written: data is kept in
 // memory until the program ends, so screenshots and tests start with nothing

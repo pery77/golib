@@ -558,6 +558,60 @@ func TestMacIcon(t *testing.T) {
 	}
 }
 
+// TestDistFileName checks that game.json's "fileName" names what players
+// get, the executable, its folder, the zip and the save folder, in place of
+// the game's folder, which stays the name of everything in build/<game>/.
+func TestDistFileName(t *testing.T) {
+	tp := newTestProject(t, "windows", "_rocks")
+	writeFile(t, tp.c.path("games", "_rocks", gameInfoFile), `{"title": "Rocks", "fileName": "RocksInSpace", "version": "1.0.0"}`)
+	if code := tp.c.dist(nil); code != 0 {
+		t.Fatalf("exit code %d, output:\n%s%s", code, tp.stdout.String(), tp.stderr.String())
+	}
+	folder := tp.c.path("build", "_rocks", "dist", "RocksInSpace")
+	build := tp.builds()
+	if len(build) != 1 || !slices.Contains(build[0], "-ldflags=-s -w -X golib.saveName=RocksInSpace -H=windowsgui -X golib.gameVersion=1.0.0") || !slices.Contains(build[0], filepath.Join(folder, "RocksInSpace.exe")) {
+		t.Errorf("go builds = %q, want RocksInSpace.exe in %s, saving in RocksInSpace", build, folder)
+	}
+	if _, err := os.Stat(tp.c.path("build", "_rocks", "dist", "RocksInSpace-1.0.0-windows-amd64.zip")); err != nil {
+		t.Error(err)
+	}
+	for _, want := range []string{
+		"[ok]   built games/_rocks into build/_rocks/dist/RocksInSpace/RocksInSpace.exe\n",
+		`players unzip it and start RocksInSpace.exe, which needs the files next to it and writes nothing to their machine but what the game saves with golib.SaveData, in %AppData%\GoLib games\RocksInSpace`,
+	} {
+		if !strings.Contains(tp.stdout.String(), want) {
+			t.Errorf("output:\n%s\nwant it to contain:\n%s", tp.stdout.String(), want)
+		}
+	}
+
+	// run --dist starts it from that folder.
+	if code := tp.c.run([]string{"--dist"}); code != 0 {
+		t.Fatalf("run --dist: exit code %d, output:\n%s%s", code, tp.stdout.String(), tp.stderr.String())
+	}
+	if len(tp.games) != 1 || tp.games[0].exe != filepath.Join(folder, "RocksInSpace.exe") || tp.games[0].dir != folder {
+		t.Errorf("run --dist: game runs = %+v, want RocksInSpace.exe in %s", tp.games, folder)
+	}
+
+	// On macOS the app keeps the title's name, and the executable inside it
+	// and the identifier take the file name.
+	tp = newTestProject(t, "darwin", "_rocks")
+	writeFile(t, tp.c.path("games", "_rocks", gameInfoFile), `{"title": "Rocks", "fileName": "RocksInSpace"}`)
+	if code := tp.c.dist(nil); code != 0 {
+		t.Fatalf("macOS: exit code %d, output:\n%s%s", code, tp.stdout.String(), tp.stderr.String())
+	}
+	contents := tp.c.path("build", "_rocks", "dist", "RocksInSpace", "Rocks.app", "Contents")
+	if _, err := os.Stat(filepath.Join(contents, "MacOS", "RocksInSpace")); err != nil {
+		t.Errorf("macOS: %v", err)
+	}
+	plist, err := os.ReadFile(filepath.Join(contents, "Info.plist"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(plist), "<string>golib.games.RocksInSpace</string>") {
+		t.Errorf("macOS: Info.plist doesn't name the app golib.games.RocksInSpace:\n%s", plist)
+	}
+}
+
 func TestAppNames(t *testing.T) {
 	for _, tt := range []struct{ title, game, app, id string }{
 		{"Rocks", "rocks", "Rocks.app", "golib.games.rocks"},
