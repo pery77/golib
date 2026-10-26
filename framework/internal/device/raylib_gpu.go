@@ -37,6 +37,7 @@ const (
 	glCullFace           = 0x0B44
 	glBlend              = 0x0BE2
 	glBack               = 0x0405
+	glFront              = 0x0404
 	glCCW                = 0x0901
 	glSrcAlpha           = 0x0302
 	glOneMinusSrcAlpha   = 0x0303
@@ -82,6 +83,10 @@ const (
 	glTextureMaxLevel    = 0x813D
 	glColor              = 0x1800
 	glDepth              = 0x1801
+	glReadFramebuffer    = 0x8CA8
+	glDrawFramebuffer    = 0x8CA9
+	glColorBufferBit     = 0x4000
+	glDstColor           = 0x0306
 	glRGBA32F            = 0x8814
 )
 
@@ -119,6 +124,7 @@ var gl struct {
 	RenderbufferStorage, FramebufferRenderbuffer, DeleteRenderbuffers        uintptr
 	Viewport, ClearBufferfv, BlendFuncSeparate, DrawArrays                   uintptr
 	DrawBuffer, ReadBuffer, TexSubImage2D, ColorMask                         uintptr
+	BlitFramebuffer                                                          uintptr
 
 	// empty is a vertex array with nothing in it, for a triangle over the
 	// whole view whose corners the vertex shader works out.
@@ -172,6 +178,7 @@ func loadGL() {
 		{&gl.BlendFuncSeparate, "glBlendFuncSeparate"}, {&gl.DrawArrays, "glDrawArrays"},
 		{&gl.DrawBuffer, "glDrawBuffer"}, {&gl.ReadBuffer, "glReadBuffer"},
 		{&gl.TexSubImage2D, "glTexSubImage2D"}, {&gl.ColorMask, "glColorMask"},
+		{&gl.BlitFramebuffer, "glBlitFramebuffer"},
 	} {
 		*f.to = uintptr(rl.GetProcAddress(f.name))
 		if *f.to == 0 {
@@ -195,6 +202,10 @@ func forgetGL() {
 		width, height     int32
 		previous          int32
 		viewport          [4]int32
+	}{}
+	passCopy = struct {
+		fbo, color, depth uint32
+		width, height     int32
 	}{}
 }
 
@@ -239,6 +250,96 @@ func prepareTarget3D(width, height int32) {
 	glCall(gl.BindFramebuffer, glFramebuffer, uintptr(target3D.fbo))
 	glCall(gl.FramebufferTexture2D, glFramebuffer, glColorAttachment0, glTexture2D, uintptr(target3D.color), 0)
 	glCall(gl.FramebufferRenderbuffer, glFramebuffer, glDepthAttachment, glRenderbuffer, uintptr(target3D.depth))
+}
+
+// passCopy is the pass as it was when CopyPass copied it: its colors and its
+// depth, as textures a program can read while the pass goes on.
+var passCopy struct {
+	fbo, color, depth uint32
+	width, height     int32
+}
+
+// CopyPass copies the pass's picture and depth as they are, for programs
+// drawn after it that read what is behind them: decals, water, fog.
+func CopyPass() {
+	w, h := target3D.width, target3D.height
+	if passCopy.fbo == 0 || passCopy.width != w || passCopy.height != h {
+		if passCopy.fbo != 0 {
+			glCall(gl.DeleteFramebuffers, 1, uintptr(unsafe.Pointer(&passCopy.fbo)))
+			glCall(gl.DeleteTextures, 1, uintptr(unsafe.Pointer(&passCopy.color)))
+			glCall(gl.DeleteTextures, 1, uintptr(unsafe.Pointer(&passCopy.depth)))
+		}
+		passCopy.width, passCopy.height = w, h
+		glCall(gl.ActiveTexture, glTexture0+scratchUnit)
+		glCall(gl.GenTextures, 1, uintptr(unsafe.Pointer(&passCopy.color)))
+		glCall(gl.BindTexture, glTexture2D, uintptr(passCopy.color))
+		glCall(gl.TexImage2D, glTexture2D, 0, glRGBA16F, uintptr(w), uintptr(h), 0, glRGBA, glHalfFloat, 0)
+		glCall(gl.TexParameteri, glTexture2D, glTextureMinFilter, glLinear)
+		glCall(gl.TexParameteri, glTexture2D, glTextureMagFilter, glLinear)
+		glCall(gl.TexParameteri, glTexture2D, glTextureWrapS, glClampToEdge)
+		glCall(gl.TexParameteri, glTexture2D, glTextureWrapT, glClampToEdge)
+		glCall(gl.GenTextures, 1, uintptr(unsafe.Pointer(&passCopy.depth)))
+		glCall(gl.BindTexture, glTexture2D, uintptr(passCopy.depth))
+		glCall(gl.TexImage2D, glTexture2D, 0, glDepthComponent24, uintptr(w), uintptr(h), 0, glDepthComponent, glUnsignedInt, 0)
+		glCall(gl.TexParameteri, glTexture2D, glTextureMinFilter, glNearest)
+		glCall(gl.TexParameteri, glTexture2D, glTextureMagFilter, glNearest)
+		glCall(gl.TexParameteri, glTexture2D, glTextureWrapS, glClampToEdge)
+		glCall(gl.TexParameteri, glTexture2D, glTextureWrapT, glClampToEdge)
+		glCall(gl.BindTexture, glTexture2D, 0)
+		glCall(gl.ActiveTexture, glTexture0)
+		glCall(gl.GenFramebuffers, 1, uintptr(unsafe.Pointer(&passCopy.fbo)))
+		glCall(gl.BindFramebuffer, glFramebuffer, uintptr(passCopy.fbo))
+		glCall(gl.FramebufferTexture2D, glFramebuffer, glColorAttachment0, glTexture2D, uintptr(passCopy.color), 0)
+		glCall(gl.FramebufferTexture2D, glFramebuffer, glDepthAttachment, glTexture2D, uintptr(passCopy.depth), 0)
+	}
+	glCall(gl.BindFramebuffer, glReadFramebuffer, uintptr(target3D.fbo))
+	glCall(gl.BindFramebuffer, glDrawFramebuffer, uintptr(passCopy.fbo))
+	glCall(gl.BlitFramebuffer, 0, 0, uintptr(w), uintptr(h), 0, 0, uintptr(w), uintptr(h), glColorBufferBit|glDepthBufferBit, glNearest)
+	glCall(gl.BindFramebuffer, glFramebuffer, uintptr(target3D.fbo))
+}
+
+// BindPassCopy makes CopyPass's picture the one a sampler set to
+// colorUnit reads, and its depth, from 0 near to 1 far, the one at
+// depthUnit.
+func BindPassCopy(colorUnit, depthUnit int) {
+	glCall(gl.ActiveTexture, glTexture0+uintptr(colorUnit))
+	glCall(gl.BindTexture, glTexture2D, uintptr(passCopy.color))
+	glCall(gl.ActiveTexture, glTexture0+uintptr(depthUnit))
+	glCall(gl.BindTexture, glTexture2D, uintptr(passCopy.depth))
+	glCall(gl.ActiveTexture, glTexture0)
+}
+
+// SetMultiply3D says whether what is drawn next multiplies the colors
+// already there, as a stain darkens what it is on, rather than replacing
+// them; their opacity stays.
+func SetMultiply3D(on bool) {
+	if on {
+		glCall(gl.BlendFuncSeparate, glDstColor, glZero, glZero, glOne)
+		glCall(gl.Enable, glBlend)
+	} else {
+		glCall(gl.Disable, glBlend)
+	}
+}
+
+// SetDepthTest says whether what is drawn next is hidden behind what is
+// nearer, as everything solid is, or drawn over everything.
+func SetDepthTest(on bool) {
+	if on {
+		glCall(gl.Enable, glDepthTest)
+	} else {
+		glCall(gl.Disable, glDepthTest)
+	}
+}
+
+// SetCullFront says whether what is drawn next leaves out its front faces
+// rather than its back ones, so only the far side of a box is drawn.
+func SetCullFront(on bool) {
+	face := uintptr(glBack)
+	if on {
+		face = glFront
+	}
+	glCall(gl.CullFace, face)
+	glCall(gl.Enable, glCullFace)
 }
 
 // glCall calls an OpenGL function with integer and pointer arguments.

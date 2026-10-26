@@ -1232,6 +1232,28 @@ var sparks = golib.NewParticles(golib.ParticleSpec{
 - **They don't collide:** sparks fall through the floor. Give them short lives, or a `Life` that ends as they reach it.
 - **Random numbers are golib's**, so `golib shot` draws them the same every time.
 
+### Decals
+
+A picture pressed onto whatever is solid inside a box: footprints, a scorch mark, blood, cracks, a bullet hole, a rune glowing on the floor. It follows the surface, a slope or the corner where a floor meets a step.
+
+| Name | What it does |
+| --- | --- |
+| `Decal` | What is pressed: `Decal.Texture`, the picture, a soft round dot when nil; `Decal.Color`, multiplying it, white when zero, its opacity fading the decal. |
+| `Decal.Glow`, `Decal.Brightness` | A decal darkens what it lies on by its picture's colors, as dirt and stains do; `Glow` adds its light instead, `Brightness` times, 1 when zero, past white for a glow that blooms. |
+| `Screen.DrawDecal` | `DrawDecal(decal Decal, transform Transform)`: presses it onto what is solid in the meter box `transform` places, its picture on the box's X and Z, pressed along its Y, its top towards the box's +Z: flat on the ground as it is, on a wall turned with `Pitch` 90. Draw it every frame, as everything else. |
+
+```go
+var footprint = golib.NewTexture("textures/footprint.png")
+
+for _, step := range s.steps { // remembered where the player stepped
+	screen.DrawDecal(golib.Decal{Texture: footprint, Color: golib.Color{R: 255, G: 255, B: 255, A: step.fade}},
+		golib.Transform{Position: step.position, Rotation: golib.Rotation{Yaw: step.yaw}, Scale: golib.Vector3{X: 0.3, Y: 0.3, Z: 0.4}})
+}
+```
+
+- **Keep the box thin across the way it is pressed:** everything solid in it gets the picture, a character walking through it too. A surface turned away from the way it is pressed fades out, so a decal on the floor doesn't smear down a wall.
+- **They are drawn after the solid things and before what is see-through**, from a copy of what was drawn: see-through things and particles are never stained.
+
 ### Light baked in Blender
 
 A level made in Blender can carry its light baked by Cycles, Blender's ray tracer, into a lightmap: the sky's light as much of it as reaches each corner, and the light the sun, the lamps and the sky bounce off the walls, red beside a red wall, darker under a roof. GoLib can't work that out as it draws; baked, it costs one texture read. The sun and the lamps themselves stay GoLib's, with their shadows, so a character walking through the level is lit and shades it as it moves. Bake with GoLib's script, from the project root, with Blender in the background:

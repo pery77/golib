@@ -61,6 +61,11 @@ const (
 	opUpdateData
 	opBindData
 	opColorWrite
+	opCopyPass
+	opBindPassCopy
+	opMultiply3D
+	opDepthTest
+	opCullFront
 )
 
 // The blend modes, for opBlend.

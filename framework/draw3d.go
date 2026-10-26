@@ -109,6 +109,7 @@ type pass3D struct {
 	environment Environment
 	lights      []Light
 	particles   []particleDraw
+	decals      []decalDraw
 	probes      *lightProbes // the light probes of a level drawn in the pass, or nil
 	probesPlace matrix       // where that level is drawn
 	width       int          // the size of the target the pass draws over, in its texels
@@ -1141,6 +1142,7 @@ type state3D struct {
 	instances []float32 // the instances of the draw being built
 
 	shadowBent    *shadowProgram     // the shadow program that bends, once a pass needs it
+	decals        *decalProgram      // the program that presses decals, once a pass has one
 	animation     []float32          // the animated items' blocks, as the animation texture gets them
 	animationData device.DataTexture // the animation texture
 }
@@ -1331,6 +1333,9 @@ func (r *state3D) unload() {
 	}
 	if r.shadowBent != nil {
 		device.UnloadProgram(r.shadowBent.program)
+	}
+	if r.decals != nil && r.decals.program.ID != 0 {
+		device.UnloadProgram(r.decals.program)
 	}
 	device.UnloadDataTexture(r.animationData)
 	r.unloadBloom()
@@ -1725,6 +1730,15 @@ func (r *state3D) draw(pass *pass3D) {
 		device.SetCulling(false)
 		device.DrawFullscreen()
 		device.SetCulling(true)
+	}
+
+	// Decals pressed onto what is solid, read back from a copy of it.
+	if len(pass.decals) > 0 {
+		inverse := [16]float32(viewProjectionMatrix.inverse())
+		device.CopyPass()
+		r.drawDecals(pass, &viewProjection, &inverse)
+		culling = true
+		current, program = nil, nil
 	}
 
 	if len(wires) > 0 || len(pass.lines) > 0 {

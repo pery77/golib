@@ -419,3 +419,35 @@ func DrawMesh(mesh Mesh) {
 	}
 	push(opDrawMesh, float32(mesh.ID))
 }
+
+// CopyPass copies the pass's picture and depth as they are, for programs
+// drawn after it that read what is behind them: decals, water, fog.
+func CopyPass() {
+	push(opCopyPass)
+}
+
+// BindPassCopy makes CopyPass's picture the one a sampler set to
+// colorUnit reads, and its depth, from 0 near to 1 far, the one at
+// depthUnit.
+func BindPassCopy(colorUnit, depthUnit int) {
+	push(opBindPassCopy, float32(colorUnit), float32(depthUnit))
+}
+
+// SetMultiply3D says whether what is drawn next multiplies the colors
+// already there, as a stain darkens what it is on, rather than replacing
+// them; their opacity stays.
+func SetMultiply3D(on bool) {
+	push(opMultiply3D, onOff(on))
+}
+
+// SetDepthTest says whether what is drawn next is hidden behind what is
+// nearer, as everything solid is, or drawn over everything.
+func SetDepthTest(on bool) {
+	push(opDepthTest, onOff(on))
+}
+
+// SetCullFront says whether what is drawn next leaves out its front faces
+// rather than its back ones, so only the far side of a box is drawn.
+func SetCullFront(on bool) {
+	push(opCullFront, onOff(on))
+}

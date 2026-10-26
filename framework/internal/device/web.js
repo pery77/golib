@@ -24,7 +24,8 @@ window.golib = (function () {
 		DRAW_FULLSCREEN = 32, UNIFORM_VEC4S = 33, BEGIN_SHADOW = 34, END_SHADOW = 35,
 		BIND_SHADOW_MAP = 36, BEGIN_WORK = 37, END_WORK = 38, BIND_WORK_TARGET = 39,
 		BIND_PASS_PICTURE = 40, ADDITIVE_3D = 41, UPDATE_DATA = 42, BIND_DATA = 43,
-		COLOR_WRITE = 44;
+		COLOR_WRITE = 44, COPY_PASS = 45, BIND_PASS_COPY = 46, MULTIPLY_3D = 47,
+		DEPTH_TEST = 48, CULL_FRONT = 49;
 
 	// The vertex layouts of 3D meshes, as gpu.go defines them, and how many
 	// floats an instance of a lit mesh takes: its matrix and its tint.
@@ -431,6 +432,36 @@ void main() {
 				case BIND_PASS_PICTURE:
 					gl.activeTexture(gl.TEXTURE0 + c[i]);
 					gl.bindTexture(gl.TEXTURE_2D, pass3D.color);
+					i += 1;
+					break;
+				case COPY_PASS:
+					copyPass();
+					break;
+				case BIND_PASS_COPY:
+					gl.activeTexture(gl.TEXTURE0 + c[i]);
+					gl.bindTexture(gl.TEXTURE_2D, passCopy.color);
+					gl.activeTexture(gl.TEXTURE0 + c[i + 1]);
+					gl.bindTexture(gl.TEXTURE_2D, passCopy.depth);
+					gl.activeTexture(gl.TEXTURE0);
+					boundTexture = -1;
+					i += 2;
+					break;
+				case DEPTH_TEST:
+					if (c[i] !== 0) gl.enable(gl.DEPTH_TEST); else gl.disable(gl.DEPTH_TEST);
+					i += 1;
+					break;
+				case CULL_FRONT:
+					gl.cullFace(c[i] !== 0 ? gl.FRONT : gl.BACK);
+					gl.enable(gl.CULL_FACE);
+					i += 1;
+					break;
+				case MULTIPLY_3D:
+					if (c[i] !== 0) {
+						gl.blendFuncSeparate(gl.DST_COLOR, gl.ZERO, gl.ZERO, gl.ONE);
+						gl.enable(gl.BLEND);
+					} else {
+						gl.disable(gl.BLEND);
+					}
 					i += 1;
 					break;
 				case ADDITIVE_3D:
@@ -1052,6 +1083,44 @@ void main() {
 		gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, pass3D.color, 0);
 		gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, pass3D.depth);
 		boundTexture = -1;
+	}
+
+	// passCopy is the pass as copyPass found it, its colors and its depth,
+	// as textures programs drawn after it read: decals, water, fog.
+	const passCopy = { framebuffer: null, color: null, depth: null, width: 0, height: 0 };
+
+	function copyPass() {
+		const w = pass3D.width, h = pass3D.height;
+		if (!passCopy.framebuffer || passCopy.width !== w || passCopy.height !== h) {
+			if (passCopy.framebuffer) {
+				gl.deleteFramebuffer(passCopy.framebuffer);
+				gl.deleteTexture(passCopy.color);
+				gl.deleteTexture(passCopy.depth);
+			}
+			passCopy.width = w;
+			passCopy.height = h;
+			gl.activeTexture(gl.TEXTURE7);
+			passCopy.color = gl.createTexture();
+			gl.bindTexture(gl.TEXTURE_2D, passCopy.color);
+			if (pass3D.float) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, w, h, 0, gl.RGBA, gl.HALF_FLOAT, null);
+			else gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+			clampAndFilter(gl.LINEAR);
+			passCopy.depth = gl.createTexture();
+			gl.bindTexture(gl.TEXTURE_2D, passCopy.depth);
+			gl.texImage2D(gl.TEXTURE_2D, 0, gl.DEPTH_COMPONENT24, w, h, 0, gl.DEPTH_COMPONENT, gl.UNSIGNED_INT, null);
+			clampAndFilter(gl.NEAREST);
+			gl.bindTexture(gl.TEXTURE_2D, null);
+			gl.activeTexture(gl.TEXTURE0);
+			passCopy.framebuffer = gl.createFramebuffer();
+			gl.bindFramebuffer(gl.FRAMEBUFFER, passCopy.framebuffer);
+			gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, passCopy.color, 0);
+			gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.TEXTURE_2D, passCopy.depth, 0);
+			boundTexture = -1;
+		}
+		gl.bindFramebuffer(gl.READ_FRAMEBUFFER, pass3D.framebuffer);
+		gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, passCopy.framebuffer);
+		gl.blitFramebuffer(0, 0, w, h, 0, 0, w, h, gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT, gl.NEAREST);
+		gl.bindFramebuffer(gl.FRAMEBUFFER, pass3D.framebuffer);
 	}
 
 	// Shadow maps: depth textures sampled with comparison, each with a
