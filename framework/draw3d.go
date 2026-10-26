@@ -382,10 +382,14 @@ void main()
 }
 `
 	litFragmentShader = `#version 330
+#ifdef HAZE
+vec3 worldPosition; // where the haze is sampled
+#else
 in vec3 worldPosition;
 in vec3 normal;
-in vec2 texcoord;
 in vec4 color;
+#endif
+in vec2 texcoord;
 
 uniform vec3 eye;
 uniform vec4 baseColor;
@@ -535,6 +539,8 @@ vec3 surrounding(vec3 n)
 
 // How much of the sun reaches the surface: 1 in full sun, 0 in shadow,
 // smoothed over 3 by 3 texels, and fading to sun where the shadows end.
+float sunShadowAt(vec3 p, int slice, int radius);
+
 float sunShadow(vec3 n)
 {
     if (hasShadows == 0) return 1.0;
@@ -542,11 +548,19 @@ float sunShadow(vec3 n)
     if (depth > shadowSplits.z) return 1.0;
     int slice = depth < shadowSplits.x ? 0 : (depth < shadowSplits.y ? 1 : 2);
     float texel = slice == 0 ? shadowTexels.x : (slice == 1 ? shadowTexels.y : shadowTexels.z);
-    float rows = max(shadowRows, 1.0);
     // Moved off the surface along its normal, more where the sun grazes it,
     // so a surface doesn't shade itself.
     float facing = clamp(dot(n, -sunDirection), 0.0, 1.0);
     vec3 p = worldPosition + n * texel * (1.0 + 2.0 * (1.0 - facing));
+    float lit = sunShadowAt(p, slice, 1);
+    return mix(lit, 1.0, smoothstep(shadowSplits.z * 0.85, shadowSplits.z, depth));
+}
+
+// How much of the sun reaches p, from the shadow map's slice: the average
+// of (2 radius + 1) squared texels around it.
+float sunShadowAt(vec3 p, int slice, int radius)
+{
+    float rows = max(shadowRows, 1.0);
     mat4 m = slice == 0 ? shadowMatrix0 : (slice == 1 ? shadowMatrix1 : shadowMatrix2);
     vec4 s = m * vec4(p, 1.0);
     vec3 uvz = s.xyz / s.w * 0.5 + 0.5;
@@ -555,16 +569,16 @@ float sunShadow(vec3 n)
     float left = (float(slice) + 0.5 / shadowTexels.w) / 3.0;
     float right = (float(slice) + 1.0 - 0.5 / shadowTexels.w) / 3.0;
     float lit = 0.0;
-    for (int x = -1; x <= 1; x++) {
-        for (int y = -1; y <= 1; y++) {
+    for (int x = -radius; x <= radius; x++) {
+        for (int y = -radius; y <= radius; y++) {
             vec2 uv = vec2((uvz.x + float(slice)) / 3.0, uvz.y / rows) + vec2(float(x), float(y)) * step;
             uv.x = clamp(uv.x, left, right);
             uv.y = clamp(uv.y, step.y * 0.5, 1.0 / rows - step.y * 0.5);
             lit += texture(shadowMap, vec3(uv, uvz.z - 0.0003));
         }
     }
-    lit /= 9.0;
-    return mix(lit, 1.0, smoothstep(shadowSplits.z * 0.85, shadowSplits.z, depth));
+    float side = float(2 * radius + 1);
+    return lit / (side * side);
 }
 
 // The soft light the level's probes give a surface at p facing n, blended
@@ -612,15 +626,25 @@ const vec3 cubeUp[6] = vec3[6](vec3(0.0, 1.0, 0.0), vec3(0.0, 1.0, 0.0), vec3(0.
 
 // How much of lamp i reaches the surface, from its shadow tiles below the
 // sun's slices: 1 lit, 0 in shadow, smoothed over 3 by 3 texels.
+float lampShadowAt(int i, vec3 p, int radius);
+
 float lampShadow(int i, vec3 n, vec3 l, float distance)
 {
-    vec4 s = lampShadows[i];
-    if (s.x < 0.0) return 1.0;
+    if (lampShadows[i].x < 0.0) return 1.0;
     // Moved off the surface by about a texel's width there, more where the
     // light grazes it, so a surface doesn't shade itself.
     float texel = 2.0 * distance / LAMP_TILE;
     float facing = clamp(dot(n, l), 0.0, 1.0);
     vec3 p = worldPosition + n * texel * (1.5 + 2.0 * (1.0 - facing)) + l * texel;
+    return lampShadowAt(i, p, 1);
+}
+
+// How much of lamp i reaches p, from its tiles: the average of
+// (2 radius + 1) squared texels around it.
+float lampShadowAt(int i, vec3 p, int radius)
+{
+    vec4 s = lampShadows[i];
+    if (s.x < 0.0) return 1.0;
     float tile = s.x;
     vec3 uvz;
     if (s.y >= 0.0) {
@@ -647,13 +671,14 @@ float lampShadow(int i, vec3 n, vec3 l, float distance)
     vec2 corner = vec2(mod(tile, LAMP_ACROSS), floor(tile / LAMP_ACROSS)) * LAMP_TILE + vec2(0.0, shadowTexels.w);
     vec2 inside = clamp(uvz.xy * LAMP_TILE, vec2(1.5), vec2(LAMP_TILE - 1.5));
     float lit = 0.0;
-    for (int x = -1; x <= 1; x++) {
-        for (int y = -1; y <= 1; y++) {
+    for (int x = -radius; x <= radius; x++) {
+        for (int y = -radius; y <= radius; y++) {
             vec2 uv = (corner + inside + vec2(float(x), float(y))) / size;
             lit += texture(shadowMap, vec3(uv, uvz.z - 0.00005));
         }
     }
-    return lit / 9.0;
+    float side = float(2 * radius + 1);
+    return lit / (side * side);
 }
 
 // What a level's reflection probe shows along r from p, roughened by rough,
@@ -796,6 +821,9 @@ struct Surface {
     float time;      // seconds of game time
 };
 
+// HAZE
+
+#ifndef HAZE
 // SURFACE
 
 void main()
@@ -926,6 +954,7 @@ void main()
     }
     fragColor = vec4(light * alpha, alpha);
 }
+#endif
 `
 	// fullscreenVertexShader covers the view with one triangle, its corners
 	// worked out from gl_VertexID, for the sky and the composing.
@@ -1198,6 +1227,7 @@ type litProgram struct {
 	inverseViewProjection, viewSize             int32
 	waterColor, waterClarity                    int32
 	waterWaves, waterFoam                       int32
+	haze, hazeHeight, hazeReach                 int32
 	bending                                     bendingUniforms
 }
 
@@ -1299,6 +1329,8 @@ type state3D struct {
 	decals        *decalProgram   // the program that presses decals, once a pass has one
 	outline       *outlineProgram // the programs that draw outlines, once a pass has one
 	outlineBent   *outlineProgram
+	hazeBlender   *hazeBlendProgram  // the program that lays haze over the pass, once a pass has haze
+	hazeTarget    device.WorkTarget  // the picture haze is walked into
 	animation     []float32          // the animated items' blocks, as the animation texture gets them
 	animationData device.DataTexture // the animation texture
 }
@@ -1311,6 +1343,7 @@ type programKind struct {
 	animated    bool
 	lightmapped bool
 	water       bool
+	haze        bool
 }
 
 var renderer3D state3D
@@ -1425,6 +1458,7 @@ func locateLit(program device.Program) litProgram {
 		inverseViewProjection: at("inverseViewProjection"), viewSize: at("viewSize"),
 		waterColor: at("waterColor"), waterClarity: at("waterClarity"),
 		waterWaves: at("waterWaves"), waterFoam: at("waterFoam"),
+		haze: at("haze"), hazeHeight: at("hazeHeight"), hazeReach: at("hazeReach"),
 		reflectionCenters: at("reflectionCenters"), reflectionLows: at("reflectionLows"), reflectionHighs: at("reflectionHighs"),
 	}
 	for k := range maxReflections {
@@ -1511,6 +1545,10 @@ func (r *state3D) unload() {
 			device.UnloadProgram(o.program)
 		}
 	}
+	if r.hazeBlender != nil && r.hazeBlender.program.ID != 0 {
+		device.UnloadProgram(r.hazeBlender.program)
+	}
+	device.UnloadWorkTarget(r.hazeTarget)
 	device.UnloadDataTexture(r.animationData)
 	r.unloadBloom()
 	device.UnloadShadowMap(r.shadowMap)
@@ -1956,6 +1994,45 @@ func (r *state3D) draw(pass *pass3D) {
 		}
 		water = false
 		current, program = nil, nil
+	}
+
+	// Haze over all of it, read back from a copy of the pass.
+	if env.haze[3] > 0 {
+		p, blend := r.hazeProgram(), r.hazeBlend()
+		if p != nil && blend != nil {
+			device.CopyPass()
+			device.BindPassCopy(colorCopyUnit, depthCopyUnit)
+			inverse := [16]float32(viewProjectionMatrix.inverse())
+			target := r.hazeTargetFor(pass.width, pass.height)
+			device.SetCulling(false)
+			device.BeginWork(target, false)
+			frame(p)
+			device.SetUniformInt(p.depthCopy, depthCopyUnit)
+			device.SetUniformMatrix(p.inverseViewProjection, &inverse)
+			device.SetUniform(p.viewSize, 2, [4]float32{float32(target.Width), float32(target.Height)})
+			device.SetUniform(p.haze, 4, env.haze)
+			device.SetUniform(p.hazeHeight, 1, [4]float32{env.hazeHeight})
+			device.SetUniform(p.hazeReach, 1, [4]float32{env.shadowDistance})
+			device.DrawFullscreen()
+			device.EndWork()
+
+			device.UseProgram(blend.program)
+			device.BindWorkTarget(0, target)
+			device.SetUniformInt(blend.hazed, 0)
+			device.SetUniformInt(blend.colorCopy, colorCopyUnit)
+			device.SetUniformInt(blend.depthCopy, depthCopyUnit)
+			device.SetUniformMatrix(blend.inverseViewProjection, &inverse)
+			device.SetUniform(blend.eye, 3, vec3(eye))
+			device.SetUniform(blend.hazeTexel, 2, [4]float32{1 / float32(target.Width), 1 / float32(target.Height)})
+			device.SetDepthTest(false)
+			device.SetDepthWrite(false)
+			device.DrawFullscreen()
+			device.SetDepthTest(true)
+			device.SetDepthWrite(true)
+			device.SetCulling(true)
+			culling = true
+			current, program = nil, nil
+		}
 	}
 
 	if len(wires) > 0 || len(pass.lines) > 0 {

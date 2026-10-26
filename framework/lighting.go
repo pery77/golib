@@ -67,6 +67,20 @@ type Environment struct {
 	FogColor    Color
 	FogDistance float32
 
+	// Haze is air that catches the light, lit where the sun and the lamps
+	// reach it and dark in their shadows, so light through a window shows
+	// as shafts and a spotlight as a beam: how much of the light it takes
+	// in a meter, 0.01 for a hazy day, 0.05 for a dusty hall, 0.2 for
+	// smoke. 0 is none. HazeColor tints the light it gives back, white
+	// when zero, and HazeHeight keeps it below a height, thinning out over
+	// a meter or a quarter of the height above it, for mist on a lake or
+	// smoke in a cellar: 0 is everywhere. Its shadows reach as far as
+	// ShadowDistance. It covers what is solid, the sky and water, not what
+	// is see-through or particles.
+	Haze       float32
+	HazeColor  Color
+	HazeHeight float32
+
 	// Exposure brightens or darkens the whole picture, as a camera's would:
 	// 1, as 0 counts, is as it is; 2 is twice as bright.
 	Exposure float32
@@ -215,6 +229,8 @@ type environmentUniforms struct {
 	skyBottom       [4]float32
 	background      bool
 	fog             [4]float32 // color, then its distance in w; 0 for none
+	haze            [4]float32 // color, then how much it takes in a meter; 0 for none
+	hazeHeight      float32
 	exposure        float32
 	shadows         bool
 	shadowDistance  float32
@@ -298,6 +314,14 @@ func (e Environment) uniforms() environmentUniforms {
 			fog = horizon
 		}
 		u.fog = [4]float32{fog[0], fog[1], fog[2], e.FogDistance}
+	}
+	if e.Haze > 0 {
+		tint := [4]float32{1, 1, 1}
+		if e.HazeColor != (Color{}) {
+			tint = linearColor(e.HazeColor)
+		}
+		u.haze = [4]float32{tint[0], tint[1], tint[2], e.Haze}
+		u.hazeHeight = max(e.HazeHeight, 0)
 	}
 	if e.Exposure > 0 {
 		u.exposure = e.Exposure
