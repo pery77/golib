@@ -709,12 +709,65 @@ vec4 reflectionAt(vec3 p, vec3 r, float rough)
     return vec4(0.0);
 }
 
-#ifdef WATER
+#if defined(WATER) || defined(MIRROR)
 uniform mat4 viewProjection;
 uniform sampler2D colorCopy;
 uniform sampler2D depthCopy;
 uniform mat4 inverseViewProjection;
 uniform vec2 viewSize;
+
+// Where the solid thing seen at screen point uv is, from the pass's depth.
+vec3 behind(vec2 uv)
+{
+    float d = texture(depthCopy, uv).r;
+    vec4 w = inverseViewProjection * vec4(uv * 2.0 - 1.0, d * 2.0 - 1.0, 1.0);
+    return w.xyz / w.w;
+}
+
+// What the pass shows along the reflection r from p, marched through its
+// depth in growing steps (screen-space reflections), blurred as a surface
+// rough rough blurs it, and how much it counts: 0 where the reflection
+// leaves the screen, goes behind something or meets nothing, fading
+// towards the screen's edges and with the distance marched.
+vec4 screenReflection(vec3 p, vec3 r, float rough)
+{
+    vec3 start = p;
+    float stride = 0.25;
+    for (int i = 0; i < 40; i++) {
+        p += r * stride;
+        stride *= 1.08;
+        vec4 c = viewProjection * vec4(p, 1.0);
+        if (c.w <= 0.0) break;
+        vec3 ndc = c.xyz / c.w;
+        vec2 uv = ndc.xy * 0.5 + 0.5;
+        if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) break;
+        float scene = texture(depthCopy, uv).r;
+        float here = ndc.z * 0.5 + 0.5;
+        if (here > scene && scene < 1.0) {
+            vec3 hit = behind(uv);
+            if (length(hit - p) < stride * 2.0) {
+                vec2 edge = smoothstep(vec2(0.0), vec2(0.1), uv) * (1.0 - smoothstep(vec2(0.9), vec2(1.0), uv));
+                // Blurred over the patch a cone as wide as the roughness
+                // covers where it meets the thing reflected.
+                vec3 across = normalize(cross(r, abs(r.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0)));
+                vec4 side = viewProjection * vec4(hit + across * rough * 0.5 * length(hit - start), 1.0);
+                float radius = side.w > 0.0 ? length(side.xy / side.w * 0.5 + 0.5 - uv) : 0.0;
+                vec3 seen = vec3(0.0);
+                for (int x = -1; x <= 1; x++) {
+                    for (int y = -1; y <= 1; y++) {
+                        seen += texture(colorCopy, clamp(uv + vec2(float(x), float(y)) * radius * 0.5, vec2(0.0), vec2(1.0))).rgb;
+                    }
+                }
+                return vec4(seen / 9.0, edge.x * edge.y * (1.0 - float(i) / 40.0));
+            }
+            break;
+        }
+    }
+    return vec4(0.0);
+}
+#endif
+
+#ifdef WATER
 uniform vec3 waterColor;
 uniform float waterClarity;
 uniform float waterWaves;
@@ -736,14 +789,6 @@ vec3 waterNormal(vec2 p, vec3 up)
     }
     slope *= waterWaves;
     return normalize(up + vec3(-slope.x, 0.0, -slope.y));
-}
-
-// Where the solid thing seen at screen point uv is, from the pass's depth.
-vec3 behind(vec2 uv)
-{
-    float d = texture(depthCopy, uv).r;
-    vec4 w = inverseViewProjection * vec4(uv * 2.0 - 1.0, d * 2.0 - 1.0, 1.0);
-    return w.xyz / w.w;
 }
 
 // What the water shows: through it, the bottom bent by its waves and
@@ -776,31 +821,8 @@ vec3 waterLight(vec3 light, vec3 n, vec3 v, vec3 fresnel, vec3 mirrored)
     }
 
     // Reflected: marched along the reflection through the pass's depth.
-    vec3 r = reflect(-v, n);
-    vec3 reflected = mirrored;
-    float found = 0.0;
-    vec3 p = surface;
-    float stride = 0.25;
-    for (int i = 0; i < 40; i++) {
-        p += r * stride;
-        stride *= 1.08;
-        vec4 c = viewProjection * vec4(p, 1.0);
-        if (c.w <= 0.0) break;
-        vec3 ndc = c.xyz / c.w;
-        vec2 uv = ndc.xy * 0.5 + 0.5;
-        if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) break;
-        float scene = texture(depthCopy, uv).r;
-        float here = ndc.z * 0.5 + 0.5;
-        if (here > scene && scene < 1.0) {
-            vec3 hit = behind(uv);
-            if (length(hit - p) < stride * 2.0) {
-                vec2 edge = smoothstep(vec2(0.0), vec2(0.1), uv) * (1.0 - smoothstep(vec2(0.9), vec2(1.0), uv));
-                found = edge.x * edge.y * (1.0 - float(i) / 40.0);
-                reflected = mix(mirrored, texture(colorCopy, uv).rgb, found);
-            }
-            break;
-        }
-    }
+    vec4 found = screenReflection(surface, reflect(-v, n), 0.0);
+    vec3 reflected = mix(mirrored, found.rgb, found.a);
     // light holds the glints and fresnel times mirrored; the reflection
     // found on the screen takes mirrored's place, and what shows through
     // fills the rest.
@@ -939,6 +961,12 @@ void main()
     // Inside a reflection probe's box, the level reflects itself.
     vec4 boxed = reflectionAt(worldPosition, r, rough);
     if (boxed.a > 0.0) mirrored = boxed.rgb;
+#ifdef MIRROR
+    // A smooth surface reflects what the pass shows, where it can see it,
+    // fading out as the surface roughens, since it isn't blurred.
+    vec4 onScreen = screenReflection(worldPosition, r, rough);
+    mirrored = mix(mirrored, onScreen.rgb, onScreen.a * (1.0 - smoothstep(0.1, MIRROR_ROUGHNESS, rough)));
+#endif
     float nv = max(dot(n, v), 0.0);
     vec3 fresnel = f0 + (max(vec3(1.0 - rough), f0) - f0) * pow(1.0 - nv, 5.0);
     vec3 ambient = (1.0 - fresnel) * (1.0 - metal) * albedo.rgb * around + fresnel * mirrored;
@@ -1171,6 +1199,7 @@ func litFragment(fragment string) string {
 	fragment = strings.ReplaceAll(fragment, "DATA_WIDTH", strconv.Itoa(device.DataTextureWidth))
 	fragment = strings.ReplaceAll(fragment, "LAMP_TILE", strconv.Itoa(lampTile)+".0")
 	fragment = strings.ReplaceAll(fragment, "LAMP_ACROSS", strconv.Itoa(lampTilesAcross)+".0")
+	fragment = strings.ReplaceAll(fragment, "MIRROR_ROUGHNESS", strconv.FormatFloat(mirrorRoughness, 'f', 2, 32))
 	return strings.ReplaceAll(fragment, "PROBE_TEXELS", strconv.Itoa(probeTexels))
 }
 
@@ -1344,7 +1373,12 @@ type programKind struct {
 	lightmapped bool
 	water       bool
 	haze        bool
+	mirror      bool // reflecting the pass's copy, for a smooth surface
 }
+
+// mirrorRoughness is the roughness below which a surface reflects what the
+// pass shows, fading out towards it.
+const mirrorRoughness = 0.35
 
 var renderer3D state3D
 
@@ -1476,8 +1510,9 @@ func locateLit(program device.Program) litProgram {
 // time a material uses it, one that bends what it draws for animated
 // meshes, and one lit by a lightmap. A shader that doesn't compile is
 // reported, and the material drawn with the plain program.
-func (r *state3D) surfaceProgram(m *material3D, animated, lightmapped, water bool) *litProgram {
-	kind := programKind{surface: m.surface, animated: animated, lightmapped: lightmapped, water: water}
+func (r *state3D) surfaceProgram(m *material3D, kind programKind) *litProgram {
+	kind.surface = m.surface
+	animated, lightmapped, water := kind.animated, kind.lightmapped, kind.water
 	if kind == (programKind{}) {
 		return &r.lit
 	}
@@ -1502,6 +1537,9 @@ func (r *state3D) surfaceProgram(m *material3D, animated, lightmapped, water boo
 	if water {
 		fragment = strings.Replace(fragment, "#version 330\n", "#version 330\n#define WATER\n", 1)
 	}
+	if kind.mirror {
+		fragment = strings.Replace(fragment, "#version 330\n", "#version 330\n#define MIRROR\n", 1)
+	}
 	program, err := device.NewProgram(vertex, fragment)
 	if r.surfaces == nil {
 		r.surfaces = map[programKind]*litProgram{}
@@ -1510,7 +1548,7 @@ func (r *state3D) surfaceProgram(m *material3D, animated, lightmapped, water boo
 		if m.surface != "" {
 			reportError(fmt.Errorf("golib: a Material's Shader doesn't compile: %w", err))
 		} else {
-			reportError(fmt.Errorf("golib: the 3D's animated, lightmapped or water shader doesn't compile on this graphics card: %w", err))
+			reportError(fmt.Errorf("golib: the 3D's animated, lightmapped, water or reflecting shader doesn't compile on this graphics card: %w", err))
 		}
 		r.surfaces[kind] = nil
 		return &r.lit
@@ -1852,11 +1890,12 @@ func (r *state3D) draw(pass *pass3D) {
 		}
 	}
 	var current *material3D
-	var currentBent, currentLightmapped, currentWater bool
+	var currentBent, currentLightmapped, currentWater, currentMirror bool
 	var program *litProgram
 	var boundLightmap *texture3D
 	culling := true
-	water := false // whether use gives the water program
+	water := false     // whether use gives the water program
+	mirroring := false // whether use gives programs that reflect the pass's copy
 	use := func(m *material3D, bent bool, lightmap *texture3D) {
 		if lightmap != nil && lightmap != boundLightmap {
 			if gpu := lightmap.upload(); gpu.ID != 0 {
@@ -1867,11 +1906,12 @@ func (r *state3D) draw(pass *pass3D) {
 			}
 		}
 		lightmapped := lightmap != nil
-		if m == current && bent == currentBent && lightmapped == currentLightmapped && water == currentWater {
+		if m == current && bent == currentBent && lightmapped == currentLightmapped && water == currentWater && mirroring == currentMirror {
 			return
 		}
-		current, currentBent, currentLightmapped, currentWater = m, bent, lightmapped, water
-		if p := r.surfaceProgram(m, bent, lightmapped, water); p != program {
+		current, currentBent, currentLightmapped, currentWater, currentMirror = m, bent, lightmapped, water, mirroring
+		kind := programKind{animated: bent, lightmapped: lightmapped, water: water, mirror: mirroring}
+		if p := r.surfaceProgram(m, kind); p != program {
 			program = p
 			frame(p)
 		}
@@ -1914,13 +1954,46 @@ func (r *state3D) draw(pass *pass3D) {
 		tint := colorFloats(item.tint)
 		r.instances = append(r.instances, tint[:]...)
 	}
+	// What is rough first; then, from a copy of it, what is smooth enough
+	// to reflect it.
+	smooth := func(m *material3D) bool {
+		return env.screenReflections && !m.unlit && m.roughness < mirrorRoughness
+	}
+	reflecting := false
 	for _, g := range built {
+		if smooth(g.material) {
+			reflecting = true
+			continue
+		}
 		bent := g.animation.stride > 0
 		use(g.material, bent, g.lightmap)
 		if bent {
 			program.bending.set(g.animation)
 		}
 		device.DrawMeshInstanced(g.gpu, g.instances)
+	}
+	if reflecting {
+		device.CopyPass()
+		device.BindPassCopy(colorCopyUnit, depthCopyUnit)
+		inverse := [16]float32(viewProjectionMatrix.inverse())
+		mirroring = true
+		for _, g := range built {
+			if !smooth(g.material) {
+				continue
+			}
+			bent := g.animation.stride > 0
+			use(g.material, bent, g.lightmap)
+			device.SetUniformInt(program.colorCopy, colorCopyUnit)
+			device.SetUniformInt(program.depthCopy, depthCopyUnit)
+			device.SetUniformMatrix(program.inverseViewProjection, &inverse)
+			device.SetUniform(program.viewSize, 2, [4]float32{float32(pass.width), float32(pass.height)})
+			if bent {
+				program.bending.set(g.animation)
+			}
+			device.DrawMeshInstanced(g.gpu, g.instances)
+		}
+		mirroring = false
+		current, program = nil, nil
 	}
 	// The outlines round what has them.
 	for _, g := range built {

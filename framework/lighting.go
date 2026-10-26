@@ -97,6 +97,15 @@ type Environment struct {
 	// counts as 0.5; ordinary lit colors never glow. NoBloom turns it off.
 	Bloom   float32
 	NoBloom bool
+
+	// Smooth surfaces, their roughness below 0.35, reflect what
+	// the pass shows where they can see it on the screen, fading out as
+	// they roughen, and the sky, the HDRI or the level's reflection probes
+	// elsewhere: a wet street shows the lamps, a polished floor the walls.
+	// They don't reflect each other, nor what is off the screen or behind
+	// something. NoScreenReflections turns them off, for a game that needs
+	// every frame it can get.
+	NoScreenReflections bool
 }
 
 // SetEnvironment sets how the 3D pass begun last is lit, and what shows
@@ -222,21 +231,22 @@ func lightsFor(lights []Light, eye Vector3) lightUniforms {
 // environmentUniforms are an Environment, with its defaults, as the shaders
 // read it: linear light.
 type environmentUniforms struct {
-	sunDirection    Vector3
-	sun             [4]float32
-	sky, ground     [4]float32
-	horizon, skyTop [4]float32 // the background's colors, linear
-	skyBottom       [4]float32
-	background      bool
-	fog             [4]float32 // color, then its distance in w; 0 for none
-	haze            [4]float32 // color, then how much it takes in a meter; 0 for none
-	hazeHeight      float32
-	exposure        float32
-	shadows         bool
-	shadowDistance  float32
-	hdri            *HDRI
-	hdriTurn        [4]float32 // the turn's cosine and sine, to turn a direction back onto the picture
-	bloom           float32    // 0 for none
+	sunDirection      Vector3
+	sun               [4]float32
+	sky, ground       [4]float32
+	horizon, skyTop   [4]float32 // the background's colors, linear
+	skyBottom         [4]float32
+	background        bool
+	fog               [4]float32 // color, then its distance in w; 0 for none
+	haze              [4]float32 // color, then how much it takes in a meter; 0 for none
+	hazeHeight        float32
+	exposure          float32
+	shadows           bool
+	shadowDistance    float32
+	hdri              *HDRI
+	hdriTurn          [4]float32 // the turn's cosine and sine, to turn a direction back onto the picture
+	bloom             float32    // 0 for none
+	screenReflections bool
 }
 
 // The default light: a sun high behind and to the right of a camera facing
@@ -333,6 +343,7 @@ func (e Environment) uniforms() environmentUniforms {
 			u.bloom = e.Bloom
 		}
 	}
+	u.screenReflections = !e.NoScreenReflections
 	u.shadows = !e.NoShadows && (u.sun[0] > 0 || u.sun[1] > 0 || u.sun[2] > 0)
 	u.shadowDistance = 50
 	if e.ShadowDistance > 0 {
