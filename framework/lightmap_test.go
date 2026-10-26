@@ -1,6 +1,7 @@
 package golib
 
 import (
+	"fmt"
 	"math"
 	"strings"
 	"testing"
@@ -107,5 +108,76 @@ func TestModelWithAMissingLightmapSaysSo(t *testing.T) {
 	err := NewModel("models/level.glb").Err()
 	if err == nil || !strings.Contains(err.Error(), `object "Floor": its lightmap gone.hdr`) {
 		t.Errorf("Err = %v, want the object and the lightmap named", err)
+	}
+}
+
+// probedGLB makes a level with light probes and nothing else to draw but a
+// speck far below.
+func probedGLB() []byte {
+	b := gltf.NewBuilder()
+	speck := b.Add("meshes", map[string]any{"primitives": []any{map[string]any{
+		"attributes": map[string]any{
+			"POSITION": b.Floats([]float32{0, -100, 0, 0.01, -100, 0, 0, -100, 0.01}, 3),
+			"NORMAL":   b.Floats([]float32{0, 1, 0, 0, 1, 0, 0, 1, 0}, 3),
+		},
+		"indices": b.Indices([]uint16{0, 1, 2}),
+	}}})
+	b.Root(b.Add("nodes", map[string]any{"name": "Speck", "mesh": speck}))
+	b.Root(b.Add("nodes", map[string]any{"name": "GoLib light probes", "extras": map[string]any{"lightprobes": "level.probes.json"}}))
+	return b.GLB()
+}
+
+// Two probes 2 m apart, the left one in the dark and the right one in white
+// light from every way, light a box between them as it moves.
+func TestLightProbesLightWhatMoves(t *testing.T) {
+	white := float32(1 / 0.282095)
+	useAssets(t, map[string][]byte{
+		"models/level.glb": probedGLB(),
+		"models/level.probes.json": []byte(fmt.Sprintf(`{"origin":[-1,0,0],"spacing":2,"size":[2,1,1],"probes":[[0,0,0,0,0,0,0,0,0,0,0,0],[%v,%v,%v,0,0,0,0,0,0,0,0,0]]}`, white, white, white)),
+	})
+	level := NewModel("models/level.glb")
+	if err := level.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if level.probes == nil || level.probes.size != [3]int{2, 1, 1} || level.probes.texels[3] != 1 || level.probes.texels[16] != white {
+		t.Fatalf("the probes read are %+v", level.probes)
+	}
+	if markers := level.Markers(); len(markers) != 0 {
+		t.Errorf("Markers = %+v, want none: the probes aren't a marker", markers)
+	}
+
+	screen, capture := openTestWindow(t, 64, 64)
+	takeError()
+	camera := NewCamera3D(64, 64)
+	box := NewBoxMesh()
+	night := Environment{SunColor: Black, Sky: Color{R: 10, G: 10, B: 10, A: 255}, Ground: Color{R: 10, G: 10, B: 10, A: 255}, NoBloom: true}
+	brightness := func(x float32, withLevel bool) int {
+		camera.Position, camera.Target = Vector3{X: x, Z: -4}, Vector3{X: x}
+		camera.Snap()
+		picture := capture(func() {
+			screen.Begin3D(camera)
+			screen.SetEnvironment(night)
+			if withLevel {
+				screen.DrawModel(level, Transform{}, White)
+			}
+			screen.DrawMesh(box, Transform{Position: Vector3{X: x}, Scale: Vector3{X: 0.5, Y: 0.5, Z: 0.5}}, Gray)
+			screen.End3D()
+		})
+		c := picture.NRGBAAt(32, 32)
+		return int(c.R) + int(c.G) + int(c.B)
+	}
+	alone := brightness(1, false)
+	dark, middle, lit, far := brightness(-1, true), brightness(0, true), brightness(1, true), brightness(10, true)
+	if err := takeError(); err != nil {
+		t.Fatal(err)
+	}
+	if !(dark < middle && middle < lit) {
+		t.Errorf("a box moved from the dark probe to the white one is %d, %d, %d bright, want brighter and brighter", dark, middle, lit)
+	}
+	if lit < alone+150 {
+		t.Errorf("by the white probe the box is %d bright, and %d without the level's probes: want much brighter", lit, alone)
+	}
+	if far != alone {
+		t.Errorf("far from the probes the box is %d bright, want %d, as the Environment alone lights it", far, alone)
 	}
 }

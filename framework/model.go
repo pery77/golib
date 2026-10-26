@@ -46,6 +46,7 @@ type Model struct {
 	rootSkin   int // the skin whose top bone root motion follows
 	animations []modelAnimation
 	lights     []modelLight // its lamps, which Sun and Lights give
+	probes     *lightProbes // the light probes baked with it, or nil
 	rest       modelPose    // the model as the file has it, which DrawModel draws
 	extra      []string  // files of more animations, from AddAnimations
 }
@@ -292,6 +293,13 @@ func (m *Model) load() error {
 				}
 				m.parts = append(m.parts, part)
 			}
+		} else if name := n.Extras["lightprobes"]; name != "" && n.Mesh < 0 {
+			probes, err := readLightProbes(path.Join(path.Dir(m.name), name))
+			if err != nil {
+				failed = fmt.Errorf("its light probes %s: %w", name, err)
+				return
+			}
+			m.probes = probes
 		} else if n.Light >= 0 && n.Light < len(doc.Lights) {
 			m.lights = append(m.lights, modelLight{light: doc.Lights[n.Light], place: place})
 		} else if !n.Joint {
@@ -769,6 +777,10 @@ func (m *Model) readyToDraw() bool {
 // drawPose draws model posed as pose, placed by place: each part where its
 // node is, or bent by its skin and its shape keys.
 func (s *Screen) drawPose(model *Model, pose *modelPose, place matrix, tint Color) {
+	if model.probes != nil && s.pass.probes == nil {
+		// A level's light probes light everything else in the pass.
+		s.pass.probes, s.pass.probesPlace = model.probes, place
+	}
 	for _, part := range model.parts {
 		weights := pose.weights[part.node]
 		shaped := false

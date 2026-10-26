@@ -1,8 +1,11 @@
 package golib
 
 import (
+	"encoding/json"
+	"fmt"
 	"math"
 
+	"golib/internal/device"
 	"golib/internal/gltf"
 )
 
@@ -19,6 +22,12 @@ import (
 //
 // The sun and lamps the level was baked with are in the file too, and GoLib
 // must light it with the same ones: Model.Sun and Model.Lights give them.
+//
+// What moves through the level gets the same light from light probes: a grid
+// of points baked with it, each holding the light that comes to it from
+// every way, as four spherical harmonics. A model drawn in a pass with a
+// level that has them takes its soft light from the probes around it,
+// instead of the Environment's sky and ground.
 
 // ModelSun is the sun lamp of a model made in Blender, as an Environment
 // takes it:
@@ -116,4 +125,93 @@ func lampColor(c [3]float32) (Color, float32) {
 		return uint8(math.Round(math.Pow(float64(v/peak), 1/2.2) * 255))
 	}
 	return Color{R: toSRGB(c[0]), G: toSRGB(c[1]), B: toSRGB(c[2]), A: 255}, peak
+}
+
+// lightProbes is the grid of light probes a level was baked with, in its
+// own space, read from the file tools/blender/bake_lightmaps.py writes.
+type lightProbes struct {
+	origin  Vector3 // the first probe
+	spacing float32 // meters between probes
+	size    [3]int  // how many along X, Y and Z
+	// texels holds four texels a probe, X first, then Y, then Z: its four
+	// spherical harmonics' red, green and blue, and, in the first texel's
+	// fourth number, 1 for a probe and 0 for a point inside a wall.
+	texels []float32
+	gpu    device.DataTexture
+}
+
+// probeTexels is how many texels of the probes' data texture a probe takes.
+const probeTexels = 4
+
+// readLightProbes reads a level's light probes, a JSON file in the game's
+// assets folder.
+func readLightProbes(name string) (*lightProbes, error) {
+	data, err := ReadAsset(name)
+	if err != nil {
+		return nil, err
+	}
+	var file struct {
+		Origin  [3]float32  `json:"origin"`
+		Spacing float32     `json:"spacing"`
+		Size    [3]int      `json:"size"`
+		Probes  [][]float32 `json:"probes"`
+	}
+	if err := json.Unmarshal(data, &file); err != nil {
+		return nil, err
+	}
+	count := file.Size[0] * file.Size[1] * file.Size[2]
+	if file.Spacing <= 0 || count <= 0 || len(file.Probes) != count {
+		return nil, fmt.Errorf("a grid of %v probes %v m apart, but %d given: bake it again with tools/blender/bake_lightmaps.py", file.Size, file.Spacing, len(file.Probes))
+	}
+	p := &lightProbes{
+		origin:  Vector3{X: file.Origin[0], Y: file.Origin[1], Z: file.Origin[2]},
+		spacing: file.Spacing, size: file.Size,
+		texels: make([]float32, count*probeTexels*4),
+	}
+	for i, h := range file.Probes {
+		if h == nil {
+			continue
+		}
+		if len(h) != 12 {
+			return nil, fmt.Errorf("probe %d has %d numbers, not 12", i, len(h))
+		}
+		at := p.texels[i*probeTexels*4:]
+		for k := 0; k < 4; k++ {
+			copy(at[k*4:k*4+3], h[k*3:k*3+3])
+		}
+		at[3] = 1
+	}
+	return p, nil
+}
+
+// upload puts the probes on the graphics card, the first time they light a
+// pass.
+func (p *lightProbes) upload() device.DataTexture {
+	if p.gpu.ID == 0 {
+		p.gpu = device.NewDataTexture(p.texels)
+		loadedProbes = append(loadedProbes, p)
+	}
+	return p.gpu
+}
+
+// fromWorld returns the matrix that takes a point of the world to the grid
+// of a level drawn at place: whole numbers at the probes.
+func (p *lightProbes) fromWorld(place matrix) matrix {
+	toGrid := identityMatrix()
+	s := 1 / p.spacing
+	toGrid[0], toGrid[5], toGrid[10] = s, s, s
+	toGrid[12], toGrid[13], toGrid[14] = -p.origin.X*s, -p.origin.Y*s, -p.origin.Z*s
+	return toGrid.mul(place.inverse())
+}
+
+// loadedProbes are the probes on the graphics card, for Run to free when it
+// ends.
+var loadedProbes []*lightProbes
+
+func unloadProbes() {
+	for _, p := range loadedProbes {
+		device.UnloadDataTexture(p.gpu)
+		p.gpu = device.DataTexture{}
+	}
+	loadedProbes = nil
 }

@@ -18,12 +18,19 @@
 # Model.Lights give them, exported in Blender's own units (Raw), so the two
 # halves match. See docs/ai/making-a-game.md and framework/README.md.
 #
+# It also bakes light probes, for what moves through the level: a grid of
+# points over it, but those inside walls, each holding the light that comes
+# from every way, in the same two halves, as four spherical harmonics each.
+# They go in <name>.probes.json beside the .glb, which an empty named
+# "GoLib light probes" names in its custom property lightprobes.
+#
 # Every still object gets a second UV map, Lightmap, unwrapped and packed for
 # all of them together, as dense on a big wall as on a small crate, unless
 # each has one already: then it is used as it is, so a hand-made one stays.
 # Each object's custom property lightmap names the file, which GoLib reads.
 
 import argparse
+import json
 import math
 import os
 import subprocess
@@ -31,8 +38,10 @@ import sys
 import tempfile
 import time
 
+import bmesh
 import bpy
 import numpy as np
+from mathutils import Matrix, Vector
 
 LIGHTMAP_UV = "Lightmap"
 REALTIME_LAMPS = {"SUN", "POINT", "SPOT"}
@@ -48,6 +57,8 @@ def parse_arguments():
     parser.add_argument("--gpu", action="store_true", help="bake on the graphics card, when Blender can")
     parser.add_argument("--no-denoise", action="store_true", help="keep Cycles' grain instead of smoothing it with Intel's Open Image Denoise")
     parser.add_argument("--save", action="store_true", help="save the .blend with its Lightmap UV maps")
+    parser.add_argument("--probe-spacing", type=float, default=2.0, help="meters between light probes (default 2)")
+    parser.add_argument("--no-probes", action="store_true", help="bake no light probes")
     return parser.parse_args(argv)
 
 
@@ -187,6 +198,164 @@ def emissions():
     return found
 
 
+def two_halves(scene, bake):
+    """Calls bake(direct, indirect) twice and adds what it returns: the sky,
+    glowing materials and area lamps, all their light; then the sun and the
+    point and spot lamps, only what they bounce, since GoLib lights with them
+    directly."""
+    lamps = [o for o in scene.objects if o.type == 'LIGHT' and not o.hide_render]
+    realtime = [o for o in lamps if o.data.type in REALTIME_LAMPS]
+    baked_lamps = [o for o in lamps if o.data.type not in REALTIME_LAMPS]
+    world = scene.world
+    for o in realtime:
+        o.hide_render = True
+    try:
+        around = bake(direct=True, indirect=True)
+    finally:
+        for o in realtime:
+            o.hide_render = False
+    if not realtime:
+        return around
+    for o in baked_lamps:
+        o.hide_render = True
+    scene.world = None
+    glow = [(s, s.default_value) for s in emissions()]
+    for s, _ in glow:
+        s.default_value = 0.0
+    try:
+        bounced = bake(direct=False, indirect=True)
+    finally:
+        for s, value in glow:
+            s.default_value = value
+        scene.world = world
+        for o in baked_lamps:
+            o.hide_render = False
+    return around + bounced
+
+
+def to_golib(v):
+    """A point or direction of Blender's, Z up, in GoLib's space, Y up, as
+    the glTF exporter turns it."""
+    return Vector((v.x, v.z, -v.y))
+
+
+def to_blender(v):
+    return Vector((v.x, -v.z, v.y))
+
+
+def probe_grid(objects, spacing, limit=4096):
+    """The grid of probe points over the still objects, in GoLib's space: its
+    first corner, the meters between points, and how many along X, Y and Z,
+    spread wider when there would be more than limit."""
+    lo = Vector((math.inf,) * 3)
+    hi = Vector((-math.inf,) * 3)
+    for o in objects:
+        for corner in o.bound_box:
+            p = to_golib(o.matrix_world @ Vector(corner))
+            lo = Vector(map(min, lo, p))
+            hi = Vector(map(max, hi, p))
+    # A point in the middle of every cell spacing meters wide, so none sits
+    # on the floor or in the outer walls.
+    while True:
+        counts = [max(1, round((hi[i] - lo[i]) / spacing)) for i in range(3)]
+        if counts[0] * counts[1] * counts[2] <= limit:
+            break
+        spacing *= 1.25
+    origin = Vector([lo[i] + (hi[i] - lo[i] - (counts[i] - 1) * spacing) / 2 for i in range(3)])
+    return origin, spacing, counts
+
+
+def inside_something(scene, point, reach):
+    """Whether point is inside a wall or a block: most ways out of it meet
+    the back of a face."""
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    backs = 0
+    for d in (Vector((1, 0, 0)), Vector((-1, 0, 0)), Vector((0, 1, 0)), Vector((0, -1, 0)), Vector((0, 0, 1)), Vector((0, 0, -1))):
+        hit, _, normal, _, _, _ = scene.ray_cast(depsgraph, point, d, distance=reach)
+        if hit and normal.dot(d) > 0:
+            backs += 1
+    return backs >= 3
+
+
+def bake_probes(scene, objects, spacing):
+    """Bakes the light probes, returning the grid and, for each point, its
+    four spherical harmonics, red, green and blue each, or None inside a
+    wall."""
+    origin, spacing, counts = probe_grid(objects, spacing)
+    points = []
+    for z in range(counts[2]):
+        for y in range(counts[1]):
+            for x in range(counts[0]):
+                p = origin + Vector((x, y, z)) * spacing
+                at = to_blender(p)
+                points.append(None if inside_something(scene, at, spacing * 4) else at)
+    found = [p for p in points if p is not None]
+    if not found:
+        return origin, spacing, counts, [None] * len(points)
+
+    # A small ball at every point, one mesh for all, that nothing else sees:
+    # Cycles bakes the light reaching each of its vertices, from its way.
+    bm = bmesh.new()
+    starts = []
+    for p in found:
+        starts.append(len(bm.verts))
+        bmesh.ops.create_icosphere(bm, subdivisions=2, radius=0.02, matrix=Matrix.Translation(p))
+    per = len(bm.verts) // len(found)
+    mesh = bpy.data.meshes.new("GoLib probes")
+    bm.to_mesh(mesh)
+    bm.free()
+    mesh.color_attributes.new("light", 'FLOAT_COLOR', 'POINT')
+    mesh.color_attributes.active_color = mesh.color_attributes["light"]
+    material = bpy.data.materials.new("GoLib probes")
+    material.use_nodes = True
+    mesh.materials.append(material)
+    balls = bpy.data.objects.new("GoLib probes", mesh)
+    scene.collection.objects.link(balls)
+    # Hidden from every ray but the camera's: Cycles leaves out an object no
+    # ray sees, and would bake nothing for it.
+    for flag in ("visible_diffuse", "visible_glossy", "visible_transmission", "visible_volume_scatter", "visible_shadow"):
+        setattr(balls, flag, False)
+
+    def bake(direct, indirect):
+        scene.render.bake.use_pass_direct = direct
+        scene.render.bake.use_pass_indirect = indirect
+        scene.render.bake.use_pass_color = False
+        bpy.ops.object.select_all(action='DESELECT')
+        balls.select_set(True)
+        bpy.context.view_layer.objects.active = balls
+        bpy.ops.object.bake(type='DIFFUSE', target='VERTEX_COLORS')
+        colors = np.empty(len(mesh.vertices) * 4, dtype=np.float32)
+        mesh.color_attributes["light"].data.foreach_get("color", colors)
+        return colors
+
+    try:
+        light = two_halves(scene, bake).reshape(-1, 4)[:, :3]
+        positions = np.empty(len(mesh.vertices) * 3, dtype=np.float32)
+        mesh.vertices.foreach_get("co", positions)
+        positions = positions.reshape(-1, 3)
+    finally:
+        bpy.data.objects.remove(balls)
+        bpy.data.meshes.remove(mesh)
+        bpy.data.materials.remove(material)
+
+    # Each ball's light, fitted with the four spherical harmonics GoLib
+    # reads: the constant, then Y, Z and X, in GoLib's space.
+    harmonics = []
+    for k, p in enumerate(found):
+        rows = slice(starts[k], starts[k] + per)
+        ways = positions[rows] - np.array(p)
+        ways /= np.linalg.norm(ways, axis=1, keepdims=True)
+        gx, gy, gz = ways[:, 0], ways[:, 2], -ways[:, 1]
+        basis = np.stack([np.full_like(gx, 0.282095), 0.488603 * gy, 0.488603 * gz, 0.488603 * gx], axis=1)
+        fit, *_ = np.linalg.lstsq(basis, light[rows], rcond=None)
+        harmonics.append([round(float(v), 5) for v in fit.reshape(-1)])
+    out = []
+    it = iter(harmonics)
+    for p in points:
+        out.append(None if p is None else next(it))
+    return origin, spacing, counts, out
+
+
 def bake_into(objects, image, direct, indirect):
     scene = bpy.context.scene
     scene.render.bake.use_pass_direct = direct
@@ -276,39 +445,10 @@ def main():
     image.colorspace_settings.name = 'Non-Color'
     bake = Bake(objects, image)
 
-    lamps = [o for o in scene.objects if o.type == 'LIGHT' and not o.hide_render]
-    realtime = [o for o in lamps if o.data.type in REALTIME_LAMPS]
-    baked_lamps = [o for o in lamps if o.data.type not in REALTIME_LAMPS]
-    world = scene.world
     try:
-        # The sky, glowing materials and area lamps: all their light.
-        for o in realtime:
-            o.hide_render = True
-        around = bake_into(objects, image, direct=True, indirect=True)
-        for o in realtime:
-            o.hide_render = False
-        # The sun and the lamps: only what they bounce, since GoLib lights
-        # with them directly.
-        bounced = np.zeros_like(around)
-        if realtime:
-            for o in baked_lamps:
-                o.hide_render = True
-            scene.world = None
-            glow = [(s, s.default_value) for s in emissions()]
-            for s, _ in glow:
-                s.default_value = 0.0
-            try:
-                bounced = bake_into(objects, image, direct=False, indirect=True)
-            finally:
-                for s, value in glow:
-                    s.default_value = value
-                scene.world = world
-                for o in baked_lamps:
-                    o.hide_render = False
+        light = two_halves(scene, lambda direct, indirect: bake_into(objects, image, direct, indirect))
     finally:
         bake.remove()
-
-    light = around + bounced
     light[3::4] = 1.0
     image.pixels.foreach_set(light)
     image.file_format = 'HDR'
@@ -323,19 +463,38 @@ def main():
             denoise(image.filepath_raw, target)
     bpy.data.images.remove(image)
 
+    probes_line = "no light probes"
+    marker = None
+    if not args.no_probes:
+        origin, spacing, counts, harmonics = bake_probes(scene, objects, args.probe_spacing)
+        probes_name = os.path.splitext(os.path.basename(output))[0] + ".probes.json"
+        with open(os.path.join(folder, probes_name), "w") as f:
+            json.dump({"origin": [round(v, 4) for v in origin], "spacing": round(spacing, 4), "size": counts, "probes": harmonics}, f, separators=(",", ":"))
+        marker = bpy.data.objects.new("GoLib light probes", None)
+        marker["lightprobes"] = probes_name
+        scene.collection.objects.link(marker)
+        inside = sum(h is None for h in harmonics)
+        probes_line = f"{len(harmonics) - inside} light probes {spacing:g} m apart into {probes_name} ({inside} inside walls left out)"
+
     for o in objects:
         o["lightmap"] = lightmap_name
     bpy.ops.object.select_all(action='DESELECT')
-    bpy.ops.export_scene.gltf(
-        filepath=output, export_format='GLB', export_extras=True, export_yup=True,
-        export_lights=True, export_import_convert_lighting_mode='RAW', use_active_scene=True,
-    )
+    try:
+        bpy.ops.export_scene.gltf(
+            filepath=output, export_format='GLB', export_extras=True, export_yup=True,
+            export_lights=True, export_import_convert_lighting_mode='RAW', use_active_scene=True,
+        )
+    finally:
+        if marker is not None:
+            bpy.data.objects.remove(marker)
     if args.save:
         bpy.context.preferences.filepaths.save_version = 0
         bpy.ops.wm.save_mainfile()
     smoothed = "" if args.no_denoise else ", denoised"
     print(f"[ok] baked {len(objects)} objects into {lightmap_name}, {args.size} by {args.size}, {args.samples} samples{smoothed}, in {time.time() - began:.0f} s")
-    print(f"[ok] exported {output}, with its sun and {len(realtime) - sum(o.data.type == 'SUN' for o in realtime)} lamps for Model.Sun and Model.Lights")
+    print(f"[ok] baked {probes_line}")
+    lamps = [o for o in scene.objects if o.type == 'LIGHT' and o.data.type in ('POINT', 'SPOT') and not o.hide_render]
+    print(f"[ok] exported {output}, with its sun and {len(lamps)} lamps for Model.Sun and Model.Lights")
 
 
 main()

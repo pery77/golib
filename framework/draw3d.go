@@ -108,7 +108,9 @@ type pass3D struct {
 	animation   []float32 // the blocks of the animated items, see itemAnimation
 	environment Environment
 	lights      []Light
-	width       int // the size of the target the pass draws over, in its texels
+	probes      *lightProbes // the light probes of a level drawn in the pass, or nil
+	probesPlace matrix       // where that level is drawn
+	width       int          // the size of the target the pass draws over, in its texels
 	height      int
 	time        float32 // seconds of game time, for a game's own surfaces
 }
@@ -411,6 +413,10 @@ uniform int lightCount;
 uniform vec4 lightPositions[8];
 uniform vec4 lightColors[8];
 uniform vec4 lightDirections[8];
+uniform int hasProbes;
+uniform highp sampler2D probes;
+uniform mat4 probeGrid;
+uniform vec3 probeSize;
 #ifdef LIGHTMAPPED
 in vec2 lightcoord;
 uniform sampler2D lightmap;
@@ -509,6 +515,44 @@ float sunShadow(vec3 n)
     return mix(lit, 1.0, smoothstep(shadowSplits.z * 0.85, shadowSplits.z, depth));
 }
 
+// The soft light the level's probes give a surface at p facing n, blended
+// from the eight around it, leaving out those inside walls, and how much it
+// counts: 1 inside the grid, fading to 0 a probe's spacing outside it.
+vec4 probeTexel(int k)
+{
+    return texelFetch(probes, ivec2(k % DATA_WIDTH, k / DATA_WIDTH), 0);
+}
+
+vec4 probeLight(vec3 p, vec3 n)
+{
+    vec3 g = (probeGrid * vec4(p, 1.0)).xyz;
+    vec3 inside = clamp(g, vec3(0.0), probeSize - 1.0);
+    float reach = clamp(1.0 - length(g - inside), 0.0, 1.0);
+    if (reach <= 0.0) return vec4(0.0);
+    vec3 m = normalize(mat3(probeGrid) * n);
+    vec3 base = min(floor(inside), max(probeSize - 2.0, vec3(0.0)));
+    vec3 f = clamp(inside - base, 0.0, 1.0);
+    vec3 light = vec3(0.0);
+    float weight = 0.0;
+    for (int c = 0; c < 8; c++) {
+        vec3 corner = base + vec3(float(c & 1), float((c >> 1) & 1), float((c >> 2) & 1));
+        if (any(greaterThan(corner, probeSize - 1.0))) continue;
+        vec3 w3 = mix(vec3(1.0) - f, f, vec3(float(c & 1), float((c >> 1) & 1), float((c >> 2) & 1)));
+        float w = w3.x * w3.y * w3.z;
+        int k = int(corner.x + probeSize.x * (corner.y + probeSize.y * corner.z)) * PROBE_TEXELS;
+        vec4 t0 = probeTexel(k);
+        if (t0.w < 0.5 || w <= 0.0) continue;
+        vec3 sh = t0.rgb * 0.282095
+            + probeTexel(k + 1).rgb * 0.488603 * m.y
+            + probeTexel(k + 2).rgb * 0.488603 * m.z
+            + probeTexel(k + 3).rgb * 0.488603 * m.x;
+        light += max(sh, vec3(0.0)) * w;
+        weight += w;
+    }
+    if (weight <= 0.0) return vec4(0.0);
+    return vec4(light / weight, reach);
+}
+
 // What a material's surface is at one point, which a game's own shader,
 // Material.Shader, changes before GoLib lights it.
 struct Surface {
@@ -598,6 +642,19 @@ void main()
         // A rough surface blurs its reflection into the light all around it.
         mirrored = mix(mix(groundColor, skyColor, smoothstep(-0.2, 0.2, r.y)), around, rough);
     }
+#ifndef LIGHTMAPPED
+    if (hasProbes == 1) {
+        // The light baked in the level's probes in place of the sky's and
+        // the ground's, and reflections dimmed where less of the sky reaches.
+        vec4 probe = probeLight(worldPosition, n);
+        if (probe.a > 0.0) {
+            const vec3 luma = vec3(0.2126, 0.7152, 0.0722);
+            float open = clamp(dot(probe.rgb, luma) / max(dot(around, luma), 1e-4), 0.0, 1.0);
+            mirrored *= mix(1.0, open, probe.a);
+            around = mix(around, probe.rgb, probe.a);
+        }
+    }
+#endif
 #ifdef LIGHTMAPPED
     // The light baked in Blender in place of the sky's and the ground's:
     // the sky's as much of it as reaches here, and what the sun, the lamps
@@ -830,6 +887,13 @@ void animate(inout vec3 position, inout vec3 n)
 }
 `
 
+// litFragment fills in the sizes the lit fragment shader reads its probes
+// with.
+func litFragment(fragment string) string {
+	fragment = strings.ReplaceAll(fragment, "DATA_WIDTH", strconv.Itoa(device.DataTextureWidth))
+	return strings.ReplaceAll(fragment, "PROBE_TEXELS", strconv.Itoa(probeTexels))
+}
+
 // animated3D returns a vertex shader made to bend what it draws by bones and
 // shape keys.
 func animated3D(vertex string) string {
@@ -871,6 +935,7 @@ type litProgram struct {
 	shadowMatrices                              [shadowCascades]int32
 	shadowSplits, shadowTexels, viewForward     int32
 	lightmap                                    int32
+	hasProbes, probes, probeGrid, probeSize     int32
 	bending                                     bendingUniforms
 }
 
@@ -1009,7 +1074,7 @@ func (r *state3D) load() error {
 		made = append(made, p)
 		return p, nil
 	}
-	lit, err := build("lit", litVertexShader, litFragmentShader)
+	lit, err := build("lit", litVertexShader, litFragment(litFragmentShader))
 	if err != nil {
 		return err
 	}
@@ -1081,6 +1146,7 @@ func locateLit(program device.Program) litProgram {
 		environmentLevels: at("environmentLevels"), irradiance: at("irradiance"), environmentTurn: at("environmentTurn"),
 		shadowSplits: at("shadowSplits"), shadowTexels: at("shadowTexels"), viewForward: at("viewForward"),
 		lightmap: at("lightmap"),
+		hasProbes: at("hasProbes"), probes: at("probes"), probeGrid: at("probeGrid"), probeSize: at("probeSize"),
 	}
 	for k := range shadowCascades {
 		p.shadowMatrices[k] = at(fmt.Sprintf("shadowMatrix%d", k))
@@ -1105,7 +1171,7 @@ func (r *state3D) surfaceProgram(m *material3D, animated, lightmapped bool) *lit
 		}
 		return p
 	}
-	vertex, fragment := litVertexShader, litFragmentShader
+	vertex, fragment := litVertexShader, litFragment(litFragmentShader)
 	if animated {
 		vertex = animated3D(vertex)
 	}
@@ -1165,6 +1231,7 @@ const (
 	shadowUnit      = 5
 	environmentUnit = 6
 	lightmapUnit    = 10 // past the animation's and the shape keys'
+	probesUnit      = 11
 )
 
 // colorFloats returns c as four numbers from 0 to 1, as it is: sRGB.
@@ -1328,6 +1395,13 @@ func (r *state3D) draw(pass *pass3D) {
 	if shadows {
 		device.BindShadowMap(shadowUnit, r.shadowMap)
 	}
+	// A level's light probes light what has no lightmap.
+	var probeGrid [16]float32
+	hasProbes := pass.probes != nil
+	if hasProbes {
+		device.BindDataTexture(probesUnit, pass.probes.upload())
+		probeGrid = [16]float32(pass.probes.fromWorld(pass.probesPlace))
+	}
 	var irradiance []float32
 	if hasEnvironment {
 		for _, c := range env.hdri.irradiance {
@@ -1371,6 +1445,13 @@ func (r *state3D) draw(pass *pass3D) {
 		}
 		device.SetUniformInt(lit.shadowMap, shadowUnit)
 		device.SetUniformInt(lit.lightmap, lightmapUnit)
+		device.SetUniformInt(lit.probes, probesUnit)
+		device.SetUniformInt(lit.hasProbes, boolInt(hasProbes))
+		if hasProbes {
+			device.SetUniformMatrix(lit.probeGrid, &probeGrid)
+			size := pass.probes.size
+			device.SetUniform(lit.probeSize, 3, [4]float32{float32(size[0]), float32(size[1]), float32(size[2])})
+		}
 		device.SetUniformInt(lit.hasShadows, boolInt(shadows))
 		if shadows {
 			for k := range shadowCascades {

@@ -1201,7 +1201,7 @@ A level made in Blender can carry its light baked by Cycles, Blender's ray trace
 blender --background games/<game>/sources/level.blend --python tools/blender/bake_lightmaps.py -- --output games/<game>/assets/models/level.glb
 ```
 
-It writes `level.glb` and `level.lightmap.hdr` beside it. `golib.NewModel("models/level.glb")` reads both, and `DrawModel` draws the level lit by its lightmap; light it with the sun and lamps it was baked with:
+It writes `level.glb`, and `level.lightmap.hdr` and `level.probes.json` beside it. `golib.NewModel("models/level.glb")` reads both, and `DrawModel` draws the level lit by its lightmap; light it with the sun and lamps it was baked with:
 
 | Name | What it does |
 | --- | --- |
@@ -1227,7 +1227,8 @@ func (s *playScene) Draw(screen *golib.Screen) {
 }
 ```
 
-- **What is baked:** every visible mesh, but those whose custom property `static` is `false`: the crates, doors and props the game moves. Those are drawn without a lightmap, lit by the sun, the lamps and the `Environment`'s sky.
+- **What is baked:** every visible mesh, but those whose custom property `static` is `false`: the crates, doors and props the game moves.
+- **What moves is lit by light probes:** the script also bakes a grid of points over the level, 2 meters apart, each holding the light that reaches it from every way, sky and bounces, as the lightmap does; points inside walls are left out. Everything drawn without a lightmap in a pass with the level, characters, crates, `DrawMesh` shapes, takes its soft light from the probes around it in place of the `Environment`'s `Sky` and `Ground`: darker under a roof, red beside a red wall. Nothing to call: drawing the level is enough, the first one drawn when there are several. Beyond the grid, the `Environment` lights as before, fading in over a probe's spacing. `--probe-spacing 1` for a finer grid, `--no-probes` for none.
 - **What isn't:** the sun, point lamps and spot lamps light the level directly in GoLib, so their direct light isn't in the lightmap, only what they bounce; area lamps and glowing materials are baked whole. Light the level with the same `Sun` and `Lights`, or the bounced light won't match. A level drawn moved or turned keeps its lightmap, but its sun and lamps must be placed with it.
 - **The script** unwraps a second UV map, `Lightmap`, for every still object, packed for all of them at one density, and keeps one made by hand. It needs the level's objects to have at most one UV map of their own, and modifiers that copy geometry, such as Array, applied first. `--size 2048` for a large level (1024 when not given), `--samples 512` for less grain, `--gpu` to bake on the graphics card, `--save` to keep the `Lightmap` UV maps in the `.blend`. A courtyard of 7 objects baked at 512 by 512 texels and 256 samples in 31 seconds on an Intel iMac; the time grows with the texels and the samples. Bake again whenever the level changes.
 - **Units:** the script exports lamps in Blender's own units, Lighting Mode Raw; `Sun` and `Lights` turn them into GoLib's, a sun of strength 3 in Blender being `Strength` 0.95 here. A level exported by hand needs Include > Punctual Lights and Lighting Mode Raw for them.
