@@ -45,3 +45,35 @@ func TestToonAndOutlineInAWindow(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// A line fades into the fog as what it outlines does.
+func TestOutlineFadesIntoFog(t *testing.T) {
+	screen, capture := openTestWindow(t, 64, 64)
+	takeError()
+	camera := NewCamera3D(64, 64)
+	camera.Position, camera.Target = Vector3{Z: -4}, Vector3{}
+	camera.Snap()
+	ball := NewSphereMesh()
+	// The darkest pixel across the middle: the line, where there is one.
+	edge := func(fog float32) int {
+		img := capture(func() {
+			screen.Clear(White)
+			screen.Begin3D(camera)
+			screen.SetEnvironment(Environment{NoBloom: true, NoShadows: true, FogColor: White, FogDistance: fog})
+			screen.DrawMeshWith(ball, Transform{}, &Material{Color: Red, Outline: Black, OutlineWidth: 6})
+			screen.End3D()
+		})
+		darkest := 765
+		for x := range 64 {
+			c := img.NRGBAAt(x, 32)
+			darkest = min(darkest, int(c.R)+int(c.G)+int(c.B))
+		}
+		return darkest
+	}
+	if clear, foggy := edge(0), edge(2); clear > 150 || foggy < 600 {
+		t.Errorf("an outline is %d bright without fog and %d in fog that hides the ball, want black, then white", clear, foggy)
+	}
+	if err := takeError(); err != nil {
+		t.Fatal(err)
+	}
+}

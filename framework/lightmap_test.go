@@ -97,8 +97,9 @@ func TestModelReadsItsLightmapAndLamps(t *testing.T) {
 	if !near3(lamp.Position, Vector3{Y: 2}) || !within(lamp.Intensity, float32(100/(4*math.Pi*math.Pi)), 0.001) || lamp.Direction != (Vector3{}) {
 		t.Errorf("the lamp is %+v, want at 0, 2, 0, intensity %v, all around", lamp, 100/(4*math.Pi*math.Pi))
 	}
-	if lamp.Range < 10 {
-		t.Errorf("the lamp reaches %v m, want far, as Blender's does", lamp.Range)
+	// It reaches where it is a hundredth of the sun: 15.9 m.
+	if !within(lamp.Range, float32(math.Sqrt(100/(4*math.Pi*math.Pi)*100)), 0.01) {
+		t.Errorf("the lamp reaches %v m, want about 15.9, where it is a hundredth of the sun", lamp.Range)
 	}
 	if !near3(spot.Direction, Vector3{Y: -1}) || !within(spot.Cone, 60, 0.01) || !near3(spot.Position, Vector3{X: 1, Y: 3, Z: -1}) {
 		t.Errorf("the spot is %+v, want pointing down, 60 degrees across, at 1, 3, -1", spot)

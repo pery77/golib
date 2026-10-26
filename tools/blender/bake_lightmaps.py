@@ -522,19 +522,24 @@ def main():
             image.save()
             denoise(image.filepath_raw, target)
     bpy.data.images.remove(image)
+    lightmap_seconds = time.time() - began
 
     stem = os.path.splitext(os.path.basename(output))[0]
     probes_name = stem + ".probes.json"
     probes_file = {}
     probes_line = "no light probes"
+    step = time.time()
     if not args.no_probes:
         origin, spacing, counts, harmonics = bake_probes(scene, objects, args.probe_spacing)
         probes_file.update({"origin": [round(v, 4) for v in origin], "spacing": round(spacing, 4), "size": counts, "probes": harmonics})
         inside = sum(h is None for h in harmonics)
         probes_line = f"{len(harmonics) - inside} light probes {spacing:g} m apart into {probes_name} ({inside} inside walls left out)"
+    probes_seconds = time.time() - step
+    step = time.time()
     boxes = reflection_probes(scene)
     if boxes:
         probes_file["reflections"] = render_reflections(scene, boxes, folder, stem, args.reflection_size, args.samples)
+    reflections_seconds = time.time() - step
     marker = None
     if probes_file:
         with open(os.path.join(folder, probes_name), "w") as f:
@@ -558,11 +563,11 @@ def main():
         bpy.context.preferences.filepaths.save_version = 0
         bpy.ops.wm.save_mainfile()
     smoothed = "" if args.no_denoise else ", denoised"
-    print(f"[ok] baked {len(objects)} objects into {lightmap_name}, {args.size} by {args.size}, {args.samples} samples{smoothed}, in {time.time() - began:.0f} s")
-    print(f"[ok] baked {probes_line}")
-    print(f"[ok] rendered {len(boxes)} reflection probes" + (" (none: mark an empty over a room with the custom property reflection)" if not boxes else f", {args.reflection_size} by {args.reflection_size // 2}"))
+    print(f"[ok] baked {len(objects)} objects into {lightmap_name}, {args.size} by {args.size}, {args.samples} samples{smoothed}, in {lightmap_seconds:.0f} s")
+    print(f"[ok] baked {probes_line}, in {probes_seconds:.0f} s")
+    print(f"[ok] rendered {len(boxes)} reflection probes" + (" (none: mark an empty over a room with the custom property reflection)" if not boxes else f", {args.reflection_size} by {args.reflection_size // 2}, in {reflections_seconds:.0f} s"))
     lamps = [o for o in scene.objects if o.type == 'LIGHT' and o.data.type in ('POINT', 'SPOT') and not o.hide_render]
-    print(f"[ok] exported {output}, with its sun and {len(lamps)} lamps for Model.Sun and Model.Lights")
+    print(f"[ok] exported {output}, with its sun and {len(lamps)} lamps for Model.Sun and Model.Lights; {time.time() - began:.0f} s in all")
 
 
 main()

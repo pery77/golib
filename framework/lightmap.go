@@ -106,8 +106,9 @@ func (m *Model) Lights() []Light {
 		}
 		if light.Range <= 0 {
 			// Blender's lamps reach forever; GoLib's fade out, here where
-			// they are a five-hundredth of the sun.
-			light.Range = float32(math.Sqrt(float64(intensity) * 500))
+			// they are a hundredth of the sun, so a lamp lights its room
+			// and not the halls past its walls.
+			light.Range = float32(math.Sqrt(float64(intensity) * 100))
 		}
 		if l.light.Type == "spot" {
 			light.Direction = l.place.transformDirection(Vector3{Z: -1}).Normalize()

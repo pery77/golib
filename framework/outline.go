@@ -5,7 +5,8 @@ import "golib/internal/device"
 // Outlines, as cartoons are drawn: a material's Outline draws its mesh a
 // second time, its back faces only, each vertex pushed out along its normal
 // by the line's width in pixels, in one color: what shows round the mesh is
-// the line. Only solid things get one.
+// the line. Only solid things get one. Lines fade into fog and haze as what
+// they outline does.
 
 // Model.Outline and Model.Toon give every material of a model a line and a
 // cartoon's light.
@@ -58,6 +59,7 @@ layout(location = 4) in mat4 instanceModel;
 uniform mat4 viewProjection;
 uniform vec2 viewSize;
 uniform float width;
+out vec3 worldPosition;
 
 // ANIMATION
 
@@ -69,6 +71,7 @@ void main()
     animate(position, n);
 #endif
     vec4 world = instanceModel * vec4(position, 1.0);
+    worldPosition = world.xyz;
     vec4 clip = viewProjection * world;
     // Pushed out along the normal as the screen shows it, by the width in
     // pixels whatever the distance.
@@ -79,12 +82,21 @@ void main()
 }
 `
 	outlineFragmentShader = `#version 330
+in vec3 worldPosition;
 uniform vec4 color;
+uniform vec3 eye;
+uniform vec4 fog;
 out vec4 fragColor;
 
 void main()
 {
-    fragColor = vec4(color.rgb, 1.0);
+    vec3 c = color.rgb;
+    // Into the fog as the surface it outlines goes.
+    if (fog.w > 0.0) {
+        float distance = length(eye - worldPosition);
+        c = mix(c, fog.rgb, clamp((distance - fog.w * 0.1) / (fog.w * 0.9), 0.0, 1.0));
+    }
+    fragColor = vec4(c, 1.0);
 }
 `
 )
@@ -93,7 +105,7 @@ void main()
 type outlineProgram struct {
 	program                  device.Program
 	viewProjection, viewSize int32
-	width, color             int32
+	width, color, eye, fog   int32
 	bending                  bendingUniforms
 }
 
@@ -110,7 +122,7 @@ func (r *state3D) outlinePrograms() (plain, bent *outlineProgram) {
 		at := func(n string) int32 { return device.UniformLocation(program, n) }
 		return &outlineProgram{
 			program: program, viewProjection: at("viewProjection"), viewSize: at("viewSize"),
-			width: at("width"), color: at("color"), bending: locateBending(program),
+			width: at("width"), color: at("color"), eye: at("eye"), fog: at("fog"), bending: locateBending(program),
 		}
 	}
 	if r.outline == nil {
@@ -128,7 +140,7 @@ func (r *state3D) outlinePrograms() (plain, bent *outlineProgram) {
 
 // drawOutlines draws the lines round the solid groups whose material has
 // one.
-func (r *state3D) drawOutlines(groups []shadowGroup, viewProjection *[16]float32, width, height int) {
+func (r *state3D) drawOutlines(groups []shadowGroup, viewProjection *[16]float32, width, height int, eye Vector3, fog [4]float32) {
 	plain, bent := r.outlinePrograms()
 	device.SetCullFront(true)
 	for _, g := range groups {
@@ -149,6 +161,8 @@ func (r *state3D) drawOutlines(groups []shadowGroup, viewProjection *[16]float32
 		device.SetUniform(p.viewSize, 2, [4]float32{float32(width), float32(height)})
 		device.SetUniform(p.width, 1, [4]float32{m.outlineWidth})
 		device.SetUniform(p.color, 4, m.outline)
+		device.SetUniform(p.eye, 3, vec3(eye))
+		device.SetUniform(p.fog, 4, fog)
 		if animated {
 			p.bending.set(g.animation)
 		}

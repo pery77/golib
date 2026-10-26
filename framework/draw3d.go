@@ -2013,10 +2013,11 @@ func (r *state3D) draw(pass *pass3D) {
 		mirroring = false
 		current, program = nil, nil
 	}
+
 	// The outlines round what has them.
 	for _, g := range built {
 		if g.material.outline[3] > 0 {
-			r.drawOutlines(built, &viewProjection, pass.width, pass.height)
+			r.drawOutlines(built, &viewProjection, pass.width, pass.height, eye, env.fog)
 			culling = true
 			current, program = nil, nil
 			if len(r.animation) > 0 {
