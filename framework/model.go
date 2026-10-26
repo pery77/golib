@@ -49,7 +49,7 @@ type Model struct {
 	hidden     []bool       // for each node, whether Hide hid it, or nil
 	probes     *lightProbes // the light probes baked with it, or nil
 	rest       modelPose    // the model as the file has it, which DrawModel draws
-	extra      []string  // files of more animations, from AddAnimations
+	extra      []string     // files of more animations, from AddAnimations
 }
 
 // modelPart is one mesh of a model, with its material, on the node that
@@ -58,7 +58,7 @@ type modelPart struct {
 	mesh     *Mesh
 	material *material3D
 	node     int
-	skin     int // -1 for a mesh no bones bend
+	skin     int        // -1 for a mesh no bones bend
 	lightmap *texture3D // the light baked for it in Blender, or nil
 
 	// reach is, for a skinned part, how far its vertices are from each of

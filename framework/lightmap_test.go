@@ -134,7 +134,7 @@ func probedGLB() []byte {
 func TestLightProbesLightWhatMoves(t *testing.T) {
 	white := float32(1 / 0.282095)
 	useAssets(t, map[string][]byte{
-		"models/level.glb": probedGLB(),
+		"models/level.glb":         probedGLB(),
 		"models/level.probes.json": []byte(fmt.Sprintf(`{"origin":[-1,0,0],"spacing":2,"size":[2,1,1],"probes":[[0,0,0,0,0,0,0,0,0,0,0,0],[%v,%v,%v,0,0,0,0,0,0,0,0,0]]}`, white, white, white)),
 	})
 	level := NewModel("models/level.glb")

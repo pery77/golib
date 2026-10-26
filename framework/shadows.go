@@ -97,7 +97,7 @@ func cascadesFor(camera *Camera3D, sun Vector3, distance float32) cascades {
 // one, seen from the lamp; a point light into six, one for each face of a
 // cube around it, each seeing 90 degrees.
 const (
-	lampTile       = shadowResolution / 2
+	lampTile        = shadowResolution / 2
 	lampTilesAcross = 6
 	lampTilesDown   = 4
 	maxLampShadows  = 4
@@ -115,10 +115,10 @@ var cubeFaces = [6]struct{ forward, up Vector3 }{
 // lampShadows are the lamps of a pass that cast shadows, and the views each
 // of their tiles is drawn with.
 type lampShadows struct {
-	tiles    []matrix          // the view of each tile, in order
-	uniforms []float32         // for each of the pass's lights: first tile or -1, spot index or -1, near, far
-	spots    []float32         // the spotlights' views, as the lit shader reads them
-	count    int               // how many lamps cast shadows
+	tiles    []matrix  // the view of each tile, in order
+	uniforms []float32 // for each of the pass's lights: first tile or -1, spot index or -1, near, far
+	spots    []float32 // the spotlights' views, as the lit shader reads them
+	count    int       // how many lamps cast shadows
 }
 
 // lookAlong is the view of an eye looking along forward, with up as up.

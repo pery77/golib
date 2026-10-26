@@ -64,9 +64,9 @@ type Primitive struct {
 	// Lightcoords are the second set of texture coordinates, u, v for each
 	// vertex, or nil: where each vertex is on a lightmap baked in Blender.
 	Lightcoords []float32
-	Colors    []float32 // r, g, b, a for each vertex, linear, or nil
-	Indices   []uint32  // three a triangle, counterclockwise seen from the front
-	Material  int       // -1 for glTF's default material
+	Colors      []float32 // r, g, b, a for each vertex, linear, or nil
+	Indices     []uint32  // three a triangle, counterclockwise seen from the front
+	Material    int       // -1 for glTF's default material
 
 	// Joints and Weights skin the primitive: for each vertex, four joints,
 	// as places in its skin's Joints, and how much each moves it, adding up

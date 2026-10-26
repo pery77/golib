@@ -38,6 +38,22 @@ type material3D struct {
 	unlit             bool       // its color shows as it is, without the sun
 	tiling            [2]float32 // how many times textures repeat across and down; zero is once
 	surface           string     // a game's own surface function, in GLSL, or ""
+	toon              int        // bands it is lit in, as a cartoon, or 0
+	outline           [4]float32 // the line round it, linear, and its opacity 0 for none
+	outlineWidth      float32    // in pixels
+}
+
+// setOutline gives the material a line of color, width pixels wide; the
+// zero Color is none.
+func (m *material3D) setOutline(color Color, width float32) {
+	m.outline = [4]float32{}
+	if color != (Color{}) {
+		m.outline = linearColor(color)
+	}
+	m.outlineWidth = width
+	if width <= 0 {
+		m.outlineWidth = 2
+	}
 }
 
 type alphaMode int
@@ -459,12 +475,30 @@ mat3 surfaceFrame(vec3 n, vec3 p, vec2 uv)
     return mat3(t * scale, -b * scale, n);
 }
 
+uniform float toonBands;
+
+// A cartoon's light: x in toonBands flat steps, each edge smoothed over a
+// pixel.
+float toonStep(float x)
+{
+    float s = x * toonBands;
+    float w = max(fwidth(s), 1e-4);
+    return (floor(s) + smoothstep(0.0, w, fract(s))) / toonBands;
+}
+
 // Light that reaches the eye from one light: Lambert's diffuse and GGX's
-// highlight.
+// highlight, or, for a cartoon, flat bands and a sharp spot.
 vec3 shade(vec3 n, vec3 v, vec3 l, vec3 radiance, vec3 albedo, float metal, float rough, vec3 f0)
 {
     float nl = max(dot(n, l), 0.0);
     if (nl <= 0.0) return vec3(0.0);
+    if (toonBands > 0.0) {
+        float nh = max(dot(n, normalize(v + l)), 0.0);
+        float edge = mix(0.995, 0.93, rough);
+        float w = max(fwidth(nh), 1e-4);
+        vec3 spot = smoothstep(edge - w, edge + w, nh) * (1.0 - rough) * mix(vec3(0.6), albedo, metal);
+        return ((1.0 - metal) * albedo + spot) * radiance * toonStep(nl);
+    }
     vec3 h = normalize(v + l);
     float nv = max(dot(n, v), 1e-4);
     float nh = max(dot(n, h), 0.0);
@@ -818,7 +852,9 @@ void main()
     vec3 v = normalize(eye - worldPosition);
     vec3 f0 = mix(vec3(0.04), albedo.rgb, metal);
 
-    vec3 light = shade(n, v, -sunDirection, sunColor * sunShadow(n), albedo.rgb, metal, rough, f0);
+    float sunLit = sunShadow(n);
+    if (toonBands > 0.0) sunLit = smoothstep(0.4, 0.6, sunLit);
+    vec3 light = shade(n, v, -sunDirection, sunColor * sunLit, albedo.rgb, metal, rough, f0);
     for (int i = 0; i < 8; i++) {
         if (i >= lightCount) break;
         vec3 toLight = lightPositions[i].xyz - worldPosition;
@@ -1156,6 +1192,7 @@ type litProgram struct {
 	reflectionHighs                             int32
 	reflections                                 [maxReflections]int32
 	shadowRows, hasLampShadows                  int32
+	toonBands                                   int32
 	lampShadows, spotShadowViews                int32
 	colorCopy, depthCopy                        int32
 	inverseViewProjection, viewSize             int32
@@ -1258,8 +1295,10 @@ type state3D struct {
 	lineMesh  device.Mesh
 	instances []float32 // the instances of the draw being built
 
-	shadowBent    *shadowProgram     // the shadow program that bends, once a pass needs it
-	decals        *decalProgram      // the program that presses decals, once a pass has one
+	shadowBent    *shadowProgram  // the shadow program that bends, once a pass needs it
+	decals        *decalProgram   // the program that presses decals, once a pass has one
+	outline       *outlineProgram // the programs that draw outlines, once a pass has one
+	outlineBent   *outlineProgram
 	animation     []float32          // the animated items' blocks, as the animation texture gets them
 	animationData device.DataTexture // the animation texture
 }
@@ -1376,10 +1415,11 @@ func locateLit(program device.Program) litProgram {
 		environmentMap: at("environmentMap"), hasEnvironment: at("hasEnvironment"),
 		environmentLevels: at("environmentLevels"), irradiance: at("irradiance"), environmentTurn: at("environmentTurn"),
 		shadowSplits: at("shadowSplits"), shadowTexels: at("shadowTexels"), viewForward: at("viewForward"),
-		lightmap: at("lightmap"),
+		lightmap:  at("lightmap"),
 		hasProbes: at("hasProbes"), probes: at("probes"), probeGrid: at("probeGrid"), probeSize: at("probeSize"),
 		reflectionCount: at("reflectionCount"), levelFromWorld: at("levelFromWorld"),
 		shadowRows: at("shadowRows"), hasLampShadows: at("hasLampShadows"),
+		toonBands:   at("toonBands"),
 		lampShadows: at("lampShadows"), spotShadowViews: at("spotShadowViews"),
 		colorCopy: at("colorCopy"), depthCopy: at("depthCopy"),
 		inverseViewProjection: at("inverseViewProjection"), viewSize: at("viewSize"),
@@ -1465,6 +1505,11 @@ func (r *state3D) unload() {
 	}
 	if r.decals != nil && r.decals.program.ID != 0 {
 		device.UnloadProgram(r.decals.program)
+	}
+	for _, o := range []*outlineProgram{r.outline, r.outlineBent} {
+		if o != nil && o.program.ID != 0 {
+			device.UnloadProgram(o.program)
+		}
 	}
 	device.UnloadDataTexture(r.animationData)
 	r.unloadBloom()
@@ -1802,6 +1847,7 @@ func (r *state3D) draw(pass *pass3D) {
 		device.SetUniformInt(lit.alphaMode, int32(m.alpha))
 		device.SetUniform(lit.alphaCutoff, 1, [4]float32{m.alphaCutoff})
 		device.SetUniformInt(lit.unlit, boolInt(m.unlit))
+		device.SetUniform(lit.toonBands, 1, [4]float32{float32(m.toon)})
 		tiling := m.tiling
 		if tiling == [2]float32{} {
 			tiling = [2]float32{1, 1}
@@ -1837,6 +1883,18 @@ func (r *state3D) draw(pass *pass3D) {
 			program.bending.set(g.animation)
 		}
 		device.DrawMeshInstanced(g.gpu, g.instances)
+	}
+	// The outlines round what has them.
+	for _, g := range built {
+		if g.material.outline[3] > 0 {
+			r.drawOutlines(built, &viewProjection, pass.width, pass.height)
+			culling = true
+			current, program = nil, nil
+			if len(r.animation) > 0 {
+				device.BindDataTexture(animationUnit, r.animationData)
+			}
+			break
+		}
 	}
 
 	if env.background {

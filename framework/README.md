@@ -863,6 +863,8 @@ A 3D world, seen through a `Camera3D`, drawn between `screen.Begin3D` and `scree
 | `Material.Emission`, `Material.EmissionStrength` | The light the surface gives off, shown even in the dark: lava, screens, neon. `EmissionStrength` multiplies it (1 when zero); above white it glows with `Environment.Bloom`. |
 | `Material.Unlit` | The color or texture as it is, with no light or shadow: a sky dome, a sign. As everywhere in the 3D, `Environment.Exposure` brightens or darkens it, and only colors above about 225 of 255 are softened a little by the tonemapper. |
 | `Material.TwoSided` | Draws the back of each triangle too: leaves, flags, paper. |
+| `Material.Toon` | Lights the surface in flat bands, as a cartoon is drawn: 2 for light and shade, 3 or 4 for softer steps, with a sharp highlight. 0 is lit smoothly. Shadows, lamps, the sky's light and fog still reach it. |
+| `Material.Outline`, `Material.OutlineWidth` | A line of that color round the surface's edges as the camera sees them, `OutlineWidth` pixels wide whatever the distance (2 when zero); the zero `Color` is none. A mesh with smooth normals, such as a sphere or most models, gets a line all round; one whose faces don't share their corners, such as `NewBoxMesh`, gets one broken at its corners. Only solid surfaces get one. |
 | `Material.Shader` | A GLSL function of the game's own, `void surface(inout Surface s)`, that changes the surface before GoLib lights it: `s.color` (vec4, linear), `s.emission` (vec3), `s.metallic`, `s.roughness`, `s.normal` (in the world), and to read, `s.position` (in the world), `s.texcoord` and `s.time` (seconds of game time). Lighting, shadows and fog stay GoLib's. One that doesn't compile stops `Run` with what the graphics card said. |
 | `Texture` | A picture for 3D, from a PNG or JPEG file: smoothed, with mipmaps, repeating past its edges. |
 | `NewTexture` | `NewTexture(name string) *Texture`: the texture in the assets folder named `name`, read the first time it is drawn. |
@@ -874,6 +876,7 @@ var (
 	gold  = &golib.Material{Color: golib.Gold, Metallic: 1, Roughness: 0.3}
 	lava  = &golib.Material{Color: golib.Black, Emission: golib.Orange, EmissionStrength: 4}
 	tiles = &golib.Material{Texture: golib.NewTexture("textures/tiles.png"), Tiling: 20}
+	toon  = &golib.Material{Color: golib.Orange, Toon: 2, Outline: golib.Black, OutlineWidth: 3}
 	water = &golib.Material{Color: golib.Color{R: 40, G: 110, B: 160, A: 255}, Roughness: 0.05, Shader: `
 void surface(inout Surface s) {
     s.normal = normalize(s.normal + 0.08 * vec3(sin(s.position.x * 3.0 + s.time * 2.0), 0.0, cos(s.position.z * 2.5 + s.time)));
@@ -897,6 +900,7 @@ A model is a glTF file, `.glb` or `.gltf`, or an FBX file, `.fbx`, in the game's
 | `Model.Bounds` | `Bounds() (lowest, upmost Vector3)`: the box around it, in its own space: how big it is, and where its feet are. |
 | `Model.Markers` | `Markers() []ModelMarker`: the empties placed in it, and any other node without a mesh, in the file's order. |
 | `Model.Marker` | `Marker(name string) (ModelMarker, bool)`: the first marker called `name`, such as the player's start. |
+| `Model.Toon`, `Model.Outline` | `Toon(bands int)` and `Outline(color Color, width float32)`: what `Material.Toon` and `Material.Outline` do, for every material of the model, wherever it is drawn: `hero.Toon(2); hero.Outline(golib.Black, 3)` for a cartoon character. `Toon(0)` and the zero `Color` take them away. |
 | `Model.Hide`, `Model.Show` | `Hide(names ...string)`: hides the objects Blender named so, and the objects under them, wherever the model is drawn, until `Show(names ...string)`: a coin collected from a level, a door opened. A name the model doesn't have is reported. A `PhysicsWorld` the model was added to keeps them solid: `Remove` what goes. |
 | `Model.Err` | `Err() error`: reads it, and says what stopped it from loading. Drawing or asking a model that didn't load stops `Run` with the same message, so a game needs it only to handle the mistake itself, or to check its models in a test. |
 | `ModelMarker` | A marker: `ModelMarker.Name`, `ModelMarker.Position`, `ModelMarker.Rotation` and `ModelMarker.Scale` in the model's own space, and `ModelMarker.Properties`, its custom properties, read like a Tiled object's (`Properties.String`, `Properties.Float` and the others). |

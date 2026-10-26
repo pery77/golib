@@ -55,6 +55,19 @@ type Material struct {
 	// paper.
 	TwoSided bool
 
+	// Toon lights the surface in flat bands, as a cartoon is drawn: 2 for
+	// light and shade, 3 or 4 for softer steps, with a sharp highlight.
+	// 0 is lit smoothly, as everything else.
+	Toon int
+
+	// Outline draws a line of this color round the surface's edges as the
+	// camera sees them, OutlineWidth pixels wide, 2 when zero. The zero
+	// Color is no line. Meshes with smooth normals get a line all round;
+	// one whose faces don't share their corners, such as NewBoxMesh, gets
+	// a broken one at its corners.
+	Outline      Color
+	OutlineWidth float32
+
 	// Shader is a function of the game's own, in GLSL, that changes the
 	// surface before GoLib lights it:
 	//
@@ -91,6 +104,9 @@ type materialSettings struct {
 	emissionStrength float32
 	unlit, twoSided  bool
 	shader           string
+	toon             int
+	outline          Color
+	outlineWidth     float32
 }
 
 // material returns what the renderer draws m with, made again when a field
@@ -99,6 +115,7 @@ func (m *Material) material() *material3D {
 	settings := materialSettings{
 		m.Color, m.Texture, m.Tiling, m.Metallic, m.Roughness,
 		m.Emission, m.EmissionStrength, m.Unlit, m.TwoSided, m.Shader,
+		m.Toon, m.Outline, m.OutlineWidth,
 	}
 	if m.ready && settings == m.from {
 		return m.made
@@ -129,6 +146,8 @@ func (m *Material) material() *material3D {
 		made.emissive = [3]float32{e[0] * strength, e[1] * strength, e[2] * strength}
 	}
 	made.unlit, made.twoSided, made.surface = m.Unlit, m.TwoSided, m.Shader
+	made.toon = max(m.Toon, 0)
+	made.setOutline(m.Outline, m.OutlineWidth)
 	both := *made
 	both.twoSided = true
 	m.made, m.twoSided, m.from, m.ready = made, &both, settings, true

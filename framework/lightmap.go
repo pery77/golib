@@ -136,9 +136,9 @@ func lampColor(c [3]float32) (Color, float32) {
 // its reflection probes. A level may have either or both.
 type lightProbes struct {
 	reflections []reflectionProbe // the smallest box first
-	origin  Vector3 // the first probe
-	spacing float32 // meters between probes
-	size    [3]int  // how many along X, Y and Z
+	origin      Vector3           // the first probe
+	spacing     float32           // meters between probes
+	size        [3]int            // how many along X, Y and Z
 	// texels holds four texels a probe, X first, then Y, then Z: its four
 	// spherical harmonics' red, green and blue, and, in the first texel's
 	// fourth number, 1 for a probe and 0 for a point inside a wall.
