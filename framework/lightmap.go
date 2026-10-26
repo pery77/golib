@@ -102,6 +102,7 @@ func (m *Model) Lights() []Light {
 			Color:     color,
 			Intensity: intensity,
 			Range:     l.light.Range,
+			Shadows:   true, // as Cycles' do, in the light it baked
 		}
 		if light.Range <= 0 {
 			// Blender's lamps reach forever; GoLib's fade out, here where

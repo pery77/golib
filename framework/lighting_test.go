@@ -172,3 +172,49 @@ func TestShadowsInAWindow(t *testing.T) {
 		t.Error("no pixel across the middle is darker with shadows: the box casts none")
 	}
 }
+
+// At night, a lamp over a box casts its shadow on the ground under it, a
+// point light and a spotlight alike, and only when it asks to.
+func TestLampShadowsInAWindow(t *testing.T) {
+	screen, capture := openTestWindow(t, 64, 64)
+	takeError()
+	camera := NewCamera3D(64, 64)
+	camera.Position, camera.Target = Vector3{Y: 6, Z: -0.01}, Vector3{} // looking down
+	ground, box := NewPlaneMesh(), NewBoxMesh()
+	night := Environment{SunColor: Black, Sky: Black, Ground: Black, NoBloom: true}
+	middle := func(lamp Light) int {
+		picture := capture(func() {
+			screen.Begin3D(camera)
+			screen.SetEnvironment(night)
+			screen.AddLight(lamp)
+			screen.DrawMesh(ground, Transform{Scale: Vector3{X: 20, Z: 20}}, White)
+			// A slab between the lamp and the ground, beside the camera.
+			screen.DrawMesh(box, Transform{Position: Vector3{X: 1.5, Y: 1}, Scale: Vector3{X: 1, Y: 0.1, Z: 1}}, White)
+			screen.End3D()
+		})
+		// The ground right under the camera, where the slab's shadow from
+		// the lamp falls, between X -1 and 1.
+		c := picture.NRGBAAt(32, 32)
+		return int(c.R) + int(c.G) + int(c.B)
+	}
+	for _, kind := range []struct {
+		name string
+		lamp Light
+	}{
+		{"point", Light{Position: Vector3{X: 3, Y: 2}, Intensity: 6, Range: 20}},
+		{"spot", Light{Position: Vector3{X: 3, Y: 2}, Intensity: 6, Range: 20, Direction: Vector3{X: -1, Y: -0.8}, Cone: 120}},
+	} {
+		lit := middle(kind.lamp)
+		kind.lamp.Shadows = true
+		shaded := middle(kind.lamp)
+		if lit < 100 {
+			t.Errorf("%s: the ground the lamp lights is %d bright, too dark to see a shadow", kind.name, lit)
+		}
+		if shaded > lit/3 {
+			t.Errorf("%s: the ground behind the slab from the lamp is %d bright with Shadows and %d without, want in shadow", kind.name, shaded, lit)
+		}
+	}
+	if err := takeError(); err != nil {
+		t.Fatal(err)
+	}
+}

@@ -122,6 +122,12 @@ type Light struct {
 	// Cone is a spotlight's width, in degrees, softening at its edge. 0
 	// counts as 45.
 	Cone float32
+
+	// Shadows makes the lamp cast shadows from everything solid, as the sun
+	// does. A spotlight's cost one more drawing of the world a frame, a
+	// point light's six: a pass gives shadows to the 4 nearest lamps that
+	// ask for them.
+	Shadows bool
 }
 
 // maxLights is how many lights a pass uses: the nearest to the camera, when
@@ -143,6 +149,7 @@ func (s *Screen) AddLight(light Light) {
 type lightUniforms struct {
 	count                         int32
 	positions, colors, directions []float32
+	chosen                        []Light // the lights used, in the shader's order
 }
 
 // lightsFor turns lights into what the lit shader reads, keeping the
@@ -164,6 +171,7 @@ func lightsFor(lights []Light, eye Vector3) lightUniforms {
 	}
 	var u lightUniforms
 	u.count = int32(len(lights))
+	u.chosen = lights
 	for _, l := range lights {
 		reach := l.Range
 		if reach <= 0 {

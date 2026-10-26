@@ -408,6 +408,10 @@ uniform mat4 shadowMatrix1;
 uniform mat4 shadowMatrix2;
 uniform vec4 shadowSplits;
 uniform vec4 shadowTexels;
+uniform float shadowRows;
+uniform int hasLampShadows;
+uniform vec4 lampShadows[8];
+uniform vec4 spotShadowViews[16];
 uniform vec3 viewForward;
 uniform int lightCount;
 uniform vec4 lightPositions[8];
@@ -501,6 +505,7 @@ float sunShadow(vec3 n)
     if (depth > shadowSplits.z) return 1.0;
     int slice = depth < shadowSplits.x ? 0 : (depth < shadowSplits.y ? 1 : 2);
     float texel = slice == 0 ? shadowTexels.x : (slice == 1 ? shadowTexels.y : shadowTexels.z);
+    float rows = max(shadowRows, 1.0);
     // Moved off the surface along its normal, more where the sun grazes it,
     // so a surface doesn't shade itself.
     float facing = clamp(dot(n, -sunDirection), 0.0, 1.0);
@@ -509,14 +514,15 @@ float sunShadow(vec3 n)
     vec4 s = m * vec4(p, 1.0);
     vec3 uvz = s.xyz / s.w * 0.5 + 0.5;
     if (uvz.x < 0.0 || uvz.x > 1.0 || uvz.y < 0.0 || uvz.y > 1.0 || uvz.z > 1.0) return 1.0;
-    vec2 step = vec2(1.0 / (3.0 * shadowTexels.w), 1.0 / shadowTexels.w);
+    vec2 step = vec2(1.0 / (3.0 * shadowTexels.w), 1.0 / (rows * shadowTexels.w));
     float left = (float(slice) + 0.5 / shadowTexels.w) / 3.0;
     float right = (float(slice) + 1.0 - 0.5 / shadowTexels.w) / 3.0;
     float lit = 0.0;
     for (int x = -1; x <= 1; x++) {
         for (int y = -1; y <= 1; y++) {
-            vec2 uv = vec2((uvz.x + float(slice)) / 3.0, uvz.y) + vec2(float(x), float(y)) * step;
+            vec2 uv = vec2((uvz.x + float(slice)) / 3.0, uvz.y / rows) + vec2(float(x), float(y)) * step;
             uv.x = clamp(uv.x, left, right);
+            uv.y = clamp(uv.y, step.y * 0.5, 1.0 / rows - step.y * 0.5);
             lit += texture(shadowMap, vec3(uv, uvz.z - 0.0003));
         }
     }
@@ -560,6 +566,57 @@ vec4 probeLight(vec3 p, vec3 n)
     }
     if (weight <= 0.0) return vec4(0.0);
     return vec4(light / weight, reach);
+}
+
+// The ways a point light's six shadow tiles look, and which way is up in
+// each, as GoLib draws them.
+const vec3 cubeForward[6] = vec3[6](vec3(1.0, 0.0, 0.0), vec3(-1.0, 0.0, 0.0), vec3(0.0, 1.0, 0.0), vec3(0.0, -1.0, 0.0), vec3(0.0, 0.0, 1.0), vec3(0.0, 0.0, -1.0));
+const vec3 cubeUp[6] = vec3[6](vec3(0.0, 1.0, 0.0), vec3(0.0, 1.0, 0.0), vec3(0.0, 0.0, 1.0), vec3(0.0, 0.0, -1.0), vec3(0.0, 1.0, 0.0), vec3(0.0, 1.0, 0.0));
+
+// How much of lamp i reaches the surface, from its shadow tiles below the
+// sun's slices: 1 lit, 0 in shadow, smoothed over 3 by 3 texels.
+float lampShadow(int i, vec3 n, vec3 l, float distance)
+{
+    vec4 s = lampShadows[i];
+    if (s.x < 0.0) return 1.0;
+    // Moved off the surface by about a texel's width there, more where the
+    // light grazes it, so a surface doesn't shade itself.
+    float texel = 2.0 * distance / LAMP_TILE;
+    float facing = clamp(dot(n, l), 0.0, 1.0);
+    vec3 p = worldPosition + n * texel * (1.5 + 2.0 * (1.0 - facing)) + l * texel;
+    float tile = s.x;
+    vec3 uvz;
+    if (s.y >= 0.0) {
+        int k = int(s.y) * 4;
+        mat4 view = mat4(spotShadowViews[k], spotShadowViews[k + 1], spotShadowViews[k + 2], spotShadowViews[k + 3]);
+        vec4 c = view * vec4(p, 1.0);
+        uvz = c.xyz / c.w * 0.5 + 0.5;
+        if (c.w <= 0.0 || any(lessThan(uvz.xy, vec2(0.0))) || any(greaterThan(uvz.xy, vec2(1.0)))) return 1.0;
+    } else {
+        vec3 v = p - lightPositions[i].xyz;
+        vec3 a = abs(v);
+        int face = a.x >= a.y && a.x >= a.z ? (v.x > 0.0 ? 0 : 1) : (a.y >= a.z ? (v.y > 0.0 ? 2 : 3) : (v.z > 0.0 ? 4 : 5));
+        vec3 f = cubeForward[face];
+        vec3 across = normalize(cross(f, cubeUp[face]));
+        vec3 up = cross(across, f);
+        float d = dot(v, f);
+        float depth = (s.w + s.z) / (s.w - s.z) - 2.0 * s.w * s.z / ((s.w - s.z) * d);
+        uvz = vec3(dot(v, across) / d, dot(v, up) / d, depth) * 0.5 + 0.5;
+        tile += float(face);
+    }
+    if (uvz.z >= 1.0) return 1.0;
+    float rows = max(shadowRows, 1.0);
+    vec2 size = vec2(3.0 * shadowTexels.w, rows * shadowTexels.w);
+    vec2 corner = vec2(mod(tile, LAMP_ACROSS), floor(tile / LAMP_ACROSS)) * LAMP_TILE + vec2(0.0, shadowTexels.w);
+    vec2 inside = clamp(uvz.xy * LAMP_TILE, vec2(1.5), vec2(LAMP_TILE - 1.5));
+    float lit = 0.0;
+    for (int x = -1; x <= 1; x++) {
+        for (int y = -1; y <= 1; y++) {
+            vec2 uv = (corner + inside + vec2(float(x), float(y))) / size;
+            lit += texture(shadowMap, vec3(uv, uvz.z - 0.00005));
+        }
+    }
+    return lit / 9.0;
 }
 
 // What a level's reflection probe shows along r from p, roughened by rough,
@@ -663,6 +720,7 @@ void main()
             float along = dot(-l, lightDirections[i].xyz);
             strength *= smoothstep(outer, inner, along);
         }
+        if (hasLampShadows == 1 && strength > 0.0) strength *= lampShadow(i, n, l, distance);
         light += shade(n, v, l, lightColors[i].rgb * strength, albedo.rgb, metal, rough, f0);
     }
 
@@ -931,6 +989,8 @@ void animate(inout vec3 position, inout vec3 n)
 // with.
 func litFragment(fragment string) string {
 	fragment = strings.ReplaceAll(fragment, "DATA_WIDTH", strconv.Itoa(device.DataTextureWidth))
+	fragment = strings.ReplaceAll(fragment, "LAMP_TILE", strconv.Itoa(lampTile)+".0")
+	fragment = strings.ReplaceAll(fragment, "LAMP_ACROSS", strconv.Itoa(lampTilesAcross)+".0")
 	return strings.ReplaceAll(fragment, "PROBE_TEXELS", strconv.Itoa(probeTexels))
 }
 
@@ -980,6 +1040,8 @@ type litProgram struct {
 	reflectionCenters, reflectionLows           int32
 	reflectionHighs                             int32
 	reflections                                 [maxReflections]int32
+	shadowRows, hasLampShadows                  int32
+	lampShadows, spotShadowViews                int32
 	bending                                     bendingUniforms
 }
 
@@ -1192,6 +1254,8 @@ func locateLit(program device.Program) litProgram {
 		lightmap: at("lightmap"),
 		hasProbes: at("hasProbes"), probes: at("probes"), probeGrid: at("probeGrid"), probeSize: at("probeSize"),
 		reflectionCount: at("reflectionCount"), levelFromWorld: at("levelFromWorld"),
+		shadowRows: at("shadowRows"), hasLampShadows: at("hasLampShadows"),
+		lampShadows: at("lampShadows"), spotShadowViews: at("spotShadowViews"),
 		reflectionCenters: at("reflectionCenters"), reflectionLows: at("reflectionLows"), reflectionHighs: at("reflectionHighs"),
 	}
 	for k := range maxReflections {
@@ -1426,10 +1490,19 @@ func (r *state3D) draw(pass *pass3D) {
 		device.BindDataTexture(animationUnit, r.animationData)
 	}
 	shadows := env.shadows && len(built) > 0
+	lamps := lampShadowsFor(lights.chosen)
+	lampShadowing := lamps.count > 0 && len(built) > 0
+	rows := 1
+	if shadows || lampShadowing {
+		rows = r.shadowMapFor(lampShadowing)
+	}
 	var sunViews cascades
 	if shadows {
 		sunViews = cascadesFor(pass.camera, env.sunDirection, env.shadowDistance)
 		r.drawShadows(&sunViews, built)
+	}
+	if lampShadowing {
+		r.drawLampShadows(&lamps, built, !shadows)
 	}
 
 	// The HDRI, when there is one, lights the pass in place of Sky and
@@ -1446,7 +1519,7 @@ func (r *state3D) draw(pass *pass3D) {
 	if hasEnvironment {
 		device.BindTexture3D(environmentUnit, environment)
 	}
-	if shadows {
+	if shadows || lampShadowing {
 		device.BindShadowMap(shadowUnit, r.shadowMap)
 	}
 	// A level's light probes light what has no lightmap, and its
@@ -1534,6 +1607,20 @@ func (r *state3D) draw(pass *pass3D) {
 			device.SetUniform(lit.probeSize, 3, [4]float32{float32(size[0]), float32(size[1]), float32(size[2])})
 		}
 		device.SetUniformInt(lit.hasShadows, boolInt(shadows))
+		device.SetUniformInt(lit.hasLampShadows, boolInt(lampShadowing))
+		device.SetUniform(lit.shadowRows, 1, [4]float32{float32(rows)})
+		if lampShadowing {
+			device.SetUniformVec4s(lit.lampShadows, lamps.uniforms)
+			if len(lamps.spots) > 0 {
+				device.SetUniformVec4s(lit.spotShadowViews, lamps.spots)
+			}
+			texels := [4]float32{0, 0, 0, shadowResolution}
+			if shadows {
+				texels = sunViews.texels
+				texels[3] = shadowResolution
+			}
+			device.SetUniform(lit.shadowTexels, 4, texels)
+		}
 		if shadows {
 			for k := range shadowCascades {
 				m := [16]float32(sunViews.viewProjections[k])
