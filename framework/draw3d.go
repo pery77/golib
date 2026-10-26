@@ -110,6 +110,7 @@ type pass3D struct {
 	lights      []Light
 	particles   []particleDraw
 	decals      []decalDraw
+	waters      []waterDraw
 	probes      *lightProbes // the light probes of a level drawn in the pass, or nil
 	probesPlace matrix       // where that level is drawn
 	width       int          // the size of the target the pass draws over, in its texels
@@ -649,6 +650,105 @@ vec4 reflectionAt(vec3 p, vec3 r, float rough)
     return vec4(0.0);
 }
 
+#ifdef WATER
+uniform mat4 viewProjection;
+uniform sampler2D colorCopy;
+uniform sampler2D depthCopy;
+uniform mat4 inverseViewProjection;
+uniform vec2 viewSize;
+uniform vec3 waterColor;
+uniform float waterClarity;
+uniform float waterWaves;
+uniform int waterFoam;
+
+// The water's surface turned by its waves: long ones in four directions,
+// and ripples on them, moving with time.
+vec3 waterNormal(vec2 p, vec3 up)
+{
+    const vec4 waves[6] = vec4[6](
+        vec4(1.0, 0.3, 9.0, 0.6), vec4(-0.6, 1.0, 6.0, 0.45), vec4(0.2, -1.0, 4.0, 0.35),
+        vec4(-1.0, -0.4, 2.6, 0.25), vec4(0.7, 0.8, 1.1, 0.12), vec4(-0.3, 0.9, 0.7, 0.08));
+    vec2 slope = vec2(0.0);
+    for (int i = 0; i < 6; i++) {
+        vec2 d = normalize(waves[i].xy);
+        float k = 6.2831853 / waves[i].z;
+        float speed = sqrt(9.81 / k);
+        slope += d * k * waves[i].w * 0.04 * cos(dot(d, p) * k - time * speed * k);
+    }
+    slope *= waterWaves;
+    return normalize(up + vec3(-slope.x, 0.0, -slope.y));
+}
+
+// Where the solid thing seen at screen point uv is, from the pass's depth.
+vec3 behind(vec2 uv)
+{
+    float d = texture(depthCopy, uv).r;
+    vec4 w = inverseViewProjection * vec4(uv * 2.0 - 1.0, d * 2.0 - 1.0, 1.0);
+    return w.xyz / w.w;
+}
+
+// What the water shows: through it, the bottom bent by its waves and
+// fading into its color with depth, foam where it is shallow; on it, the
+// sun's glints and what it reflects, the pass itself where the reflection
+// is on the screen (screen-space reflections), the probes and the sky
+// elsewhere.
+vec3 waterLight(vec3 light, vec3 n, vec3 v, vec3 fresnel, vec3 mirrored)
+{
+    vec2 screen = gl_FragCoord.xy / viewSize;
+    vec3 surface = worldPosition;
+    // Through: bent by the waves, and not past something in front of the
+    // water.
+    vec2 bent = clamp(screen + n.xz * 0.04 * waterWaves, vec2(0.001), vec2(0.999));
+    vec3 bottom = behind(bent);
+    if (dot(bottom - eye, normalize(surface - eye)) < length(surface - eye)) {
+        bent = screen;
+        bottom = behind(bent);
+    }
+    vec3 seen = texture(colorCopy, bent).rgb;
+    float depth = length(bottom - surface);
+    float murk = 1.0 - exp(-depth / max(waterClarity, 0.01));
+    // The light the water scatters back: the sky's and the sun's.
+    vec3 lit = skyColor + groundColor + sunColor * max(-sunDirection.y, 0.0);
+    vec3 through = mix(seen, waterColor * lit, murk);
+    if (waterFoam == 1) {
+        float edge = 1.0 - smoothstep(0.0, 0.35, depth);
+        float bubbles = 0.5 + 0.5 * sin(surface.x * 7.0 + time * 1.3) * sin(surface.z * 6.0 - time * 1.1);
+        through = mix(through, vec3(0.85) * lit, clamp(edge * (0.6 + 0.4 * bubbles), 0.0, 1.0));
+    }
+
+    // Reflected: marched along the reflection through the pass's depth.
+    vec3 r = reflect(-v, n);
+    vec3 reflected = mirrored;
+    float found = 0.0;
+    vec3 p = surface;
+    float stride = 0.25;
+    for (int i = 0; i < 40; i++) {
+        p += r * stride;
+        stride *= 1.08;
+        vec4 c = viewProjection * vec4(p, 1.0);
+        if (c.w <= 0.0) break;
+        vec3 ndc = c.xyz / c.w;
+        vec2 uv = ndc.xy * 0.5 + 0.5;
+        if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) break;
+        float scene = texture(depthCopy, uv).r;
+        float here = ndc.z * 0.5 + 0.5;
+        if (here > scene && scene < 1.0) {
+            vec3 hit = behind(uv);
+            if (length(hit - p) < stride * 2.0) {
+                vec2 edge = smoothstep(vec2(0.0), vec2(0.1), uv) * (1.0 - smoothstep(vec2(0.9), vec2(1.0), uv));
+                found = edge.x * edge.y * (1.0 - float(i) / 40.0);
+                reflected = mix(mirrored, texture(colorCopy, uv).rgb, found);
+            }
+            break;
+        }
+    }
+    // light holds the glints and fresnel times mirrored; the reflection
+    // found on the screen takes mirrored's place, and what shows through
+    // fills the rest.
+    return light + fresnel * (reflected - mirrored) + (1.0 - fresnel) * through;
+}
+#endif
+
 // What a material's surface is at one point, which a game's own shader,
 // Material.Shader, changes before GoLib lights it.
 struct Surface {
@@ -695,6 +795,16 @@ void main()
     metal = s.metallic;
     rough = s.roughness;
     n = normalize(s.normal);
+#endif
+#ifdef WATER
+    // Water: its waves bend the light, and what comes back from it is what
+    // it reflects and what shows through it, worked out below.
+    n = waterNormal(worldPosition.xz, n);
+    albedo = vec4(0.0, 0.0, 0.0, 1.0);
+    glow = vec3(0.0);
+    metal = 0.0;
+    rough = 0.02;
+    occlusion = 1.0;
 #endif
 
     if (alphaMode == 1 && albedo.a < alphaCutoff) discard;
@@ -769,6 +879,9 @@ void main()
     vec3 fresnel = f0 + (max(vec3(1.0 - rough), f0) - f0) * pow(1.0 - nv, 5.0);
     vec3 ambient = (1.0 - fresnel) * (1.0 - metal) * albedo.rgb * around + fresnel * mirrored;
     light += ambient * occlusion + glow;
+#ifdef WATER
+    light = waterLight(light, n, v, fresnel, mirrored);
+#endif
 
     if (fog.w > 0.0) {
         float distance = length(eye - worldPosition);
@@ -1044,6 +1157,10 @@ type litProgram struct {
 	reflections                                 [maxReflections]int32
 	shadowRows, hasLampShadows                  int32
 	lampShadows, spotShadowViews                int32
+	colorCopy, depthCopy                        int32
+	inverseViewProjection, viewSize             int32
+	waterColor, waterClarity                    int32
+	waterWaves, waterFoam                       int32
 	bending                                     bendingUniforms
 }
 
@@ -1154,6 +1271,7 @@ type programKind struct {
 	surface     string
 	animated    bool
 	lightmapped bool
+	water       bool
 }
 
 var renderer3D state3D
@@ -1232,6 +1350,10 @@ func (r *state3D) load() error {
 	return nil
 }
 
+// water says whether p is the water program: only it reads the pass's
+// copy.
+func (p *litProgram) water() bool { return p != nil && p.waterColor >= 0 }
+
 // locateLit finds where the lit shader's uniforms sit in program, the
 // plain one or one with a game's own surface, bending what it draws or not.
 func locateLit(program device.Program) litProgram {
@@ -1259,6 +1381,10 @@ func locateLit(program device.Program) litProgram {
 		reflectionCount: at("reflectionCount"), levelFromWorld: at("levelFromWorld"),
 		shadowRows: at("shadowRows"), hasLampShadows: at("hasLampShadows"),
 		lampShadows: at("lampShadows"), spotShadowViews: at("spotShadowViews"),
+		colorCopy: at("colorCopy"), depthCopy: at("depthCopy"),
+		inverseViewProjection: at("inverseViewProjection"), viewSize: at("viewSize"),
+		waterColor: at("waterColor"), waterClarity: at("waterClarity"),
+		waterWaves: at("waterWaves"), waterFoam: at("waterFoam"),
 		reflectionCenters: at("reflectionCenters"), reflectionLows: at("reflectionLows"), reflectionHighs: at("reflectionHighs"),
 	}
 	for k := range maxReflections {
@@ -1276,8 +1402,8 @@ func locateLit(program device.Program) litProgram {
 // time a material uses it, one that bends what it draws for animated
 // meshes, and one lit by a lightmap. A shader that doesn't compile is
 // reported, and the material drawn with the plain program.
-func (r *state3D) surfaceProgram(m *material3D, animated, lightmapped bool) *litProgram {
-	kind := programKind{surface: m.surface, animated: animated, lightmapped: lightmapped}
+func (r *state3D) surfaceProgram(m *material3D, animated, lightmapped, water bool) *litProgram {
+	kind := programKind{surface: m.surface, animated: animated, lightmapped: lightmapped, water: water}
 	if kind == (programKind{}) {
 		return &r.lit
 	}
@@ -1299,6 +1425,9 @@ func (r *state3D) surfaceProgram(m *material3D, animated, lightmapped bool) *lit
 		vertex = strings.Replace(vertex, "#version 330\n", "#version 330\n#define LIGHTMAPPED\n", 1)
 		fragment = strings.Replace(fragment, "#version 330\n", "#version 330\n#define LIGHTMAPPED\n", 1)
 	}
+	if water {
+		fragment = strings.Replace(fragment, "#version 330\n", "#version 330\n#define WATER\n", 1)
+	}
 	program, err := device.NewProgram(vertex, fragment)
 	if r.surfaces == nil {
 		r.surfaces = map[programKind]*litProgram{}
@@ -1307,7 +1436,7 @@ func (r *state3D) surfaceProgram(m *material3D, animated, lightmapped bool) *lit
 		if m.surface != "" {
 			reportError(fmt.Errorf("golib: a Material's Shader doesn't compile: %w", err))
 		} else {
-			reportError(fmt.Errorf("golib: the 3D's animated or lightmapped shader doesn't compile on this graphics card: %w", err))
+			reportError(fmt.Errorf("golib: the 3D's animated, lightmapped or water shader doesn't compile on this graphics card: %w", err))
 		}
 		r.surfaces[kind] = nil
 		return &r.lit
@@ -1640,10 +1769,11 @@ func (r *state3D) draw(pass *pass3D) {
 		}
 	}
 	var current *material3D
-	var currentBent, currentLightmapped bool
+	var currentBent, currentLightmapped, currentWater bool
 	var program *litProgram
 	var boundLightmap *texture3D
 	culling := true
+	water := false // whether use gives the water program
 	use := func(m *material3D, bent bool, lightmap *texture3D) {
 		if lightmap != nil && lightmap != boundLightmap {
 			if gpu := lightmap.upload(); gpu.ID != 0 {
@@ -1654,11 +1784,11 @@ func (r *state3D) draw(pass *pass3D) {
 			}
 		}
 		lightmapped := lightmap != nil
-		if m == current && bent == currentBent && lightmapped == currentLightmapped {
+		if m == current && bent == currentBent && lightmapped == currentLightmapped && water == currentWater {
 			return
 		}
-		current, currentBent, currentLightmapped = m, bent, lightmapped
-		if p := r.surfaceProgram(m, bent, lightmapped); p != program {
+		current, currentBent, currentLightmapped, currentWater = m, bent, lightmapped, water
+		if p := r.surfaceProgram(m, bent, lightmapped, water); p != program {
 			program = p
 			frame(p)
 		}
@@ -1738,6 +1868,35 @@ func (r *state3D) draw(pass *pass3D) {
 		device.CopyPass()
 		r.drawDecals(pass, &viewProjection, &inverse)
 		culling = true
+		current, program = nil, nil
+	}
+
+	// Water, over what is under it, read back from a copy of the pass.
+	if len(pass.waters) > 0 {
+		device.CopyPass()
+		device.BindPassCopy(colorCopyUnit, depthCopyUnit)
+		inverse := [16]float32(viewProjectionMatrix.inverse())
+		plane := waterPlane.upload()
+		water = true
+		current, program = nil, nil
+		for _, w := range pass.waters {
+			use(waterMaterial, false, nil)
+			if !program.water() {
+				break // the water program didn't compile, as reported
+			}
+			device.SetUniformInt(program.colorCopy, colorCopyUnit)
+			device.SetUniformInt(program.depthCopy, depthCopyUnit)
+			device.SetUniformMatrix(program.inverseViewProjection, &inverse)
+			device.SetUniform(program.viewSize, 2, [4]float32{float32(pass.width), float32(pass.height)})
+			device.SetUniform(program.waterColor, 3, w.color)
+			device.SetUniform(program.waterClarity, 1, [4]float32{w.clarity})
+			device.SetUniform(program.waterWaves, 1, [4]float32{w.waves})
+			device.SetUniformInt(program.waterFoam, boolInt(w.foam))
+			r.instances = append(r.instances[:0], w.place[:]...)
+			r.instances = append(r.instances, 1, 1, 1, 1)
+			device.DrawMeshInstanced(plane, r.instances)
+		}
+		water = false
 		current, program = nil, nil
 	}
 

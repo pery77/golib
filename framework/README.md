@@ -1254,6 +1254,26 @@ for _, step := range s.steps { // remembered where the player stepped
 - **Keep the box thin across the way it is pressed:** everything solid in it gets the picture, a character walking through it too. A surface turned away from the way it is pressed fades out, so a decal on the floor doesn't smear down a wall.
 - **They are drawn after the solid things and before what is see-through**, from a copy of what was drawn: see-through things and particles are never stained.
 
+### Water
+
+Lakes, seas, rivers and pools: a flat surface whose waves move in the light, that shows what is under it, bent and fading into its color as it deepens, with foam where it meets the shore, and reflects the sun, the level and what moves in it.
+
+| Name | What it does |
+| --- | --- |
+| `Water` | How the water looks; every field left at zero has a working default. |
+| `Water.Color`, `Water.Clarity` | Its color deep down, a blue-green when zero; and how many meters down the bottom still shows, 2 when zero: 0.5 for a muddy river, 6 for a tropical sea. |
+| `Water.Waves`, `Water.Still` | How big its waves are, 1 when zero, a lake in a breeze, 3 a rough sea; `Still` makes it a mirror. |
+| `Water.NoFoam` | Leaves out the foam where it is shallow: along the shore, around posts and rocks in it. |
+| `Screen.DrawWater` | `DrawWater(water Water, transform Transform)`: a square a meter across on X and Z, placed and scaled by `transform`, such as `golib.Transform{Position: golib.Vector3{Y: -0.3}, Scale: golib.Vector3{X: 80, Z: 80}}`. |
+
+```go
+screen.DrawModel(island, golib.Transform{}, golib.White)
+screen.DrawWater(golib.Water{Clarity: 3}, golib.Transform{Position: golib.Vector3{Y: -0.2}, Scale: golib.Vector3{X: 200, Z: 200}})
+```
+
+- **What it reflects:** what is on the screen, the shore, the boats, the player, wherever the reflection meets it there (screen-space reflections); past the screen's edge, a reflection probe's room or the sky. Something off the screen isn't reflected.
+- **It is drawn after the solid things and before what is see-through**, from a copy of what was drawn: a see-through thing under it doesn't show through it. Its waves move its light, not its surface: a boat stays level on it.
+
 ### Light baked in Blender
 
 A level made in Blender can carry its light baked by Cycles, Blender's ray tracer, into a lightmap: the sky's light as much of it as reaches each corner, and the light the sun, the lamps and the sky bounce off the walls, red beside a red wall, darker under a roof. GoLib can't work that out as it draws; baked, it costs one texture read. The sun and the lamps themselves stay GoLib's, with their shadows, so a character walking through the level is lit and shades it as it moves. Bake with GoLib's script, from the project root, with Blender in the background:
