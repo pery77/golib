@@ -66,6 +66,11 @@ var windowMeasured bool
 // to leave macOS's fullscreen, whose own resize measures it again. Run calls
 // it at the start of every frame.
 func MeasureWindow() {
+	// With the high-density flag, raylib intentionally keeps separate
+	// logical window and physical framebuffer sizes. Do not collapse them.
+	if windowHighDPI {
+		return
+	}
 	if windowMeasured || inSystemFullscreen() {
 		return
 	}

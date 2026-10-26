@@ -22,6 +22,9 @@
 //
 // A backend provides:
 //
+//   - WindowSize in the window's input/drawing coordinates, FramebufferSize
+//     in physical pixels, and an OpenWindow highDPI request. A browser's
+//     canvas already uses physical pixels, so those sizes are the same.
 //   - The value types: Color, Vector2, Rectangle, and handles for a texture,
 //     a render target, a shader, a font, a sound, a wave and a music. Only
 //     their ID, Width and Height fields are portable; nothing above this

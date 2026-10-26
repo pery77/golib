@@ -258,6 +258,21 @@ func screenInWindow(config Config, windowWidth, windowHeight float32) (width, he
 	}
 }
 
+// screenForWindow separates a high-density framebuffer's physical pixels
+// from the logical window coordinates used by presentation and the mouse.
+func screenForWindow(config Config, windowWidth, windowHeight, framebufferWidth, framebufferHeight int) (width, height float32, fit device.Rectangle) {
+	if !config.HighDPI || framebufferWidth <= 0 || framebufferHeight <= 0 || windowWidth <= 0 || windowHeight <= 0 {
+		return screenInWindow(config, float32(windowWidth), float32(windowHeight))
+	}
+	width, height, fit = screenInWindow(config, float32(framebufferWidth), float32(framebufferHeight))
+	// Choose whole pixel-art scales and FillWindow's rounding in physical
+	// pixels first, then convert the resulting rectangle to desktop points.
+	x, y := float32(windowWidth)/float32(framebufferWidth), float32(windowHeight)/float32(framebufferHeight)
+	fit.X, fit.Width = fit.X*x, fit.Width*x
+	fit.Y, fit.Height = fit.Y*y, fit.Height*y
+	return width, height, fit
+}
+
 // toScreen converts a point from window pixels to screen pixels, the
 // coordinates games draw with, given the rectangle fitScreen chose. A window
 // with no room for the screen, such as a minimized one, leaves the point as it

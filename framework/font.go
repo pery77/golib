@@ -19,8 +19,11 @@ var fontFormats = []string{".ttf", ".otf"}
 
 // maxFontSizes is how many sizes of one font GoLib keeps ready to draw. Each
 // is a texture with the font's letters drawn at that size; when a game uses
-// one more, the size used longest ago goes.
-const maxFontSizes = 8
+// one more, the size used longest ago goes, and drawing it again means
+// drawing every letter again. A game's interface easily uses a dozen sizes
+// of one font in a frame, more on a display whose scale multiplies them:
+// below that, every frame drew several fonts anew.
+const maxFontSizes = 24
 
 // Font is a TrueType or OpenType font in the game's assets folder, for
 // [Screen.DrawText] and [Screen.TextWidth]:

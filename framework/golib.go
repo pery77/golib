@@ -151,6 +151,11 @@ type Config struct {
 	Width      int    // Screen width in pixels. Default: 1280.
 	Height     int    // Screen height in pixels. Default: 720.
 	Fullscreen bool   // Start in fullscreen (see SetFullscreen). Default: in a window.
+	// HighDPI requests the display's physical framebuffer on high-density
+	// desktop monitors. With WindowScale: 1, the screen follows those pixels
+	// rather than the window's logical points. A browser already does this.
+	// Default: keep the desktop's existing window behavior.
+	HighDPI bool
 	// WindowScale makes the screen follow the window's drawing area: each
 	// screen pixel covers this many window pixels. For example, 2 renders at
 	// half the window width and height, including after a resize. Zero keeps
@@ -289,9 +294,8 @@ func runWindow(game Game, config Config) error {
 	audio.open()
 	defer audio.close()
 	windowWidth, windowHeight := device.WindowSize()
-	width, height, _ := screenInWindow(
-		config, float32(windowWidth), float32(windowHeight),
-	)
+	framebufferWidth, framebufferHeight := device.FramebufferSize()
+	width, height, _ := screenForWindow(config, windowWidth, windowHeight, framebufferWidth, framebufferHeight)
 	renderConfig := config
 	renderConfig.Width, renderConfig.Height = int(width), int(height)
 	render := newRenderer(renderConfig)
@@ -333,9 +337,8 @@ func runWindow(game Game, config Config) error {
 		windowUnfocused.Store(!focused)
 		device.MeasureWindow() // on macOS, raylib can keep a wrong size from while the window opened
 		windowWidth, windowHeight := device.WindowSize()
-		screenWidth, screenHeight, fit := screenInWindow(
-			config, float32(windowWidth), float32(windowHeight),
-		)
+		framebufferWidth, framebufferHeight := device.FramebufferSize()
+		screenWidth, screenHeight, fit := screenForWindow(config, windowWidth, windowHeight, framebufferWidth, framebufferHeight)
 		if config.WindowScale != 0 && (windowWidth <= 0 || windowHeight <= 0) {
 			screenWidth, screenHeight = screen.width, screen.height
 			fit = fitScreen(screenWidth, screenHeight,
@@ -445,7 +448,14 @@ func runUpdates(scene Game, input *Input, fill func(*Input), updates int) (Game,
 func openWindow(config Config, hidden bool) error {
 	// Run scales the screen to fit, so the player may resize the window,
 	// unless the game offers its own sizes.
-	if !device.OpenWindow(config.Width, config.Height, config.Title, hidden, !config.FixedWindowSize) {
+	// Captures use render textures at Config's exact pixel size. Their hidden
+	// window only supplies the graphics context; keep it inside the desktop's
+	// usable area, even when capturing a picture larger than the monitor.
+	width, height := config.Width, config.Height
+	if hidden {
+		width, height = min(width, 512), min(height, 512)
+	}
+	if !device.OpenWindow(width, height, config.Title, hidden, !config.FixedWindowSize, config.HighDPI && !hidden) {
 		return fmt.Errorf("golib.Run: could not open a %dx%d window: see the raylib warnings above", config.Width, config.Height)
 	}
 	if !hidden {
