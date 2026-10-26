@@ -98,6 +98,13 @@ type Environment struct {
 	Bloom   float32
 	NoBloom bool
 
+	// Blur softens the whole 3D picture by about this many pixels, as a
+	// camera out of focus sees it: for a menu, a map or a pause screen over
+	// a world that goes on behind it, which the 2D drawn after End3D stays
+	// sharp over. 0 is none; 8 is soft, 32 strong. It comes in steps, each
+	// twice the one before, and costs about as little as Bloom.
+	Blur float32
+
 	// Smooth surfaces, their roughness below 0.35, reflect what
 	// the pass shows where they can see it on the screen, fading out as
 	// they roughen, and the sky, the HDRI or the level's reflection probes
@@ -246,6 +253,7 @@ type environmentUniforms struct {
 	hdri              *HDRI
 	hdriTurn          [4]float32 // the turn's cosine and sine, to turn a direction back onto the picture
 	bloom             float32    // 0 for none
+	blur              int        // halvings the picture is softened by; 0 for none
 	screenReflections bool
 }
 
@@ -343,6 +351,7 @@ func (e Environment) uniforms() environmentUniforms {
 			u.bloom = e.Bloom
 		}
 	}
+	u.blur = blurLevels(e.Blur)
 	u.screenReflections = !e.NoScreenReflections
 	u.shadows = !e.NoShadows && (u.sun[0] > 0 || u.sun[1] > 0 || u.sun[2] > 0)
 	u.shadowDistance = 50

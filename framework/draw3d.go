@@ -1040,6 +1040,8 @@ uniform float glowStrength;
 uniform float exposure;
 uniform vec2 texel;
 uniform int smoothEdges;
+uniform sampler2D blurred;
+uniform int useBlur;
 out vec4 fragColor;
 
 vec3 neutral(vec3 color)
@@ -1062,7 +1064,7 @@ vec3 neutral(vec3 color)
 // by its opacity.
 vec4 finished(vec2 uv)
 {
-    vec4 c = texture(picture, uv);
+    vec4 c = useBlur == 1 ? texture(blurred, uv) : texture(picture, uv);
     vec3 light = c.rgb;
     float a = c.a;
     if (glowStrength > 0.0) {
@@ -1335,6 +1337,7 @@ type composeProgram struct {
 	picture, exposure  int32
 	glow, glowStrength int32
 	texel, smoothEdges int32
+	blurred, useBlur   int32
 }
 
 // state3D is what every 3D pass draws with: made when the first one ends,
@@ -1350,6 +1353,9 @@ type state3D struct {
 	bloomDown bloomProgram
 	bloomUp   bloomProgram
 	bloom     bloomChain
+	blurDown  blurProgram
+	blurUp    blurProgram
+	blur      blurChain
 	surfaces  map[programKind]*litProgram // programs with a game's own surface, bending or a lightmap, nil for one that didn't compile
 	lineMesh  device.Mesh
 	instances []float32 // the instances of the draw being built
@@ -1435,6 +1441,14 @@ func (r *state3D) load() error {
 	if err != nil {
 		return err
 	}
+	blurDown, err := build("blur", fullscreenVertexShader, blurDownShader)
+	if err != nil {
+		return err
+	}
+	blurUp, err := build("blur", fullscreenVertexShader, blurUpShader)
+	if err != nil {
+		return err
+	}
 	at := func(p device.Program, name string) int32 { return device.UniformLocation(p, name) }
 	r.lit = locateLit(lit)
 	r.lines = lineProgram{program: lines, model: at(lines, "model"), viewProjection: at(lines, "viewProjection"), color: at(lines, "color")}
@@ -1446,7 +1460,10 @@ func (r *state3D) load() error {
 		program: compose, picture: at(compose, "picture"), exposure: at(compose, "exposure"),
 		glow: at(compose, "glow"), glowStrength: at(compose, "glowStrength"),
 		texel: at(compose, "texel"), smoothEdges: at(compose, "smoothEdges"),
+		blurred: at(compose, "blurred"), useBlur: at(compose, "useBlur"),
 	}
+	r.blurDown = blurProgram{program: blurDown, source: at(blurDown, "source"), texel: at(blurDown, "texel")}
+	r.blurUp = blurProgram{program: blurUp, source: at(blurUp, "source"), texel: at(blurUp, "texel")}
 	r.bloomDown = bloomProgram{program: bloomDown, source: at(bloomDown, "source"), texel: at(bloomDown, "texel"), first: at(bloomDown, "first")}
 	r.bloomUp = bloomProgram{program: bloomUp, source: at(bloomUp, "source"), texel: at(bloomUp, "texel")}
 	r.shadow = locateShadow(shadow)
@@ -1564,7 +1581,7 @@ func (r *state3D) unload() {
 	if !r.loaded {
 		return
 	}
-	for _, p := range []device.Program{r.lit.program, r.lines.program, r.sky.program, r.compose.program, r.shadow.program, r.bloomDown.program, r.bloomUp.program} {
+	for _, p := range []device.Program{r.lit.program, r.lines.program, r.sky.program, r.compose.program, r.shadow.program, r.bloomDown.program, r.bloomUp.program, r.blurDown.program, r.blurUp.program} {
 		device.UnloadProgram(p)
 	}
 	for _, p := range r.surfaces {
@@ -1589,6 +1606,7 @@ func (r *state3D) unload() {
 	device.UnloadWorkTarget(r.hazeTarget)
 	device.UnloadDataTexture(r.animationData)
 	r.unloadBloom()
+	r.unloadBlur()
 	device.UnloadShadowMap(r.shadowMap)
 	device.UnloadMesh(r.lineMesh)
 	*r = state3D{}
@@ -2190,6 +2208,9 @@ func (r *state3D) draw(pass *pass3D) {
 	if env.bloom > 0 {
 		r.glow(width, height)
 	}
+	if env.blur > 0 {
+		r.soften(width, height, env.blur)
+	}
 	compose := r.compose
 	device.UseProgram(compose.program)
 	device.SetUniformInt(compose.picture, 0)
@@ -2200,7 +2221,13 @@ func (r *state3D) draw(pass *pass3D) {
 	}
 	device.SetUniform(compose.exposure, 1, [4]float32{env.exposure})
 	device.SetUniform(compose.texel, 2, [4]float32{1 / float32(width), 1 / float32(height)})
-	device.SetUniformInt(compose.smoothEdges, boolInt(smoothEdges3D))
+	device.SetUniformInt(compose.blurred, 2)
+	device.SetUniformInt(compose.useBlur, boolInt(env.blur > 0))
+	if env.blur > 0 {
+		device.BindWorkTarget(2, r.blur.levels[0])
+	}
+	// A softened picture has no hard edges to smooth.
+	device.SetUniformInt(compose.smoothEdges, boolInt(smoothEdges3D && env.blur == 0))
 	device.End3D(compose.program)
 }
 
