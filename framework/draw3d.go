@@ -417,6 +417,15 @@ uniform int hasProbes;
 uniform highp sampler2D probes;
 uniform mat4 probeGrid;
 uniform vec3 probeSize;
+uniform int reflectionCount;
+uniform mat4 levelFromWorld;
+uniform vec4 reflectionCenters[4];
+uniform vec4 reflectionLows[4];
+uniform vec4 reflectionHighs[4];
+uniform sampler2D reflection0;
+uniform sampler2D reflection1;
+uniform sampler2D reflection2;
+uniform sampler2D reflection3;
 #ifdef LIGHTMAPPED
 in vec2 lightcoord;
 uniform sampler2D lightmap;
@@ -553,6 +562,34 @@ vec4 probeLight(vec3 p, vec3 n)
     return vec4(light / weight, reach);
 }
 
+// What a level's reflection probe shows along r from p, roughened by rough,
+// and 1, or 0 outside every probe's box: the panorama seen from the probe,
+// looked up where r leaves the box, so the walls it reflects are where they
+// are. The smallest box p is in counts.
+vec4 reflectionAt(vec3 p, vec3 r, float rough)
+{
+    if (reflectionCount == 0) return vec4(0.0);
+    vec3 lp = (levelFromWorld * vec4(p, 1.0)).xyz;
+    vec3 lr = normalize(mat3(levelFromWorld) * r);
+    for (int i = 0; i < 4; i++) {
+        if (i >= reflectionCount) break;
+        vec3 lo = reflectionLows[i].xyz, hi = reflectionHighs[i].xyz;
+        if (any(lessThan(lp, lo)) || any(greaterThan(lp, hi))) continue;
+        vec3 leave = max((hi - lp) / lr, (lo - lp) / lr);
+        float t = min(min(leave.x, leave.y), leave.z);
+        vec3 d = normalize(lp + lr * t - reflectionCenters[i].xyz);
+        vec2 uv = vec2(0.5 - atan(d.x, d.z) / 6.2831853, acos(clamp(d.y, -1.0, 1.0)) / 3.14159265);
+        float lod = rough * reflectionCenters[i].w;
+        vec3 c;
+        if (i == 0) c = textureLod(reflection0, uv, lod).rgb;
+        else if (i == 1) c = textureLod(reflection1, uv, lod).rgb;
+        else if (i == 2) c = textureLod(reflection2, uv, lod).rgb;
+        else c = textureLod(reflection3, uv, lod).rgb;
+        return vec4(c, 1.0);
+    }
+    return vec4(0.0);
+}
+
 // What a material's surface is at one point, which a game's own shader,
 // Material.Shader, changes before GoLib lights it.
 struct Surface {
@@ -665,6 +702,9 @@ void main()
     mirrored *= clamp(dot(baked, luma) / max(dot(around, luma), 1e-4), 0.0, 1.0);
     around = baked;
 #endif
+    // Inside a reflection probe's box, the level reflects itself.
+    vec4 boxed = reflectionAt(worldPosition, r, rough);
+    if (boxed.a > 0.0) mirrored = boxed.rgb;
     float nv = max(dot(n, v), 0.0);
     vec3 fresnel = f0 + (max(vec3(1.0 - rough), f0) - f0) * pow(1.0 - nv, 5.0);
     vec3 ambient = (1.0 - fresnel) * (1.0 - metal) * albedo.rgb * around + fresnel * mirrored;
@@ -936,6 +976,10 @@ type litProgram struct {
 	shadowSplits, shadowTexels, viewForward     int32
 	lightmap                                    int32
 	hasProbes, probes, probeGrid, probeSize     int32
+	reflectionCount, levelFromWorld             int32
+	reflectionCenters, reflectionLows           int32
+	reflectionHighs                             int32
+	reflections                                 [maxReflections]int32
 	bending                                     bendingUniforms
 }
 
@@ -1147,6 +1191,11 @@ func locateLit(program device.Program) litProgram {
 		shadowSplits: at("shadowSplits"), shadowTexels: at("shadowTexels"), viewForward: at("viewForward"),
 		lightmap: at("lightmap"),
 		hasProbes: at("hasProbes"), probes: at("probes"), probeGrid: at("probeGrid"), probeSize: at("probeSize"),
+		reflectionCount: at("reflectionCount"), levelFromWorld: at("levelFromWorld"),
+		reflectionCenters: at("reflectionCenters"), reflectionLows: at("reflectionLows"), reflectionHighs: at("reflectionHighs"),
+	}
+	for k := range maxReflections {
+		p.reflections[k] = at(fmt.Sprintf("reflection%d", k))
 	}
 	for k := range shadowCascades {
 		p.shadowMatrices[k] = at(fmt.Sprintf("shadowMatrix%d", k))
@@ -1232,6 +1281,11 @@ const (
 	environmentUnit = 6
 	lightmapUnit    = 10 // past the animation's and the shape keys'
 	probesUnit      = 11
+	reflectionUnit  = 12 // and the three after it
+
+	// maxReflections is how many reflection probes a pass uses: the nearest
+	// to the camera.
+	maxReflections = 4
 )
 
 // colorFloats returns c as four numbers from 0 to 1, as it is: sRGB.
@@ -1395,12 +1449,29 @@ func (r *state3D) draw(pass *pass3D) {
 	if shadows {
 		device.BindShadowMap(shadowUnit, r.shadowMap)
 	}
-	// A level's light probes light what has no lightmap.
-	var probeGrid [16]float32
-	hasProbes := pass.probes != nil
+	// A level's light probes light what has no lightmap, and its
+	// reflection probes are reflected inside their boxes.
+	var probeGrid, levelFromWorld [16]float32
+	hasProbes := pass.probes != nil && pass.probes.hasGrid()
 	if hasProbes {
 		device.BindDataTexture(probesUnit, pass.probes.upload())
 		probeGrid = [16]float32(pass.probes.fromWorld(pass.probesPlace))
+	}
+	var reflections []reflectionProbe
+	var reflectionCenters, reflectionLows, reflectionHighs []float32
+	if pass.probes != nil && len(pass.probes.reflections) > 0 {
+		levelFromWorld = [16]float32(pass.probesPlace.inverse())
+		reflections = nearestReflections(pass.probes.reflections, pass.probesPlace.inverse().transformPoint(eye))
+		for k, r := range reflections {
+			texture, err := r.hdri.upload()
+			if err != nil {
+				reportError(err)
+			}
+			device.BindTexture3D(reflectionUnit+k, texture)
+			reflectionCenters = append(reflectionCenters, r.position.X, r.position.Y, r.position.Z, float32(len(r.hdri.levels)-1))
+			reflectionLows = append(reflectionLows, r.lo.X, r.lo.Y, r.lo.Z, 0)
+			reflectionHighs = append(reflectionHighs, r.hi.X, r.hi.Y, r.hi.Z, 0)
+		}
 	}
 	var irradiance []float32
 	if hasEnvironment {
@@ -1446,6 +1517,16 @@ func (r *state3D) draw(pass *pass3D) {
 		device.SetUniformInt(lit.shadowMap, shadowUnit)
 		device.SetUniformInt(lit.lightmap, lightmapUnit)
 		device.SetUniformInt(lit.probes, probesUnit)
+		for k := range maxReflections {
+			device.SetUniformInt(lit.reflections[k], int32(reflectionUnit+k))
+		}
+		device.SetUniformInt(lit.reflectionCount, int32(len(reflections)))
+		if len(reflections) > 0 {
+			device.SetUniformMatrix(lit.levelFromWorld, &levelFromWorld)
+			device.SetUniformVec4s(lit.reflectionCenters, reflectionCenters)
+			device.SetUniformVec4s(lit.reflectionLows, reflectionLows)
+			device.SetUniformVec4s(lit.reflectionHighs, reflectionHighs)
+		}
 		device.SetUniformInt(lit.hasProbes, boolInt(hasProbes))
 		if hasProbes {
 			device.SetUniformMatrix(lit.probeGrid, &probeGrid)
@@ -1633,6 +1714,28 @@ func (r *state3D) draw(pass *pass3D) {
 	device.SetUniform(compose.texel, 2, [4]float32{1 / float32(width), 1 / float32(height)})
 	device.SetUniformInt(compose.smoothEdges, boolInt(smoothEdges3D))
 	device.End3D(compose.program)
+}
+
+// nearestReflections returns the reflection probes a pass uses, the nearest
+// to eye, in the level's space, keeping the smallest box first.
+func nearestReflections(all []reflectionProbe, eye Vector3) []reflectionProbe {
+	if len(all) <= maxReflections {
+		return all
+	}
+	order := make([]int, len(all))
+	for i := range order {
+		order[i] = i
+	}
+	slices.SortStableFunc(order, func(a, b int) int {
+		return cmp.Compare(all[a].position.Distance(eye), all[b].position.Distance(eye))
+	})
+	order = order[:maxReflections]
+	slices.Sort(order)
+	chosen := make([]reflectionProbe, len(order))
+	for k, i := range order {
+		chosen[k] = all[i]
+	}
+	return chosen
 }
 
 func boolInt(b bool) int32 {

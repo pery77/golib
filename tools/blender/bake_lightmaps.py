@@ -24,6 +24,11 @@
 # They go in <name>.probes.json beside the .glb, which an empty named
 # "GoLib light probes" names in its custom property lightprobes.
 #
+# And reflection probes: every empty whose custom property reflection is
+# true, shown as a cube and scaled over a room, gets a panorama rendered by
+# Cycles from its middle, <name>.reflection<n>.hdr, which shiny things in its
+# box reflect, the box's walls where they are.
+#
 # Every still object gets a second UV map, Lightmap, unwrapped and packed for
 # all of them together, as dense on a big wall as on a small crate, unless
 # each has one already: then it is used as it is, so a hand-made one stays.
@@ -59,6 +64,7 @@ def parse_arguments():
     parser.add_argument("--save", action="store_true", help="save the .blend with its Lightmap UV maps")
     parser.add_argument("--probe-spacing", type=float, default=2.0, help="meters between light probes (default 2)")
     parser.add_argument("--no-probes", action="store_true", help="bake no light probes")
+    parser.add_argument("--reflection-size", type=int, default=512, help="the width of a reflection probe's panorama, twice its height (default 512)")
     return parser.parse_args(argv)
 
 
@@ -356,6 +362,60 @@ def bake_probes(scene, objects, spacing):
     return origin, spacing, counts, out
 
 
+def reflection_probes(scene):
+    """The empties marked as reflection probes: custom property reflection."""
+    return [o for o in scene.objects if o.type == 'EMPTY' and o.get("reflection")]
+
+
+def render_reflections(scene, probes, folder, stem, width, samples):
+    """Renders a panorama from the middle of each probe's box, of the level
+    as it is lit, and returns them as GoLib reads them: where each is, its
+    box, and its file."""
+    found = []
+    camera = bpy.data.objects.new("GoLib reflection", bpy.data.cameras.new("GoLib reflection"))
+    scene.collection.objects.link(camera)
+    camera.data.type = 'PANO'
+    camera.data.panorama_type = 'EQUIRECTANGULAR'
+    # Turned so the panorama's middle faces GoLib's +Z, Blender's -Y, with
+    # the sky at its top, as GoLib reads an HDRI.
+    camera.rotation_euler = (math.radians(90), 0, math.radians(180))
+    keep = (scene.camera, scene.render.resolution_x, scene.render.resolution_y, scene.render.resolution_percentage,
+            scene.render.filepath, scene.render.image_settings.file_format, scene.view_settings.view_transform,
+            scene.view_settings.look, scene.cycles.samples, scene.cycles.use_denoising)
+    moving = [o for o in scene.objects if o.type == 'MESH' and "static" in o.keys() and not o["static"] and not o.hide_render]
+    try:
+        for o in moving:
+            o.hide_render = True
+        scene.camera = camera
+        scene.render.resolution_x, scene.render.resolution_y = width, width // 2
+        scene.render.resolution_percentage = 100
+        scene.render.image_settings.file_format = 'HDR'
+        scene.view_settings.view_transform = 'Standard'
+        scene.view_settings.look = 'None'
+        scene.cycles.samples = samples
+        scene.cycles.use_denoising = True
+        for k, probe in enumerate(probes):
+            center = probe.matrix_world.translation.copy()
+            camera.location = center
+            name = f"{stem}.reflection{k + 1}.hdr"
+            scene.render.filepath = os.path.join(folder, name)
+            bpy.ops.render.render(write_still=True)
+            half = Vector([abs(s) * probe.empty_display_size for s in probe.matrix_world.to_scale()])
+            g, h = to_golib(center), Vector((half.x, half.z, half.y))
+            found.append({
+                "file": name, "position": [round(v, 4) for v in g],
+                "lo": [round(v, 4) for v in g - h], "hi": [round(v, 4) for v in g + h],
+            })
+    finally:
+        (scene.camera, scene.render.resolution_x, scene.render.resolution_y, scene.render.resolution_percentage,
+         scene.render.filepath, scene.render.image_settings.file_format, scene.view_settings.view_transform,
+         scene.view_settings.look, scene.cycles.samples, scene.cycles.use_denoising) = keep
+        for o in moving:
+            o.hide_render = False
+        bpy.data.objects.remove(camera)
+    return found
+
+
 def bake_into(objects, image, direct, indirect):
     scene = bpy.context.scene
     scene.render.bake.use_pass_direct = direct
@@ -463,18 +523,25 @@ def main():
             denoise(image.filepath_raw, target)
     bpy.data.images.remove(image)
 
+    stem = os.path.splitext(os.path.basename(output))[0]
+    probes_name = stem + ".probes.json"
+    probes_file = {}
     probes_line = "no light probes"
-    marker = None
     if not args.no_probes:
         origin, spacing, counts, harmonics = bake_probes(scene, objects, args.probe_spacing)
-        probes_name = os.path.splitext(os.path.basename(output))[0] + ".probes.json"
+        probes_file.update({"origin": [round(v, 4) for v in origin], "spacing": round(spacing, 4), "size": counts, "probes": harmonics})
+        inside = sum(h is None for h in harmonics)
+        probes_line = f"{len(harmonics) - inside} light probes {spacing:g} m apart into {probes_name} ({inside} inside walls left out)"
+    boxes = reflection_probes(scene)
+    if boxes:
+        probes_file["reflections"] = render_reflections(scene, boxes, folder, stem, args.reflection_size, args.samples)
+    marker = None
+    if probes_file:
         with open(os.path.join(folder, probes_name), "w") as f:
-            json.dump({"origin": [round(v, 4) for v in origin], "spacing": round(spacing, 4), "size": counts, "probes": harmonics}, f, separators=(",", ":"))
+            json.dump(probes_file, f, separators=(",", ":"))
         marker = bpy.data.objects.new("GoLib light probes", None)
         marker["lightprobes"] = probes_name
         scene.collection.objects.link(marker)
-        inside = sum(h is None for h in harmonics)
-        probes_line = f"{len(harmonics) - inside} light probes {spacing:g} m apart into {probes_name} ({inside} inside walls left out)"
 
     for o in objects:
         o["lightmap"] = lightmap_name
@@ -493,6 +560,7 @@ def main():
     smoothed = "" if args.no_denoise else ", denoised"
     print(f"[ok] baked {len(objects)} objects into {lightmap_name}, {args.size} by {args.size}, {args.samples} samples{smoothed}, in {time.time() - began:.0f} s")
     print(f"[ok] baked {probes_line}")
+    print(f"[ok] rendered {len(boxes)} reflection probes" + (" (none: mark an empty over a room with the custom property reflection)" if not boxes else f", {args.reflection_size} by {args.reflection_size // 2}"))
     lamps = [o for o in scene.objects if o.type == 'LIGHT' and o.data.type in ('POINT', 'SPOT') and not o.hide_render]
     print(f"[ok] exported {output}, with its sun and {len(lamps)} lamps for Model.Sun and Model.Lights")
 

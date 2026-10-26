@@ -1,6 +1,8 @@
 package golib
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
 	"math"
 	"strings"
@@ -179,5 +181,83 @@ func TestLightProbesLightWhatMoves(t *testing.T) {
 	}
 	if far != alone {
 		t.Errorf("far from the probes the box is %d bright, want %d, as the Environment alone lights it", far, alone)
+	}
+}
+
+// A mirror inside a reflection probe's box reflects the probe's panorama, a
+// red room here; outside the box, the sky.
+func TestReflectionProbesAreReflected(t *testing.T) {
+	probes := `{"reflections":[` +
+		`{"file":"hall.hdr","position":[0,0,0],"lo":[-10,-10,-10],"hi":[10,10,10]},` +
+		`{"file":"room.hdr","position":[0,0,0],"lo":[-2,-2,-2],"hi":[2,2,2]}]}`
+	useAssets(t, map[string][]byte{
+		"models/level.glb":         probedGLB(),
+		"models/level.probes.json": []byte(probes),
+		"models/room.hdr":          radianceFile(8, 4, [4]byte{128, 8, 8, 129}, false), // red
+		"models/hall.hdr":          radianceFile(8, 4, [4]byte{8, 128, 8, 129}, false), // green
+	})
+	level := NewModel("models/level.glb")
+	if err := level.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if p := level.probes; p == nil || p.hasGrid() || len(p.reflections) != 2 || p.reflections[0].hi.X != 2 {
+		t.Fatalf("the probes read are %+v, want the room's box before the hall's, and no grid", p)
+	}
+
+	screen, capture := openTestWindow(t, 64, 64)
+	takeError()
+	camera := NewCamera3D(64, 64)
+	mirror := &Material{Color: White, Metallic: 1, Roughness: 0.05}
+	sky := Environment{SunColor: Black, Sky: Color{R: 40, G: 40, B: 200, A: 255}, Ground: Color{R: 40, G: 40, B: 200, A: 255}, NoBloom: true}
+	look := func(x float32) (r, g, b uint8) {
+		camera.Position, camera.Target = Vector3{X: x, Z: -1.5}, Vector3{X: x}
+		camera.Snap()
+		picture := capture(func() {
+			screen.Begin3D(camera)
+			screen.SetEnvironment(sky)
+			screen.DrawModel(level, Transform{}, White)
+			screen.DrawMeshWith(NewBoxMesh(), Transform{Position: Vector3{X: x}, Scale: Vector3{X: 0.5, Y: 0.5, Z: 0.1}}, mirror)
+			screen.End3D()
+		})
+		c := picture.NRGBAAt(32, 32)
+		return c.R, c.G, c.B
+	}
+	if r, g, b := look(0); r < 2*g || r < 2*b {
+		t.Errorf("a mirror in the room reflects %d, %d, %d, want the room's red", r, g, b)
+	}
+	if r, g, b := look(5); g < 2*r || g < 2*b {
+		t.Errorf("a mirror in the hall reflects %d, %d, %d, want the hall's green", r, g, b)
+	}
+	if r, g, b := look(30); b < 2*r || b < 2*g {
+		t.Errorf("a mirror outside every box reflects %d, %d, %d, want the sky's blue", r, g, b)
+	}
+	if err := takeError(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A reflection probe keeps the brightest of what it shows: a lamp in a room
+// isn't a sun to take out, as it is from a sky's HDRI.
+func TestReflectionProbesKeepTheirLamps(t *testing.T) {
+	var file bytes.Buffer
+	file.WriteString("#?RADIANCE\nFORMAT=32-bit_rle_rgbe\n\n-Y 32 +X 64\n")
+	for i := 0; i < 64*32; i++ {
+		if i == 64*8+20 {
+			file.Write([]byte{128, 128, 128, 145}) // a lamp, 65,000 times as bright
+		} else {
+			file.Write([]byte{128, 128, 128, 129})
+		}
+	}
+	useAssets(t, map[string][]byte{"room.hdr": file.Bytes(), "sky.hdr": file.Bytes()})
+	probe := &HDRI{name: "room.hdr", keepSun: true}
+	sky := NewHDRI("sky.hdr")
+	if err := errors.Join(probe.Err(), sky.Err()); err != nil {
+		t.Fatal(err)
+	}
+	if sky.sun == ([4]float32{}) {
+		t.Fatal("the sky's HDRI kept its sun: the test's lamp isn't bright enough")
+	}
+	if probe.sun != ([4]float32{}) {
+		t.Errorf("a reflection probe's panorama gave up its lamp as a sun, %v", probe.sun)
 	}
 }

@@ -46,6 +46,7 @@ type HDRI struct {
 	sun        [4]float32    // the sun taken out of the picture, as the lit shader's sunColor
 	toSun      Vector3       // the way to it, length 1
 	texture    texture3D
+	keepSun    bool // a reflection probe's panorama: its lamps and windows stay in it
 }
 
 // NewHDRI returns the HDRI in the game's assets folder named name, such as
@@ -91,7 +92,9 @@ func (h *HDRI) load(data []byte) error {
 		pixels, width, height = halve(pixels, width, height)
 	}
 	h.width, h.height = width, height
-	h.sun, h.toSun = takeSun(pixels, width, height)
+	if !h.keepSun {
+		h.sun, h.toSun = takeSun(pixels, width, height)
+	}
 	h.irradiance = sphericalHarmonics(pixels, width, height)
 	level, w, ht := pixels, width, height
 	for {

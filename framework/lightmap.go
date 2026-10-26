@@ -1,9 +1,12 @@
 package golib
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"math"
+	"path"
+	"slices"
 
 	"golib/internal/device"
 	"golib/internal/gltf"
@@ -128,8 +131,10 @@ func lampColor(c [3]float32) (Color, float32) {
 }
 
 // lightProbes is the grid of light probes a level was baked with, in its
-// own space, read from the file tools/blender/bake_lightmaps.py writes.
+// own space, read from the file tools/blender/bake_lightmaps.py writes, and
+// its reflection probes. A level may have either or both.
 type lightProbes struct {
+	reflections []reflectionProbe // the smallest box first
 	origin  Vector3 // the first probe
 	spacing float32 // meters between probes
 	size    [3]int  // how many along X, Y and Z
@@ -138,6 +143,15 @@ type lightProbes struct {
 	// fourth number, 1 for a probe and 0 for a point inside a wall.
 	texels []float32
 	gpu    device.DataTexture
+}
+
+// reflectionProbe is a panorama of the level rendered by Cycles from the
+// middle of a box, in the level's space, which shiny things in the box
+// reflect.
+type reflectionProbe struct {
+	position Vector3
+	lo, hi   Vector3
+	hdri     *HDRI
 }
 
 // probeTexels is how many texels of the probes' data texture a probe takes.
@@ -151,19 +165,42 @@ func readLightProbes(name string) (*lightProbes, error) {
 		return nil, err
 	}
 	var file struct {
-		Origin  [3]float32  `json:"origin"`
-		Spacing float32     `json:"spacing"`
-		Size    [3]int      `json:"size"`
-		Probes  [][]float32 `json:"probes"`
+		Origin      [3]float32  `json:"origin"`
+		Spacing     float32     `json:"spacing"`
+		Size        [3]int      `json:"size"`
+		Probes      [][]float32 `json:"probes"`
+		Reflections []struct {
+			File     string     `json:"file"`
+			Position [3]float32 `json:"position"`
+			Lo       [3]float32 `json:"lo"`
+			Hi       [3]float32 `json:"hi"`
+		} `json:"reflections"`
 	}
 	if err := json.Unmarshal(data, &file); err != nil {
 		return nil, err
+	}
+	p := &lightProbes{}
+	vec := func(v [3]float32) Vector3 { return Vector3{X: v[0], Y: v[1], Z: v[2]} }
+	for _, r := range file.Reflections {
+		p.reflections = append(p.reflections, reflectionProbe{
+			position: vec(r.Position), lo: vec(r.Lo), hi: vec(r.Hi),
+			hdri: &HDRI{name: path.Join(path.Dir(name), r.File), keepSun: true},
+		})
+	}
+	// The smallest box first: a room's own reflection, then the hall's
+	// around it.
+	slices.SortStableFunc(p.reflections, func(a, b reflectionProbe) int {
+		volume := func(r reflectionProbe) float32 { d := r.hi.Sub(r.lo); return d.X * d.Y * d.Z }
+		return cmp.Compare(volume(a), volume(b))
+	})
+	if len(file.Probes) == 0 {
+		return p, nil
 	}
 	count := file.Size[0] * file.Size[1] * file.Size[2]
 	if file.Spacing <= 0 || count <= 0 || len(file.Probes) != count {
 		return nil, fmt.Errorf("a grid of %v probes %v m apart, but %d given: bake it again with tools/blender/bake_lightmaps.py", file.Size, file.Spacing, len(file.Probes))
 	}
-	p := &lightProbes{
+	*p = lightProbes{reflections: p.reflections,
 		origin:  Vector3{X: file.Origin[0], Y: file.Origin[1], Z: file.Origin[2]},
 		spacing: file.Spacing, size: file.Size,
 		texels: make([]float32, count*probeTexels*4),
@@ -193,6 +230,9 @@ func (p *lightProbes) upload() device.DataTexture {
 	}
 	return p.gpu
 }
+
+// hasGrid says whether the level has light probes, not only reflections.
+func (p *lightProbes) hasGrid() bool { return len(p.texels) > 0 }
 
 // fromWorld returns the matrix that takes a point of the world to the grid
 // of a level drawn at place: whole numbers at the probes.
