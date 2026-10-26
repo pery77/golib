@@ -72,6 +72,7 @@ func TestDrawMeshWithTint(t *testing.T) {
 	white := &Material{Color: White, Unlit: true}
 	middle := func(tint Color) color.NRGBA {
 		return capture(func() {
+			screen.Clear(Black)
 			screen.Begin3D(camera)
 			screen.SetEnvironment(Environment{NoBloom: true})
 			screen.DrawMeshWithTint(NewBoxMesh(), Transform{Scale: Vector3{X: 2, Y: 2, Z: 2}}, white, tint)
@@ -81,8 +82,14 @@ func TestDrawMeshWithTint(t *testing.T) {
 	if c := middle(Color{R: 200, G: 40, B: 40, A: 255}); c.R < 190 || c.G > 50 {
 		t.Errorf("a white material tinted red is %v, want red", c)
 	}
-	if c := middle(Color{R: 255, G: 255, B: 255, A: 0}); c.A > 5 {
-		t.Errorf("a white material tinted to nothing is %v, want see-through", c)
+	// Half see-through white over black is half as bright as white: blended
+	// once by its opacity, not twice.
+	whole, half := middle(White), middle(Color{R: 255, G: 255, B: 255, A: 128})
+	if d := int(half.R) - int(whole.R)/2; d < -6 || d > 6 {
+		t.Errorf("a white material half see-through over black is %v, and %v whole: want half as bright", half, whole)
+	}
+	if c := middle(Color{R: 255, G: 255, B: 255, A: 0}); c.R > 5 {
+		t.Errorf("a white material tinted to nothing over black is %v, want black", c)
 	}
 	if err := takeError(); err != nil {
 		t.Fatal(err)

@@ -479,9 +479,11 @@ void main() {
 					break;
 				case BLEND_3D:
 					if (c[i] !== 0) {
-						// Opacity piles up as coverage, so end3D can put
-						// the pass over the 2D with what shows through.
-						gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+						// The lit shader's colors come premultiplied by their
+						// opacity; opacity piles up as coverage, so end3D
+						// can put the pass over the 2D with what shows
+						// through.
+						gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
 						gl.enable(gl.BLEND);
 					} else {
 						gl.disable(gl.BLEND);

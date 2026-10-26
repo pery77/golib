@@ -724,12 +724,13 @@ func SetColorWrite(on bool) {
 }
 
 // SetBlend3D says whether what is drawn next is blended over what is behind
-// it by its opacity, as see-through things are.
+// it by its opacity, as see-through things are. The lit shader's colors
+// come premultiplied by their opacity.
 func SetBlend3D(on bool) {
 	if on {
 		// Opacity piles up as coverage, so End3D can put the pass over the
 		// 2D with what shows through.
-		glCall(gl.BlendFuncSeparate, glSrcAlpha, glOneMinusSrcAlpha, glOne, glOneMinusSrcAlpha)
+		glCall(gl.BlendFuncSeparate, glOne, glOneMinusSrcAlpha, glOne, glOneMinusSrcAlpha)
 		glCall(gl.Enable, glBlend)
 	} else {
 		glCall(gl.Disable, glBlend)
