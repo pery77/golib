@@ -29,6 +29,10 @@ type gameInfo struct {
 	Version   string `json:"version"`   // major.minor.patch, such as "1.2.0" or "1.2.0-beta", which golib.GameVersion returns too; default: "0.0.0", and "" for GameVersion
 	Author    string `json:"author"`    // who makes the game; default: none
 	Copyright string `json:"copyright"` // such as "Copyright 2026 Ada Lovelace"; default: none
+	// The name of what a dist build gives players, in place of the folder's:
+	// the executable, its folder and zip, and the folder golib.SaveData
+	// saves in, such as "RocksInSpace"; default: the folder name.
+	FileName string `json:"fileName"`
 	// Files and folders of the game's folder that dist builds copy next to
 	// the executable, where players see them, such as "assets/locale" for
 	// translations to read and change; default: none.
@@ -62,7 +66,7 @@ const maxInfoText = 200
 // readGameInfo reads game.json from dir, with defaults for what it leaves out.
 // found is false when dir has no game.json.
 func readGameInfo(dir string) (info gameInfo, found bool, err error) {
-	info = gameInfo{Title: filepath.Base(dir), Version: "0.0.0"}
+	info = gameInfo{Title: filepath.Base(dir), FileName: filepath.Base(dir), Version: "0.0.0"}
 	data, err := os.ReadFile(filepath.Join(dir, gameInfoFile))
 	if errors.Is(err, fs.ErrNotExist) {
 		info.version, err = parseVersion(info.Version)
@@ -86,10 +90,16 @@ func readGameInfo(dir string) (info gameInfo, found bool, err error) {
 	// "version" left out gives 0.0.0 to the executable's details and the
 	// zip's name, and nothing to golib.GameVersion.
 	var given struct {
-		Version *string `json:"version"`
+		Version  *string `json:"version"`
+		FileName *string `json:"fileName"`
 	}
 	if json.Unmarshal(data, &given) == nil {
 		info.versionGiven = given.Version != nil
+	}
+	if given.FileName != nil {
+		if err := checkFileName(info.FileName); err != nil {
+			return info, true, err
+		}
 	}
 
 	for _, field := range []struct{ name, value string }{
@@ -126,6 +136,37 @@ func checkText(field, value string) error {
 		return fmt.Errorf("%q holds a line break, tab or other control character: keep it on one line", field)
 	}
 	return nil
+}
+
+// fileNamePattern is what "fileName" may be: a name every system takes for
+// a file and a folder, with nothing a command line has to quote.
+var fileNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`)
+
+// checkFileName reports whether name may name a dist build's files and its
+// save folder.
+func checkFileName(name string) error {
+	if !fileNamePattern.MatchString(name) {
+		return fmt.Errorf(`"fileName" is %q: write letters, digits, - and _, starting with a letter or a digit, up to 64, such as "RocksInSpace"`, name)
+	}
+	// Windows takes no file named as a device, with or without an extension.
+	switch base := strings.ToUpper(name); {
+	case base == "CON", base == "PRN", base == "AUX", base == "NUL",
+		len(base) == 4 && (strings.HasPrefix(base, "COM") || strings.HasPrefix(base, "LPT")) && base[3] >= '1' && base[3] <= '9':
+		return fmt.Errorf(`"fileName" is %q, which Windows keeps for a device: choose another name`, name)
+	}
+	return nil
+}
+
+// fileName returns the name game's dist builds give their files and save
+// folder: game.json's "fileName", or the folder's name. When game.json has
+// a mistake it returns the folder's name, and the build, which reads the
+// file again, reports the mistake.
+func (c *cli) fileName(game string) string {
+	info, _, err := readGameInfo(c.path("games", game))
+	if err != nil {
+		return game
+	}
+	return info.FileName
 }
 
 // checkBeside reports whether the paths of "besideExecutable" are inside
@@ -231,7 +272,7 @@ func explainJSONError(data []byte, err error) error {
 		return errors.New(`the file is empty or cut short: game.json must be valid JSON, such as {"title": "Rocks", "version": "1.0.0"}`)
 	case strings.HasPrefix(err.Error(), "json: unknown field "):
 		field := strings.TrimPrefix(err.Error(), "json: unknown field ")
-		return fmt.Errorf(`unknown field %s: game.json takes "title", "version", "author", "copyright", "besideExecutable", "buildTags" and "leaveOut"`, field)
+		return fmt.Errorf(`unknown field %s: game.json takes "title", "version", "author", "copyright", "fileName", "besideExecutable", "buildTags" and "leaveOut"`, field)
 	}
 	return err
 }

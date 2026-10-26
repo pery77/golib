@@ -29,7 +29,7 @@ func TestReadGameInfoDefaults(t *testing.T) {
 	if err != nil || found {
 		t.Fatalf("without game.json: found = %v, error = %v; want false and no error", found, err)
 	}
-	if info.Title != "rocks" || info.Version != "0.0.0" || info.Author != "" || info.Copyright != "" {
+	if info.Title != "rocks" || info.FileName != "rocks" || info.Version != "0.0.0" || info.Author != "" || info.Copyright != "" {
 		t.Errorf("defaults = %+v, want the folder name and version 0.0.0", info)
 	}
 	if info.version != (version{}) {
@@ -40,8 +40,8 @@ func TestReadGameInfoDefaults(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("with a partial game.json: found = %v, error = %v; want true and no error", found, err)
 	}
-	if info.Title != "rocks" {
-		t.Errorf("title = %q, want the folder name", info.Title)
+	if info.Title != "rocks" || info.FileName != "rocks" {
+		t.Errorf("title = %q, file name = %q, want the folder name", info.Title, info.FileName)
 	}
 }
 
@@ -66,6 +66,11 @@ func TestReadGameInfo(t *testing.T) {
 		t.Errorf("version.String() = %q", got)
 	}
 
+	info, _, err = readGameInfo(gameDir(t, `{"fileName": "Rocks-In_Space2"}`))
+	if err != nil || info.FileName != "Rocks-In_Space2" || info.Title != "rocks" {
+		t.Errorf("fileName: %+v, error %v", info, err)
+	}
+
 	info, _, err = readGameInfo(gameDir(t, `{"buildTags": {"demo": "dist", "steam": "any"}}`))
 	if err != nil || info.BuildTags["demo"] != tagDistOnly || info.BuildTags["steam"] != tagAnyBuild {
 		t.Errorf("buildTags: %v, error %v", info.BuildTags, err)
@@ -87,7 +92,7 @@ func TestReadGameInfoMistakes(t *testing.T) {
 	tests := []struct {
 		name, content, want string
 	}{
-		{"unknown field", `{"verison": "1.0.0"}`, `unknown field "verison": game.json takes "title", "version", "author", "copyright", "besideExecutable", "buildTags" and "leaveOut"`},
+		{"unknown field", `{"verison": "1.0.0"}`, `unknown field "verison": game.json takes "title", "version", "author", "copyright", "fileName", "besideExecutable", "buildTags" and "leaveOut"`},
 		{"syntax error", "{\n  \"title\": \"Rocks\",\n}", "line 3: "},
 		{"number instead of text", "{\n  \"version\": 1.0\n}", `line 2: "version" must be text`},
 		{"empty file", " ", "the file is empty or cut short"},
@@ -98,6 +103,13 @@ func TestReadGameInfoMistakes(t *testing.T) {
 		{"empty title", `{"title": " "}`, `"title" is empty`},
 		{"line break", `{"author": "Ada\nLovelace"}`, `"author" holds a line break`},
 		{"long copyright", `{"copyright": "` + strings.Repeat("c", maxInfoText+1) + `"}`, `"copyright" is longer than 200 characters`},
+		{"file name with spaces", `{"fileName": "Rocks in Space"}`, `"fileName" is "Rocks in Space": write letters, digits, - and _`},
+		{"empty file name", `{"fileName": ""}`, `"fileName" is "": write letters`},
+		{"file name with an extension", `{"fileName": "rocks.exe"}`, `"fileName" is "rocks.exe": write letters`},
+		{"file name starting with _", `{"fileName": "_rocks"}`, `"fileName" is "_rocks": write letters`},
+		{"file name too long", `{"fileName": "` + strings.Repeat("r", 65) + `"}`, `"fileName" is "rrrr`},
+		{"device's file name", `{"fileName": "con"}`, `"fileName" is "con", which Windows keeps for a device`},
+		{"port's file name", `{"fileName": "Lpt1"}`, `"fileName" is "Lpt1", which Windows keeps for a device`},
 		{"beside not a list", "{\n  \"besideExecutable\": \"assets/locale\"\n}", `line 2: "besideExecutable" must be a list of paths`},
 		{"beside backslash", `{"besideExecutable": ["assets\\locale"]}`, "forward slashes"},
 		{"beside outside", `{"besideExecutable": ["../other"]}`, "a path inside the game's folder"},

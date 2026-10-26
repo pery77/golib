@@ -132,7 +132,7 @@ If the game can't be written without reaching into framework internals, the fram
 
 ## Content: established tools, no editors of our own
 
-GoLib has no visual editor, scene designer, level editor or asset GUI, and won't get one. Content is made in mature tools that many people already know, and GoLib loads the files they save.
+GoLib has no visual editor, scene designer, level editor or asset GUI, and won't get one: it is a framework, not an engine with an editor. Content is made in mature tools that many people already know, and GoLib loads the files they save. What a game may build for itself is rule 3 below.
 
 | Content | Made with | What the game loads | Planned |
 | --- | --- | --- | --- |
@@ -157,7 +157,7 @@ Why:
 
 1. **The tools are for editing, not for building.** A game builds and runs on a machine that has none of them, so the zero-install promise holds. Builds never call these tools, which means every file a game loads is committed in its folder.
 2. **Load what the tool saves.** Prefer the tool's own file format, so saving in the tool and running the game is all it takes, with no export step to forget. Export only when the tool's format can't be loaded at runtime (Blender's `.blend`), and then commit the source file too, in `sources/`. One format for each kind of content: GoLib doesn't read Tiled's JSON maps or Aseprite's JSON sprite sheets.
-3. **No editors inside games either.** Don't build an in-game level editor, sprite editor or any other tool for making content. If a game has levels, they are Tiled maps.
+3. **Tools inside a game only for what only the game knows.** A game never redoes an established tool's job: no in-game pixel editor, tile painter or model editor, and when a game's levels are maps, they are Tiled maps. A game may have a small tool of its own, inside the game, for what no established tool covers: tuning its sounds or its music by ear, editing one feature of its own, a dev mode behind a build tag when players shouldn't see it. The framework never holds such a tool. (Clarified 2026-10-23.)
 4. **No dependencies for formats.** Tiled and Aseprite files are parsed with the Go standard library (`encoding/xml`, `encoding/base64`, `compress/zlib`, `compress/gzip`). The standard library has no Zstandard, so a Tiled map compressed with it will fail with a message that says to pick another compression in Tiled. jfxr files are read with `encoding/json`, and GoLib makes their sound itself, with a Go version of jfxr's synthesizer (`framework/jfxr.go`, under jfxr's BSD license, which `golib dist` adds to every game's notices). Recorded audio goes through raylib. For 3D (M7): glTF is read in Go, with `encoding/json`, `image/png` and `image/jpeg`, and FBX too, binary FBX with `compress/zlib` (`framework/internal/fbx`, since 2026-10-24), into the same document, so a game loads both the same way.
 5. **Everything in `assets/` ships.** `golib dist` embeds the whole folder in the executable, so keep only files the game loads there. Source files the game doesn't load go in `sources/`, with the same paths: `sources/models/ship.blend` for `assets/models/ship.glb`. They are committed, but not shipped.
 

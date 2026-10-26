@@ -216,7 +216,7 @@ build/<game>/dist/                  emptied first
   <game>-<version>-<os>-<arch>.zip  the folder, zipped: the file to share
 ```
 
-`<version>` comes from the game's `game.json`, and is `0.0.0` without one; `<os>` is `windows`, `linux` or `macos`, and `<arch>` is `amd64` or `arm64`. For example, `rocks-1.2.0-windows-amd64.zip` holds the `rocks/` folder, so unzipping it gives players one folder with everything in it. A build with `--tags` carries them in the zip's name, after the version: `rocks-1.2.0-demo-windows-amd64.zip` (see [Build tags](#build-tags)). `dist` builds for the machine it runs on; there is no cross-compiling yet.
+`<version>` comes from the game's `game.json`, and is `0.0.0` without one; `<os>` is `windows`, `linux` or `macos`, and `<arch>` is `amd64` or `arm64`. For example, `rocks-1.2.0-windows-amd64.zip` holds the `rocks/` folder, so unzipping it gives players one folder with everything in it. A build with `--tags` carries them in the zip's name, after the version: `rocks-1.2.0-demo-windows-amd64.zip` (see [Build tags](#build-tags)). What players get is named after the game's folder, unless `game.json`'s `fileName` gives another name: with `"fileName": "RocksInSpace"`, the folder is `RocksInSpace/`, the executable `RocksInSpace.exe` (inside the app on macOS, whose identifier takes it too), the zip `RocksInSpace-1.2.0-windows-amd64.zip`, a web build's zip `RocksInSpace-1.2.0-web.zip`, and the game saves in `GoLib games/RocksInSpace`, while `build/<game>/` and debug builds keep the folder's name. A private game, whose folder starts with `_`, ships under a name of its own so. Choose it before the game goes out: a new name is a new save folder, and players' saved games stay behind in the old one. `dist` builds for the machine it runs on; there is no cross-compiling yet.
 
 | | Debug build: `build`, `run`, `shot`, `test`, F5 | Dist build: `dist`, `run --dist` |
 | --- | --- | --- |
@@ -225,7 +225,7 @@ build/<game>/dist/                  emptied first
 | Debug symbols and paths from this machine | Kept, for Delve and readable stack traces | Removed |
 | raylib and libffi | Loaded from next to the executable | Loaded from next to the executable, except on macOS (below) |
 | The game's `assets/` folder | Read from disk, in the working directory, which `run`, `shot`, `test` and F5 set to `games/<game>/`. When the working directory has no `assets/` folder, as when the executable is started from Explorer in `build/<game>/`, from `games/<game>/assets/` instead | Embedded, through the game's `assets.go` |
-| `golib.SaveData` | Saves in `build/<game>/save/`, next to the executable; in memory under `shot` and `test` | Saves in the player's settings folder, in `GoLib games/<game>`: `%AppData%GoLib games<game>` on Windows, `~/.config/GoLib games/<game>` on Linux, `~/Library/Application Support/GoLib games/<game>` on macOS |
+| `golib.SaveData` | Saves in `build/<game>/save/`, next to the executable; in memory under `shot` and `test` | Saves in the player's settings folder, in `GoLib games/<game>`, or `game.json`'s `fileName` in place of `<game>`: `%AppData%GoLib games<game>` on Windows, `~/.config/GoLib games/<game>` on Linux, `~/Library/Application Support/GoLib games/<game>` on macOS |
 
 It runs `go build -trimpath` with these build tags and linker flags:
 
@@ -310,6 +310,7 @@ Every field of `game.json` is optional. Save it as UTF-8; the byte order mark th
 | `version` | `"1.2.0"`, `"1.2.0-beta"` | The file and product version: major.minor.patch, each from 0 to 65535, optionally followed by a label after `-`, which marks a pre-release. `golib.GameVersion` returns it as written, in every build golib makes (see [Dist builds](#dist-builds)). Default: `0.0.0` for the details and the zip's name, and `""` for `golib.GameVersion`. |
 | `author` | `"Ada Lovelace"` | The company name |
 | `copyright` | `"Copyright 2026 Ada Lovelace"` | The copyright |
+| `fileName` | `"RocksInSpace"` | Not a detail of the executable: the name of what a dist build gives players, in place of the game's folder name: the executable, its folder and zip, and the folder `golib.SaveData` saves in (see [Dist builds](#dist-builds)). Letters, digits, `-` and `_`, starting with a letter or a digit, up to 64, and not a name Windows keeps for a device, such as `con`. Default: the folder name. |
 | `besideExecutable` | `["assets/locale"]` | Not a detail of the executable: files and folders of the game's folder, written with forward slashes, that `dist` copies next to the executable (next to the app on macOS), each under its own name, so `assets/locale` becomes `locale/`. They are for players to see and change, such as translations a game reads from beside its executable; whatever is in `assets/` stays inside the executable too. `dist --web` leaves them out, since a browser has no folder beside the game. Default: none. |
 | `buildTags` | `{"demo": "dist"}` | Not a detail of the executable: the [build tags](#build-tags) the game is made with, each with the builds it may go in, `"any"`, or `"dist"` for dist and web builds only, such as a demo that never goes out as a debug build. `build`, and `run` without `--dist`, refuse a `"dist"` tag; the GoLib window shows a checkbox for each tag. Default: none. |
 | `leaveOut` | `{"demo": ["assets/locale/*-full.txt", "assets/roms"]}` | Not a detail of the executable: for each [build tag](#build-tags), paths of the game's folder, written with forward slashes, that a dist build made with that tag (`dist --tags demo`, `run --dist --tags demo`) leaves out of what `besideExecutable` copies. A path is a file, a folder, which stays out with everything in it, or a pattern that Go's `path.Match` matches against the path of each file and folder, from the game's folder: `*` for any part of a name, `?` for one character, `[a-z]` for one of a set. It covers only the copies beside the executable: what the executable embeds is the game's `assets.go`'s choice (see [Build tags](#build-tags)). Default: none. |
@@ -488,7 +489,7 @@ build/<game>/dist/
     index.html                  at the top of the zip, where a page host looks for it
     <game>.wasm, wasm_exec.js, golib.js
     THIRD-PARTY-LICENSES.txt    Go's license and jfxr's; a web build has no raylib in it
-  <game>-<version>-web.zip      the file to upload to itch.io; <game>-<version>-demo-web.zip with --tags demo
+  <game>-<version>-web.zip      the file to upload to itch.io; <game>-<version>-demo-web.zip with --tags demo, and game.json's fileName in place of <game>
 ```
 
 ## Adding a command

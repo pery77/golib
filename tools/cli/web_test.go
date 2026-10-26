@@ -255,6 +255,16 @@ func TestDistWeb(t *testing.T) {
 	if !strings.Contains(tp.stdout.String(), "index.html is at the top of the zip") {
 		t.Errorf("output:\n%s\nwant it to say where index.html is", tp.stdout.String())
 	}
+
+	// The zip takes game.json's "fileName", as a desktop build's files do.
+	tp = webProject(t, "rocks")
+	writeFile(t, tp.c.path("games", "rocks", gameInfoFile), `{"fileName": "RocksInSpace", "version": "1.2.0"}`)
+	if code := tp.c.dist([]string{"--web"}); code != 0 {
+		t.Fatalf("with a file name: exit code %d, output:\n%s%s", code, tp.stdout.String(), tp.stderr.String())
+	}
+	if _, err := os.Stat(tp.c.path("build", "rocks", "dist", "RocksInSpace-1.2.0-web.zip")); err != nil {
+		t.Errorf("with a file name: %v", err)
+	}
 }
 
 // A game whose assets hold music or sounds no browser decodes is told while
