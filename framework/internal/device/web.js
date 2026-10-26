@@ -1495,6 +1495,11 @@ void main() {
 		gl.bindTexture(gl.TEXTURE_2D, pass3D.color);
 		gl.bindVertexArray(emptyArray);
 		gl.drawArrays(gl.TRIANGLES, 0, 3);
+		// The pass's picture leaves unit 0: the next pass draws into it, and
+		// WebGL refuses a draw whose program has a sampler on a unit holding
+		// the picture it draws into, even one the shader doesn't read, as a
+		// lit material without a texture doesn't. The 2D binds its own.
+		gl.bindTexture(gl.TEXTURE_2D, null);
 		const mode = boundBlend;
 		boundBlend = -1;
 		setBlend(mode < 0 ? BLEND_NORMAL : mode);
