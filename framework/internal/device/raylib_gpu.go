@@ -277,14 +277,17 @@ func NewMesh(layout int, vertices []float32, indices []uint32, lines bool) Mesh 
 		glCall(gl.VertexAttribPointer, location, size, glFloat, 0, stride, offset*4)
 	}
 	switch layout {
-	case LayoutLit, LayoutSkinned:
+	case LayoutLit, LayoutSkinned, LayoutLightmapped:
 		attribute(0, 3, 0)
 		attribute(1, 3, 3)
 		attribute(2, 2, 6)
 		attribute(3, 4, 8)
-		if layout == LayoutSkinned {
+		switch layout {
+		case LayoutSkinned:
 			attribute(9, 4, 12)
 			attribute(10, 4, 16)
+		case LayoutLightmapped:
+			attribute(11, 2, 12)
 		}
 		glCall(gl.BindBuffer, glArrayBuffer, uintptr(gl.instances))
 		for i := uintptr(0); i < 5; i++ { // the matrix's four columns, then the tint
@@ -829,10 +832,10 @@ func wrap(clamp, mirror bool) uintptr {
 
 // NewHDRTexture puts a picture brighter than white on the graphics card, in
 // half floats, RGBA, with the mipmaps given: levels[0] is width by height,
-// each next one half as large, down to one texel, the top row first. It is
-// smoothed between texels and mipmaps, repeated across and clamped down,
-// as a panorama of the sky wants.
-func NewHDRTexture(width, height int, levels [][]uint16) Texture3D {
+// each next one half as large, the top row first. It is smoothed between
+// texels and mipmaps. A panorama of the sky repeats across and is clamped
+// down; anything else, such as a lightmap, is clamped both ways.
+func NewHDRTexture(width, height int, levels [][]uint16, panorama bool) Texture3D {
 	if len(levels) == 0 {
 		return Texture3D{}
 	}
@@ -851,7 +854,11 @@ func NewHDRTexture(width, height int, levels [][]uint16) Texture3D {
 	glCall(gl.TexParameteri, glTexture2D, glTextureMaxLevel, uintptr(len(levels)-1))
 	glCall(gl.TexParameteri, glTexture2D, glTextureMinFilter, glLinearMipLinear)
 	glCall(gl.TexParameteri, glTexture2D, glTextureMagFilter, glLinear)
-	glCall(gl.TexParameteri, glTexture2D, glTextureWrapS, glRepeat)
+	across := uintptr(glClampToEdge)
+	if panorama {
+		across = glRepeat
+	}
+	glCall(gl.TexParameteri, glTexture2D, glTextureWrapS, across)
 	glCall(gl.TexParameteri, glTexture2D, glTextureWrapT, glClampToEdge)
 	glCall(gl.BindTexture, glTexture2D, 0)
 	glCall(gl.ActiveTexture, glTexture0)

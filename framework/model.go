@@ -45,7 +45,8 @@ type Model struct {
 	skins      []modelSkin
 	rootSkin   int // the skin whose top bone root motion follows
 	animations []modelAnimation
-	rest       modelPose // the model as the file has it, which DrawModel draws
+	lights     []modelLight // its lamps, which Sun and Lights give
+	rest       modelPose    // the model as the file has it, which DrawModel draws
 	extra      []string  // files of more animations, from AddAnimations
 }
 
@@ -56,6 +57,7 @@ type modelPart struct {
 	material *material3D
 	node     int
 	skin     int // -1 for a mesh no bones bend
+	lightmap *texture3D // the light baked for it in Blender, or nil
 
 	// reach is, for a skinned part, how far its vertices are from each of
 	// the skin's joints they follow, as bound: the sphere culling tests
@@ -233,6 +235,19 @@ func (m *Model) load() error {
 		m.lowest = Vector3{X: min(m.lowest.X, p.X), Y: min(m.lowest.Y, p.Y), Z: min(m.lowest.Z, p.Z)}
 		m.upmost = Vector3{X: max(m.upmost.X, p.X), Y: max(m.upmost.Y, p.Y), Z: max(m.upmost.Z, p.Z)}
 	}
+	// Lightmaps, read once each, from beside the model.
+	lightmaps := map[string]*texture3D{}
+	lightmap := func(name string) (*texture3D, error) {
+		if t, ok := lightmaps[name]; ok {
+			return t, nil
+		}
+		t, err := readLightmap(path.Join(path.Dir(m.name), name))
+		if err != nil {
+			return nil, fmt.Errorf("its lightmap %s: %w", name, err)
+		}
+		lightmaps[name] = t
+		return t, nil
+	}
 	var failed error
 	var visit func(node int)
 	visit = func(node int) {
@@ -245,6 +260,13 @@ func (m *Model) load() error {
 					material = materials[at]
 				}
 				part := modelPart{mesh: mesh, material: material, node: node, skin: -1}
+				if name := n.Extras["lightmap"]; name != "" && mesh.lightcoords != nil && mesh.skin == nil {
+					var err error
+					if part.lightmap, err = lightmap(name); err != nil {
+						failed = fmt.Errorf("object %q: %w", n.Name, err)
+						return
+					}
+				}
 				if n.Skin >= 0 && mesh.skin != nil {
 					part.skin = n.Skin
 					if err := m.bind(&part); err != nil {
@@ -270,6 +292,8 @@ func (m *Model) load() error {
 				}
 				m.parts = append(m.parts, part)
 			}
+		} else if n.Light >= 0 && n.Light < len(doc.Lights) {
+			m.lights = append(m.lights, modelLight{light: doc.Lights[n.Light], place: place})
 		} else if !n.Joint {
 			position, rotation, scale := place.decompose()
 			m.markers = append(m.markers, ModelMarker{
@@ -615,7 +639,7 @@ func boolIndex(b bool) int {
 // keys, named by names, its mesh's morph targets' names.
 func meshOf(p gltf.Primitive, names []string) *Mesh {
 	count := len(p.Positions) / 3
-	mesh := &Mesh{indices: p.Indices}
+	mesh := &Mesh{indices: p.Indices, lightcoords: p.Lightcoords}
 	if p.Joints != nil {
 		mesh.skin = make([]float32, 0, count*8)
 		for i := 0; i < count; i++ {
@@ -663,6 +687,20 @@ func meshOf(p gltf.Primitive, names []string) *Mesh {
 			u, v, color[0], color[1], color[2], color[3])
 	}
 	return mesh
+}
+
+// readLightmap reads a lightmap baked in Blender, a Radiance .hdr file in the
+// game's assets folder.
+func readLightmap(name string) (*texture3D, error) {
+	data, err := ReadAsset(name)
+	if err != nil {
+		return nil, err
+	}
+	pixels, width, height, err := decodeRadiance(data)
+	if err != nil {
+		return nil, err
+	}
+	return &texture3D{hdr: halfFloats(pixels), hdrWidth: width, hdrHeight: height}, nil
 }
 
 // decodeTextures decodes the model's pictures, all at the same time, the
@@ -739,6 +777,10 @@ func (s *Screen) drawPose(model *Model, pose *modelPose, place matrix, tint Colo
 		}
 		if part.skin < 0 && !shaped {
 			s.addItem(part.mesh, part.material, place.mul(pose.globals[part.node]), tint)
+			if part.lightmap != nil && len(s.pass.items) > 0 {
+				part.lightmap.upload()
+				s.pass.items[len(s.pass.items)-1].lightmap = part.lightmap
+			}
 			continue
 		}
 		at := len(s.pass.animation)

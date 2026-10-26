@@ -1193,6 +1193,45 @@ screen.DrawModel(level, golib.Transform{}, golib.White)
 screen.End3D()
 ```
 
+### Light baked in Blender
+
+A level made in Blender can carry its light baked by Cycles, Blender's ray tracer, into a lightmap: the sky's light as much of it as reaches each corner, and the light the sun, the lamps and the sky bounce off the walls, red beside a red wall, darker under a roof. GoLib can't work that out as it draws; baked, it costs one texture read. The sun and the lamps themselves stay GoLib's, with their shadows, so a character walking through the level is lit and shades it as it moves. Bake with GoLib's script, from the project root, with Blender in the background:
+
+```bash
+blender --background games/<game>/sources/level.blend --python tools/blender/bake_lightmaps.py -- --output games/<game>/assets/models/level.glb
+```
+
+It writes `level.glb` and `level.lightmap.hdr` beside it. `golib.NewModel("models/level.glb")` reads both, and `DrawModel` draws the level lit by its lightmap; light it with the sun and lamps it was baked with:
+
+| Name | What it does |
+| --- | --- |
+| `Model.Sun` | `Sun() (ModelSun, bool)`: the sun lamp the model was exported with, and false without one. |
+| `ModelSun` | `ModelSun.Direction`, the way its light travels in the model's space; `ModelSun.Color` and `ModelSun.Strength`, as an `Environment` takes them. |
+| `Model.Lights` | `Lights() []Light`: the model's point and spot lamps, as `Light`s in its own space, to add to every pass with `AddLight`. |
+
+```go
+var level = golib.NewModel("models/level.glb")
+
+func (s *playScene) Draw(screen *golib.Screen) {
+	screen.Begin3D(s.camera)
+	env := golib.Environment{SkyBackground: true}
+	if sun, ok := level.Sun(); ok {
+		env.SunDirection, env.SunColor, env.SunStrength = sun.Direction, sun.Color, sun.Strength
+	}
+	screen.SetEnvironment(env)
+	for _, lamp := range level.Lights() {
+		screen.AddLight(lamp)
+	}
+	screen.DrawModel(level, golib.Transform{}, golib.White) // drawn where it was baked
+	screen.End3D()
+}
+```
+
+- **What is baked:** every visible mesh, but those whose custom property `static` is `false`: the crates, doors and props the game moves. Those are drawn without a lightmap, lit by the sun, the lamps and the `Environment`'s sky.
+- **What isn't:** the sun, point lamps and spot lamps light the level directly in GoLib, so their direct light isn't in the lightmap, only what they bounce; area lamps and glowing materials are baked whole. Light the level with the same `Sun` and `Lights`, or the bounced light won't match. A level drawn moved or turned keeps its lightmap, but its sun and lamps must be placed with it.
+- **The script** unwraps a second UV map, `Lightmap`, for every still object, packed for all of them at one density, and keeps one made by hand. It needs the level's objects to have at most one UV map of their own, and modifiers that copy geometry, such as Array, applied first. `--size 2048` for a large level (1024 when not given), `--samples 512` for less grain, `--gpu` to bake on the graphics card, `--save` to keep the `Lightmap` UV maps in the `.blend`. A courtyard of 7 objects baked at 512 by 512 texels and 256 samples in 31 seconds on an Intel iMac; the time grows with the texels and the samples. Bake again whenever the level changes.
+- **Units:** the script exports lamps in Blender's own units, Lighting Mode Raw; `Sun` and `Lights` turn them into GoLib's, a sun of strength 3 in Blender being `Strength` 0.95 here. A level exported by hand needs Include > Punctual Lights and Lighting Mode Raw for them.
+
 ### The 3D camera
 
 | Name | What it does |

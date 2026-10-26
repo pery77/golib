@@ -67,6 +67,11 @@ type texture3D struct {
 	decoded device.DecodedImage
 	err     error
 	gpu     device.Texture3D
+
+	// A lightmap is a picture brighter than white, decoded already: its
+	// texels in half floats, RGBA, the top row first.
+	hdr                 []uint16
+	hdrWidth, hdrHeight int
 }
 
 // item3D is one mesh drawn in a 3D pass.
@@ -79,6 +84,7 @@ type item3D struct {
 	radius   float32 // how far its bounds reach from center, in the world
 	wire     *Mesh   // for DrawWireframe: the mesh whose edges are drawn
 	anim     itemAnimation
+	lightmap *texture3D // the light baked for a model's mesh in Blender, or nil
 }
 
 // itemAnimation is how an item's vertices are bent: by the joints of a skin
@@ -328,6 +334,10 @@ out vec3 worldPosition;
 out vec3 normal;
 out vec2 texcoord;
 out vec4 color;
+#ifdef LIGHTMAPPED
+layout(location = 11) in vec2 vertexLightcoord;
+out vec2 lightcoord;
+#endif
 
 // ANIMATION
 
@@ -341,6 +351,9 @@ void main()
     mat3 turn = mat3(instanceModel);
     normal = transpose(inverse(turn)) * shapeNormal;
     texcoord = vertexTexcoord;
+#ifdef LIGHTMAPPED
+    lightcoord = vertexLightcoord;
+#endif
     color = vertexColor * vec4(pow(instanceTint.rgb, vec3(2.2)), instanceTint.a);
     vec4 world = instanceModel * vec4(position, 1.0);
     worldPosition = world.xyz;
@@ -398,6 +411,10 @@ uniform int lightCount;
 uniform vec4 lightPositions[8];
 uniform vec4 lightColors[8];
 uniform vec4 lightDirections[8];
+#ifdef LIGHTMAPPED
+in vec2 lightcoord;
+uniform sampler2D lightmap;
+#endif
 
 out vec4 fragColor;
 
@@ -581,6 +598,16 @@ void main()
         // A rough surface blurs its reflection into the light all around it.
         mirrored = mix(mix(groundColor, skyColor, smoothstep(-0.2, 0.2, r.y)), around, rough);
     }
+#ifdef LIGHTMAPPED
+    // The light baked in Blender in place of the sky's and the ground's:
+    // the sky's as much of it as reaches here, and what the sun, the lamps
+    // and the sky bounced off everything around. Reflections of the sky
+    // dim where less of it reaches, as in a room.
+    vec3 baked = texture(lightmap, lightcoord).rgb;
+    const vec3 luma = vec3(0.2126, 0.7152, 0.0722);
+    mirrored *= clamp(dot(baked, luma) / max(dot(around, luma), 1e-4), 0.0, 1.0);
+    around = baked;
+#endif
     float nv = max(dot(n, v), 0.0);
     vec3 fresnel = f0 + (max(vec3(1.0 - rough), f0) - f0) * pow(1.0 - nv, 5.0);
     vec3 ambient = (1.0 - fresnel) * (1.0 - metal) * albedo.rgb * around + fresnel * mirrored;
@@ -843,6 +870,7 @@ type litProgram struct {
 	environmentTurn                             int32
 	shadowMatrices                              [shadowCascades]int32
 	shadowSplits, shadowTexels, viewForward     int32
+	lightmap                                    int32
 	bending                                     bendingUniforms
 }
 
@@ -936,7 +964,7 @@ type state3D struct {
 	bloomDown bloomProgram
 	bloomUp   bloomProgram
 	bloom     bloomChain
-	surfaces  map[programKind]*litProgram // programs with a game's own surface or bending, nil for one that didn't compile
+	surfaces  map[programKind]*litProgram // programs with a game's own surface, bending or a lightmap, nil for one that didn't compile
 	lineMesh  device.Mesh
 	instances []float32 // the instances of the draw being built
 
@@ -946,10 +974,12 @@ type state3D struct {
 }
 
 // programKind says which lit program a draw needs: with a game's own
-// surface, and bending what it draws by bones and shape keys.
+// surface, bending what it draws by bones and shape keys, and lit by a
+// lightmap.
 type programKind struct {
-	surface  string
-	animated bool
+	surface     string
+	animated    bool
+	lightmapped bool
 }
 
 var renderer3D state3D
@@ -1050,6 +1080,7 @@ func locateLit(program device.Program) litProgram {
 		environmentMap: at("environmentMap"), hasEnvironment: at("hasEnvironment"),
 		environmentLevels: at("environmentLevels"), irradiance: at("irradiance"), environmentTurn: at("environmentTurn"),
 		shadowSplits: at("shadowSplits"), shadowTexels: at("shadowTexels"), viewForward: at("viewForward"),
+		lightmap: at("lightmap"),
 	}
 	for k := range shadowCascades {
 		p.shadowMatrices[k] = at(fmt.Sprintf("shadowMatrix%d", k))
@@ -1060,11 +1091,11 @@ func locateLit(program device.Program) litProgram {
 
 // surfaceProgram returns the lit program for a material: the plain one, or,
 // for one with a shader of the game's own, that shader's, compiled the first
-// time a material uses it, and one that bends what it draws for animated
-// meshes. A shader that doesn't compile is reported, and the material drawn
-// with the plain program.
-func (r *state3D) surfaceProgram(m *material3D, animated bool) *litProgram {
-	kind := programKind{surface: m.surface, animated: animated}
+// time a material uses it, one that bends what it draws for animated
+// meshes, and one lit by a lightmap. A shader that doesn't compile is
+// reported, and the material drawn with the plain program.
+func (r *state3D) surfaceProgram(m *material3D, animated, lightmapped bool) *litProgram {
+	kind := programKind{surface: m.surface, animated: animated, lightmapped: lightmapped}
 	if kind == (programKind{}) {
 		return &r.lit
 	}
@@ -1082,6 +1113,10 @@ func (r *state3D) surfaceProgram(m *material3D, animated bool) *litProgram {
 		fragment = strings.Replace(fragment, "// SURFACE", m.surface, 1)
 		fragment = strings.Replace(fragment, "#version 330\n", "#version 330\n#define CUSTOM_SURFACE\n", 1)
 	}
+	if lightmapped {
+		vertex = strings.Replace(vertex, "#version 330\n", "#version 330\n#define LIGHTMAPPED\n", 1)
+		fragment = strings.Replace(fragment, "#version 330\n", "#version 330\n#define LIGHTMAPPED\n", 1)
+	}
 	program, err := device.NewProgram(vertex, fragment)
 	if r.surfaces == nil {
 		r.surfaces = map[programKind]*litProgram{}
@@ -1090,7 +1125,7 @@ func (r *state3D) surfaceProgram(m *material3D, animated bool) *litProgram {
 		if m.surface != "" {
 			reportError(fmt.Errorf("golib: a Material's Shader doesn't compile: %w", err))
 		} else {
-			reportError(fmt.Errorf("golib: the 3D's animated shader doesn't compile on this graphics card: %w", err))
+			reportError(fmt.Errorf("golib: the 3D's animated or lightmapped shader doesn't compile on this graphics card: %w", err))
 		}
 		r.surfaces[kind] = nil
 		return &r.lit
@@ -1129,6 +1164,7 @@ func (r *state3D) unload() {
 const (
 	shadowUnit      = 5
 	environmentUnit = 6
+	lightmapUnit    = 10 // past the animation's and the shape keys'
 )
 
 // colorFloats returns c as four numbers from 0 to 1, as it is: sRGB.
@@ -1197,10 +1233,12 @@ func (r *state3D) draw(pass *pass3D) {
 		mesh     uint32
 		material *material3D
 		floats   int // an animated item's block: items bent alike go together
+		lightmap *texture3D
 	}
 	type group struct {
 		gpu      device.Mesh
 		material *material3D
+		lightmap *texture3D
 		items    []int
 	}
 	var groups []group
@@ -1217,12 +1255,12 @@ func (r *state3D) draw(pass *pass3D) {
 		case item.material.alpha == alphaBlend || item.tint.A < 255:
 			seeThrough = append(seeThrough, i)
 		default:
-			key := groupKey{item.gpu.ID, item.material, item.anim.floats}
+			key := groupKey{item.gpu.ID, item.material, item.anim.floats, item.lightmap}
 			at, ok := byKey[key]
 			if !ok {
 				at = len(groups)
 				byKey[key] = at
-				groups = append(groups, group{gpu: item.gpu, material: item.material})
+				groups = append(groups, group{gpu: item.gpu, material: item.material, lightmap: item.lightmap})
 			}
 			groups[at].items = append(groups[at].items, i)
 		}
@@ -1250,7 +1288,7 @@ func (r *state3D) draw(pass *pass3D) {
 			data = append(data, tint[:]...)
 			r.animation = append(r.animation, pass.animation[item.anim.at:item.anim.at+item.anim.floats]...)
 		}
-		built[k] = shadowGroup{gpu: g.gpu, material: g.material, instances: data, animation: bending}
+		built[k] = shadowGroup{gpu: g.gpu, material: g.material, instances: data, animation: bending, lightmap: g.lightmap}
 	}
 	seeThroughBending := make([]groupAnimation, len(seeThrough))
 	for k, i := range seeThrough {
@@ -1332,6 +1370,7 @@ func (r *state3D) draw(pass *pass3D) {
 			device.SetUniform(lit.environmentTurn, 2, env.hdriTurn)
 		}
 		device.SetUniformInt(lit.shadowMap, shadowUnit)
+		device.SetUniformInt(lit.lightmap, lightmapUnit)
 		device.SetUniformInt(lit.hasShadows, boolInt(shadows))
 		if shadows {
 			for k := range shadowCascades {
@@ -1346,15 +1385,25 @@ func (r *state3D) draw(pass *pass3D) {
 		}
 	}
 	var current *material3D
-	var currentBent bool
+	var currentBent, currentLightmapped bool
 	var program *litProgram
+	var boundLightmap *texture3D
 	culling := true
-	use := func(m *material3D, bent bool) {
-		if m == current && bent == currentBent {
+	use := func(m *material3D, bent bool, lightmap *texture3D) {
+		if lightmap != nil && lightmap != boundLightmap {
+			if gpu := lightmap.upload(); gpu.ID != 0 {
+				device.BindTexture3D(lightmapUnit, gpu)
+				boundLightmap = lightmap
+			} else {
+				lightmap = nil
+			}
+		}
+		lightmapped := lightmap != nil
+		if m == current && bent == currentBent && lightmapped == currentLightmapped {
 			return
 		}
-		current, currentBent = m, bent
-		if p := r.surfaceProgram(m, bent); p != program {
+		current, currentBent, currentLightmapped = m, bent, lightmapped
+		if p := r.surfaceProgram(m, bent, lightmapped); p != program {
 			program = p
 			frame(p)
 		}
@@ -1398,7 +1447,7 @@ func (r *state3D) draw(pass *pass3D) {
 	}
 	for _, g := range built {
 		bent := g.animation.stride > 0
-		use(g.material, bent)
+		use(g.material, bent, g.lightmap)
 		if bent {
 			program.bending.set(g.animation)
 		}
@@ -1466,7 +1515,7 @@ func (r *state3D) draw(pass *pass3D) {
 				material = &see
 			}
 			bending := seeThroughBending[k]
-			use(material, bending.stride > 0)
+			use(material, bending.stride > 0, item.lightmap)
 			if bending.stride > 0 {
 				program.bending.set(bending)
 			}
@@ -1527,6 +1576,10 @@ func (m matrix) largestScale() float32 {
 func (t *texture3D) upload() device.Texture3D {
 	if t == nil || t.err != nil {
 		return device.Texture3D{}
+	}
+	if t.gpu.ID == 0 && t.hdr != nil {
+		t.gpu = device.NewHDRTexture(t.hdrWidth, t.hdrHeight, [][]uint16{t.hdr}, false)
+		loadedTextures.add(t)
 	}
 	if t.gpu.ID == 0 {
 		if t.decoded.Width == 0 {

@@ -381,10 +381,10 @@ func wrapMode(clamp, mirror bool) int {
 
 // NewHDRTexture puts a picture brighter than white on the graphics card, in
 // half floats, RGBA, with the mipmaps given: levels[0] is width by height,
-// each next one half as large, down to one texel, the top row first. It is
-// smoothed between texels and mipmaps, repeated across and clamped down,
-// as a panorama of the sky wants.
-func NewHDRTexture(width, height int, levels [][]uint16) Texture3D {
+// each next one half as large, the top row first. It is smoothed between
+// texels and mipmaps. A panorama of the sky repeats across and is clamped
+// down; anything else, such as a lightmap, is clamped both ways.
+func NewHDRTexture(width, height int, levels [][]uint16, panorama bool) Texture3D {
 	if len(levels) == 0 {
 		return Texture3D{}
 	}
@@ -394,7 +394,7 @@ func NewHDRTexture(width, height int, levels [][]uint16) Texture3D {
 		all = append(all, level...)
 	}
 	bytes := unsafe.Slice((*byte)(unsafe.Pointer(&all[0])), len(all)*2)
-	id := js_().Call("newHDRTexture", width, height, jsBytes(bytes), len(levels)).Int()
+	id := js_().Call("newHDRTexture", width, height, jsBytes(bytes), len(levels), panorama).Int()
 	return Texture3D{ID: uint32(id), Width: width, Height: height}
 }
 

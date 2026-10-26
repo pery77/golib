@@ -250,4 +250,5 @@ type shadowGroup struct {
 	material  *material3D
 	instances []float32
 	animation groupAnimation
+	lightmap  *texture3D // for the picture: the light baked for it, or nil
 }

@@ -113,7 +113,7 @@ func (h *HDRI) upload() (device.Texture3D, error) {
 		return device.Texture3D{}, err
 	}
 	if h.texture.gpu.ID == 0 {
-		h.texture.gpu = device.NewHDRTexture(h.width, h.height, h.levels)
+		h.texture.gpu = device.NewHDRTexture(h.width, h.height, h.levels, true)
 		loadedTextures.add(&h.texture)
 	}
 	return h.texture.gpu, nil

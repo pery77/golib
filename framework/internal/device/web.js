@@ -28,7 +28,7 @@ window.golib = (function () {
 
 	// The vertex layouts of 3D meshes, as gpu.go defines them, and how many
 	// floats an instance of a lit mesh takes: its matrix and its tint.
-	const LAYOUT_LIT = 0, LAYOUT_COLORED = 1, LAYOUT_SKINNED = 2, INSTANCE_FLOATS = 20;
+	const LAYOUT_LIT = 0, LAYOUT_COLORED = 1, LAYOUT_SKINNED = 2, LAYOUT_LIGHTMAPPED = 3, INSTANCE_FLOATS = 20;
 
 	// How many texels a row of a data texture holds, as gpu.go says.
 	const DATA_WIDTH = 1024;
@@ -852,11 +852,11 @@ void main() {
 			}, function () { done(-1, 0, 0); });
 	}
 
-	// newHDRTexture puts a panorama brighter than white on the graphics
-	// card, in half floats, with the mipmaps package golib made, one after
-	// another in bytes: WebGL can't make them for a format it can't render
-	// into without an extension.
-	function newHDRTexture(width, height, bytes, levels) {
+	// newHDRTexture puts a picture brighter than white, a panorama or a
+	// lightmap, on the graphics card, in half floats, with the mipmaps
+	// package golib made, one after another in bytes: WebGL can't make them
+	// for a format it can't render into without an extension.
+	function newHDRTexture(width, height, bytes, levels, panorama) {
 		const halves = new Uint16Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 2);
 		const id = nextID++;
 		const made = gl.createTexture();
@@ -874,7 +874,7 @@ void main() {
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAX_LEVEL, levels - 1);
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, panorama ? gl.REPEAT : gl.CLAMP_TO_EDGE);
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 		gl.bindTexture(gl.TEXTURE_2D, null);
 		gl.activeTexture(gl.TEXTURE0);
@@ -923,8 +923,8 @@ void main() {
 		gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
 		const ibo = gl.createBuffer();
 		gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
-		if (layout === LAYOUT_LIT || layout === LAYOUT_SKINNED) {
-			const stride = layout === LAYOUT_SKINNED ? 80 : 48;
+		if (layout === LAYOUT_LIT || layout === LAYOUT_SKINNED || layout === LAYOUT_LIGHTMAPPED) {
+			const stride = layout === LAYOUT_SKINNED ? 80 : (layout === LAYOUT_LIGHTMAPPED ? 56 : 48);
 			bindAttribute(0, 3, 0, stride);
 			bindAttribute(1, 3, 12, stride);
 			bindAttribute(2, 2, 24, stride);
@@ -932,6 +932,9 @@ void main() {
 			if (layout === LAYOUT_SKINNED) {
 				bindAttribute(9, 4, 48, stride);
 				bindAttribute(10, 4, 64, stride);
+			}
+			if (layout === LAYOUT_LIGHTMAPPED) {
+				bindAttribute(11, 2, 48, stride);
 			}
 			if (!instanceBuffer) instanceBuffer = gl.createBuffer();
 			gl.bindBuffer(gl.ARRAY_BUFFER, instanceBuffer);
