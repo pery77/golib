@@ -234,6 +234,48 @@ func TestWindowScreenSize(t *testing.T) {
 	}
 }
 
+func TestHighDPIUsesPhysicalPixelsAndKeepsMouseCoordinates(t *testing.T) {
+	for _, tt := range []struct {
+		name                  string
+		highDPI               bool
+		scale                 int
+		wantWidth, wantHeight float32
+	}{
+		{"legacy Retina window", false, 1, 2560, 1440},
+		{"native Retina window", true, 1, 5120, 2880},
+		{"half-resolution Retina window", true, 2, 2560, 1440},
+		{"fixed screen in Retina window", true, 0, 1280, 720},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			config := Config{Width: 1280, Height: 720, WindowScale: tt.scale, HighDPI: tt.highDPI}
+			width, height, fit := screenForWindow(config, 2560, 1440, 5120, 2880)
+			if width != tt.wantWidth || height != tt.wantHeight {
+				t.Fatalf("screen is %gx%g, want %gx%g", width, height, tt.wantWidth, tt.wantHeight)
+			}
+			if fit.Width != 2560 || fit.Height != 1440 {
+				t.Errorf("presentation uses physical pixels as window points: %+v", fit)
+			}
+			x, y := toScreen(1280, 720, fit, width, height)
+			if x != width/2 || y != height/2 {
+				t.Errorf("center pointer maps to %g,%g, want %g,%g", x, y, width/2, height/2)
+			}
+		})
+	}
+}
+
+func TestHighDPIPixelArtFitsPhysicalPixels(t *testing.T) {
+	config := Config{Width: 320, Height: 180, HighDPI: true, PixelArt: true}
+	w, h, fit := screenForWindow(config, 900, 600, 1800, 1200)
+	if w != 320 || h != 180 || fit.Width != 800 || fit.Height != 450 || fit.X != 50 || fit.Y != 75 {
+		t.Errorf("pixel art must enlarge five times in physical pixels: %gx%g in %+v", w, h, fit)
+	}
+	config.WindowScale = 1
+	w, h, fit = screenForWindow(config, 900, 600, 1800, 1200)
+	if w != 1800 || h != 1200 || fit.Width != 900 || fit.Height != 600 {
+		t.Errorf("native pixels must fit the logical window without cropping: %gx%g in %+v", w, h, fit)
+	}
+}
+
 // A game in fullscreen stays there. The web backend reports a player leaving
 // fullscreen, which a browser lets them do, and the game's own idea of it
 // follows; on the desktop nothing but the game takes it away, so a frame must

@@ -30,10 +30,15 @@ const (
 	// whole numbers, and their four weights (location 10): 20 floats a
 	// vertex, drawn instanced as LayoutLit is.
 	LayoutSkinned
+
+	// LayoutLightmapped is LayoutLit followed by where the vertex is on its
+	// lightmap (location 11): 14 floats a vertex, drawn instanced as
+	// LayoutLit is.
+	LayoutLightmapped
 )
 
 // LayoutFloats is how many floats a vertex of each layout takes.
-var LayoutFloats = [...]int{LayoutLit: 12, LayoutColored: 7, LayoutSkinned: 20}
+var LayoutFloats = [...]int{LayoutLit: 12, LayoutColored: 7, LayoutSkinned: 20, LayoutLightmapped: 14}
 
 // InstanceFloats is how many floats an instance takes in DrawMeshInstanced:
 // its model matrix, column-major, then its tint, RGBA.

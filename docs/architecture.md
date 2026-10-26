@@ -2,6 +2,8 @@
 
 How GoLib keeps the framework apart from the games made with it, and where game content comes from.
 
+Desktop games may opt into the display's physical framebuffer with `Config.HighDPI`. With `WindowScale`, render textures and resize callbacks follow physical pixels; the backend's logical window coordinates still define presentation and are mapped into screen pixels for input. The default retains existing desktop behavior, and a browser's canvas already follows device density. Screenshot windows only provide a small hidden graphics context: capture textures retain the requested `Config.Width` and `Config.Height`, even above the monitor's resolution. `DrawOptions.Smooth` filters sprite textures in scene order; `FullResolution` remains a separate overlay after post-processing.
+
 > **Status:** the framework and game split exists since M1, with `framework/` and the example game, `games/platformer`. Tiled maps, Aseprite files, PNG images, fonts, sound files and jfxr sounds load since M4, and 3D is being built in M7: glTF models, with their textures and materials, since stage 2; FBX, lights, shadows and animation are still ahead (see [roadmap.md](roadmap.md#m7-3d-planned)).
 
 ## Framework and games

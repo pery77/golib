@@ -265,3 +265,32 @@ func TestModelInAWindow(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// Hide hides an object and what is under it, wherever the model is drawn,
+// until Show; a name the model doesn't have is reported.
+func TestModelHideAndShow(t *testing.T) {
+	useAssets(t, map[string][]byte{"models/level.glb": levelGLB(t, color.NRGBA{G: 255, A: 255})})
+	level := NewModel("models/level.glb")
+	if err := level.Err(); err != nil {
+		t.Fatal(err)
+	}
+	floor := level.parts[0].node
+	level.Hide("Level")
+	if !level.partHidden(floor) {
+		t.Error("hiding Level left the floor under it shown")
+	}
+	level.Show("Level")
+	level.Hide("Floor")
+	if !level.partHidden(floor) {
+		t.Error("hiding Floor left it shown")
+	}
+	level.Show("Floor")
+	if level.partHidden(floor) {
+		t.Error("Show left the floor hidden")
+	}
+	takeError()
+	level.Hide("Ceiling")
+	if err := takeError(); err == nil || !strings.Contains(err.Error(), `Model.Hide("Ceiling")`) {
+		t.Errorf("hiding a name the model doesn't have reported %v", err)
+	}
+}

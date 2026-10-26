@@ -38,6 +38,22 @@ type material3D struct {
 	unlit             bool       // its color shows as it is, without the sun
 	tiling            [2]float32 // how many times textures repeat across and down; zero is once
 	surface           string     // a game's own surface function, in GLSL, or ""
+	toon              int        // bands it is lit in, as a cartoon, or 0
+	outline           [4]float32 // the line round it, linear, and its opacity 0 for none
+	outlineWidth      float32    // in pixels
+}
+
+// setOutline gives the material a line of color, width pixels wide; the
+// zero Color is none.
+func (m *material3D) setOutline(color Color, width float32) {
+	m.outline = [4]float32{}
+	if color != (Color{}) {
+		m.outline = linearColor(color)
+	}
+	m.outlineWidth = width
+	if width <= 0 {
+		m.outlineWidth = 2
+	}
 }
 
 type alphaMode int
@@ -67,6 +83,11 @@ type texture3D struct {
 	decoded device.DecodedImage
 	err     error
 	gpu     device.Texture3D
+
+	// A lightmap is a picture brighter than white, decoded already: its
+	// texels in half floats, RGBA, the top row first.
+	hdr                 []uint16
+	hdrWidth, hdrHeight int
 }
 
 // item3D is one mesh drawn in a 3D pass.
@@ -79,6 +100,7 @@ type item3D struct {
 	radius   float32 // how far its bounds reach from center, in the world
 	wire     *Mesh   // for DrawWireframe: the mesh whose edges are drawn
 	anim     itemAnimation
+	lightmap *texture3D // the light baked for a model's mesh in Blender, or nil
 }
 
 // itemAnimation is how an item's vertices are bent: by the joints of a skin
@@ -102,7 +124,12 @@ type pass3D struct {
 	animation   []float32 // the blocks of the animated items, see itemAnimation
 	environment Environment
 	lights      []Light
-	width       int // the size of the target the pass draws over, in its texels
+	particles   []particleDraw
+	decals      []decalDraw
+	waters      []waterDraw
+	probes      *lightProbes // the light probes of a level drawn in the pass, or nil
+	probesPlace matrix       // where that level is drawn
+	width       int          // the size of the target the pass draws over, in its texels
 	height      int
 	time        float32 // seconds of game time, for a game's own surfaces
 }
@@ -328,6 +355,10 @@ out vec3 worldPosition;
 out vec3 normal;
 out vec2 texcoord;
 out vec4 color;
+#ifdef LIGHTMAPPED
+layout(location = 11) in vec2 vertexLightcoord;
+out vec2 lightcoord;
+#endif
 
 // ANIMATION
 
@@ -341,6 +372,9 @@ void main()
     mat3 turn = mat3(instanceModel);
     normal = transpose(inverse(turn)) * shapeNormal;
     texcoord = vertexTexcoord;
+#ifdef LIGHTMAPPED
+    lightcoord = vertexLightcoord;
+#endif
     color = vertexColor * vec4(pow(instanceTint.rgb, vec3(2.2)), instanceTint.a);
     vec4 world = instanceModel * vec4(position, 1.0);
     worldPosition = world.xyz;
@@ -348,10 +382,14 @@ void main()
 }
 `
 	litFragmentShader = `#version 330
+#ifdef HAZE
+vec3 worldPosition; // where the haze is sampled
+#else
 in vec3 worldPosition;
 in vec3 normal;
-in vec2 texcoord;
 in vec4 color;
+#endif
+in vec2 texcoord;
 
 uniform vec3 eye;
 uniform vec4 baseColor;
@@ -393,11 +431,32 @@ uniform mat4 shadowMatrix1;
 uniform mat4 shadowMatrix2;
 uniform vec4 shadowSplits;
 uniform vec4 shadowTexels;
+uniform float shadowRows;
+uniform int hasLampShadows;
+uniform vec4 lampShadows[8];
+uniform vec4 spotShadowViews[16];
 uniform vec3 viewForward;
 uniform int lightCount;
 uniform vec4 lightPositions[8];
 uniform vec4 lightColors[8];
 uniform vec4 lightDirections[8];
+uniform int hasProbes;
+uniform highp sampler2D probes;
+uniform mat4 probeGrid;
+uniform vec3 probeSize;
+uniform int reflectionCount;
+uniform mat4 levelFromWorld;
+uniform vec4 reflectionCenters[4];
+uniform vec4 reflectionLows[4];
+uniform vec4 reflectionHighs[4];
+uniform sampler2D reflection0;
+uniform sampler2D reflection1;
+uniform sampler2D reflection2;
+uniform sampler2D reflection3;
+#ifdef LIGHTMAPPED
+in vec2 lightcoord;
+uniform sampler2D lightmap;
+#endif
 
 out vec4 fragColor;
 
@@ -420,12 +479,30 @@ mat3 surfaceFrame(vec3 n, vec3 p, vec2 uv)
     return mat3(t * scale, -b * scale, n);
 }
 
+uniform float toonBands;
+
+// A cartoon's light: x in toonBands flat steps, each edge smoothed over a
+// pixel.
+float toonStep(float x)
+{
+    float s = x * toonBands;
+    float w = max(fwidth(s), 1e-4);
+    return (floor(s) + smoothstep(0.0, w, fract(s))) / toonBands;
+}
+
 // Light that reaches the eye from one light: Lambert's diffuse and GGX's
-// highlight.
+// highlight, or, for a cartoon, flat bands and a sharp spot.
 vec3 shade(vec3 n, vec3 v, vec3 l, vec3 radiance, vec3 albedo, float metal, float rough, vec3 f0)
 {
     float nl = max(dot(n, l), 0.0);
     if (nl <= 0.0) return vec3(0.0);
+    if (toonBands > 0.0) {
+        float nh = max(dot(n, normalize(v + l)), 0.0);
+        float edge = mix(0.995, 0.93, rough);
+        float w = max(fwidth(nh), 1e-4);
+        vec3 spot = smoothstep(edge - w, edge + w, nh) * (1.0 - rough) * mix(vec3(0.6), albedo, metal);
+        return ((1.0 - metal) * albedo + spot) * radiance * toonStep(nl);
+    }
     vec3 h = normalize(v + l);
     float nv = max(dot(n, v), 1e-4);
     float nh = max(dot(n, h), 0.0);
@@ -462,6 +539,8 @@ vec3 surrounding(vec3 n)
 
 // How much of the sun reaches the surface: 1 in full sun, 0 in shadow,
 // smoothed over 3 by 3 texels, and fading to sun where the shadows end.
+float sunShadowAt(vec3 p, int slice, int radius);
+
 float sunShadow(vec3 n)
 {
     if (hasShadows == 0) return 1.0;
@@ -473,24 +552,283 @@ float sunShadow(vec3 n)
     // so a surface doesn't shade itself.
     float facing = clamp(dot(n, -sunDirection), 0.0, 1.0);
     vec3 p = worldPosition + n * texel * (1.0 + 2.0 * (1.0 - facing));
+    float lit = sunShadowAt(p, slice, 1);
+    return mix(lit, 1.0, smoothstep(shadowSplits.z * 0.85, shadowSplits.z, depth));
+}
+
+// How much of the sun reaches p, from the shadow map's slice: the average
+// of (2 radius + 1) squared texels around it.
+float sunShadowAt(vec3 p, int slice, int radius)
+{
+    float rows = max(shadowRows, 1.0);
     mat4 m = slice == 0 ? shadowMatrix0 : (slice == 1 ? shadowMatrix1 : shadowMatrix2);
     vec4 s = m * vec4(p, 1.0);
     vec3 uvz = s.xyz / s.w * 0.5 + 0.5;
     if (uvz.x < 0.0 || uvz.x > 1.0 || uvz.y < 0.0 || uvz.y > 1.0 || uvz.z > 1.0) return 1.0;
-    vec2 step = vec2(1.0 / (3.0 * shadowTexels.w), 1.0 / shadowTexels.w);
+    vec2 step = vec2(1.0 / (3.0 * shadowTexels.w), 1.0 / (rows * shadowTexels.w));
     float left = (float(slice) + 0.5 / shadowTexels.w) / 3.0;
     float right = (float(slice) + 1.0 - 0.5 / shadowTexels.w) / 3.0;
     float lit = 0.0;
-    for (int x = -1; x <= 1; x++) {
-        for (int y = -1; y <= 1; y++) {
-            vec2 uv = vec2((uvz.x + float(slice)) / 3.0, uvz.y) + vec2(float(x), float(y)) * step;
+    for (int x = -radius; x <= radius; x++) {
+        for (int y = -radius; y <= radius; y++) {
+            vec2 uv = vec2((uvz.x + float(slice)) / 3.0, uvz.y / rows) + vec2(float(x), float(y)) * step;
             uv.x = clamp(uv.x, left, right);
+            uv.y = clamp(uv.y, step.y * 0.5, 1.0 / rows - step.y * 0.5);
             lit += texture(shadowMap, vec3(uv, uvz.z - 0.0003));
         }
     }
-    lit /= 9.0;
-    return mix(lit, 1.0, smoothstep(shadowSplits.z * 0.85, shadowSplits.z, depth));
+    float side = float(2 * radius + 1);
+    return lit / (side * side);
 }
+
+// The soft light the level's probes give a surface at p facing n, blended
+// from the eight around it, leaving out those inside walls, and how much it
+// counts: 1 inside the grid, fading to 0 a probe's spacing outside it.
+vec4 probeTexel(int k)
+{
+    return texelFetch(probes, ivec2(k % DATA_WIDTH, k / DATA_WIDTH), 0);
+}
+
+vec4 probeLight(vec3 p, vec3 n)
+{
+    vec3 g = (probeGrid * vec4(p, 1.0)).xyz;
+    vec3 inside = clamp(g, vec3(0.0), probeSize - 1.0);
+    float reach = clamp(1.0 - length(g - inside), 0.0, 1.0);
+    if (reach <= 0.0) return vec4(0.0);
+    vec3 m = normalize(mat3(probeGrid) * n);
+    vec3 base = min(floor(inside), max(probeSize - 2.0, vec3(0.0)));
+    vec3 f = clamp(inside - base, 0.0, 1.0);
+    vec3 light = vec3(0.0);
+    float weight = 0.0;
+    for (int c = 0; c < 8; c++) {
+        vec3 corner = base + vec3(float(c & 1), float((c >> 1) & 1), float((c >> 2) & 1));
+        if (any(greaterThan(corner, probeSize - 1.0))) continue;
+        vec3 w3 = mix(vec3(1.0) - f, f, vec3(float(c & 1), float((c >> 1) & 1), float((c >> 2) & 1)));
+        float w = w3.x * w3.y * w3.z;
+        int k = int(corner.x + probeSize.x * (corner.y + probeSize.y * corner.z)) * PROBE_TEXELS;
+        vec4 t0 = probeTexel(k);
+        if (t0.w < 0.5 || w <= 0.0) continue;
+        vec3 sh = t0.rgb * 0.282095
+            + probeTexel(k + 1).rgb * 0.488603 * m.y
+            + probeTexel(k + 2).rgb * 0.488603 * m.z
+            + probeTexel(k + 3).rgb * 0.488603 * m.x;
+        light += max(sh, vec3(0.0)) * w;
+        weight += w;
+    }
+    if (weight <= 0.0) return vec4(0.0);
+    return vec4(light / weight, reach);
+}
+
+// The ways a point light's six shadow tiles look, and which way is up in
+// each, as GoLib draws them.
+const vec3 cubeForward[6] = vec3[6](vec3(1.0, 0.0, 0.0), vec3(-1.0, 0.0, 0.0), vec3(0.0, 1.0, 0.0), vec3(0.0, -1.0, 0.0), vec3(0.0, 0.0, 1.0), vec3(0.0, 0.0, -1.0));
+const vec3 cubeUp[6] = vec3[6](vec3(0.0, 1.0, 0.0), vec3(0.0, 1.0, 0.0), vec3(0.0, 0.0, 1.0), vec3(0.0, 0.0, -1.0), vec3(0.0, 1.0, 0.0), vec3(0.0, 1.0, 0.0));
+
+// How much of lamp i reaches the surface, from its shadow tiles below the
+// sun's slices: 1 lit, 0 in shadow, smoothed over 3 by 3 texels.
+float lampShadowAt(int i, vec3 p, int radius);
+
+float lampShadow(int i, vec3 n, vec3 l, float distance)
+{
+    if (lampShadows[i].x < 0.0) return 1.0;
+    // Moved off the surface by about a texel's width there, more where the
+    // light grazes it, so a surface doesn't shade itself.
+    float texel = 2.0 * distance / LAMP_TILE;
+    float facing = clamp(dot(n, l), 0.0, 1.0);
+    vec3 p = worldPosition + n * texel * (1.5 + 2.0 * (1.0 - facing)) + l * texel;
+    return lampShadowAt(i, p, 1);
+}
+
+// How much of lamp i reaches p, from its tiles: the average of
+// (2 radius + 1) squared texels around it.
+float lampShadowAt(int i, vec3 p, int radius)
+{
+    vec4 s = lampShadows[i];
+    if (s.x < 0.0) return 1.0;
+    float tile = s.x;
+    vec3 uvz;
+    if (s.y >= 0.0) {
+        int k = int(s.y) * 4;
+        mat4 view = mat4(spotShadowViews[k], spotShadowViews[k + 1], spotShadowViews[k + 2], spotShadowViews[k + 3]);
+        vec4 c = view * vec4(p, 1.0);
+        uvz = c.xyz / c.w * 0.5 + 0.5;
+        if (c.w <= 0.0 || any(lessThan(uvz.xy, vec2(0.0))) || any(greaterThan(uvz.xy, vec2(1.0)))) return 1.0;
+    } else {
+        vec3 v = p - lightPositions[i].xyz;
+        vec3 a = abs(v);
+        int face = a.x >= a.y && a.x >= a.z ? (v.x > 0.0 ? 0 : 1) : (a.y >= a.z ? (v.y > 0.0 ? 2 : 3) : (v.z > 0.0 ? 4 : 5));
+        vec3 f = cubeForward[face];
+        vec3 across = normalize(cross(f, cubeUp[face]));
+        vec3 up = cross(across, f);
+        float d = dot(v, f);
+        float depth = (s.w + s.z) / (s.w - s.z) - 2.0 * s.w * s.z / ((s.w - s.z) * d);
+        uvz = vec3(dot(v, across) / d, dot(v, up) / d, depth) * 0.5 + 0.5;
+        tile += float(face);
+    }
+    if (uvz.z >= 1.0) return 1.0;
+    float rows = max(shadowRows, 1.0);
+    vec2 size = vec2(3.0 * shadowTexels.w, rows * shadowTexels.w);
+    vec2 corner = vec2(mod(tile, LAMP_ACROSS), floor(tile / LAMP_ACROSS)) * LAMP_TILE + vec2(0.0, shadowTexels.w);
+    vec2 inside = clamp(uvz.xy * LAMP_TILE, vec2(1.5), vec2(LAMP_TILE - 1.5));
+    float lit = 0.0;
+    for (int x = -radius; x <= radius; x++) {
+        for (int y = -radius; y <= radius; y++) {
+            vec2 uv = (corner + inside + vec2(float(x), float(y))) / size;
+            lit += texture(shadowMap, vec3(uv, uvz.z - 0.00005));
+        }
+    }
+    float side = float(2 * radius + 1);
+    return lit / (side * side);
+}
+
+// What a level's reflection probe shows along r from p, roughened by rough,
+// and 1, or 0 outside every probe's box: the panorama seen from the probe,
+// looked up where r leaves the box, so the walls it reflects are where they
+// are. The smallest box p is in counts.
+vec4 reflectionAt(vec3 p, vec3 r, float rough)
+{
+    if (reflectionCount == 0) return vec4(0.0);
+    vec3 lp = (levelFromWorld * vec4(p, 1.0)).xyz;
+    vec3 lr = normalize(mat3(levelFromWorld) * r);
+    for (int i = 0; i < 4; i++) {
+        if (i >= reflectionCount) break;
+        vec3 lo = reflectionLows[i].xyz, hi = reflectionHighs[i].xyz;
+        if (any(lessThan(lp, lo)) || any(greaterThan(lp, hi))) continue;
+        vec3 leave = max((hi - lp) / lr, (lo - lp) / lr);
+        float t = min(min(leave.x, leave.y), leave.z);
+        vec3 d = normalize(lp + lr * t - reflectionCenters[i].xyz);
+        vec2 uv = vec2(0.5 - atan(d.x, d.z) / 6.2831853, acos(clamp(d.y, -1.0, 1.0)) / 3.14159265);
+        float lod = rough * reflectionCenters[i].w;
+        vec3 c;
+        if (i == 0) c = textureLod(reflection0, uv, lod).rgb;
+        else if (i == 1) c = textureLod(reflection1, uv, lod).rgb;
+        else if (i == 2) c = textureLod(reflection2, uv, lod).rgb;
+        else c = textureLod(reflection3, uv, lod).rgb;
+        return vec4(c, 1.0);
+    }
+    return vec4(0.0);
+}
+
+#if defined(WATER) || defined(MIRROR)
+uniform mat4 viewProjection;
+uniform sampler2D colorCopy;
+uniform sampler2D depthCopy;
+uniform mat4 inverseViewProjection;
+uniform vec2 viewSize;
+
+// Where the solid thing seen at screen point uv is, from the pass's depth.
+vec3 behind(vec2 uv)
+{
+    float d = texture(depthCopy, uv).r;
+    vec4 w = inverseViewProjection * vec4(uv * 2.0 - 1.0, d * 2.0 - 1.0, 1.0);
+    return w.xyz / w.w;
+}
+
+// What the pass shows along the reflection r from p, marched through its
+// depth in growing steps (screen-space reflections), blurred as a surface
+// rough rough blurs it, and how much it counts: 0 where the reflection
+// leaves the screen, goes behind something or meets nothing, fading
+// towards the screen's edges and with the distance marched.
+vec4 screenReflection(vec3 p, vec3 r, float rough)
+{
+    vec3 start = p;
+    float stride = 0.25;
+    for (int i = 0; i < 40; i++) {
+        p += r * stride;
+        stride *= 1.08;
+        vec4 c = viewProjection * vec4(p, 1.0);
+        if (c.w <= 0.0) break;
+        vec3 ndc = c.xyz / c.w;
+        vec2 uv = ndc.xy * 0.5 + 0.5;
+        if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) break;
+        float scene = texture(depthCopy, uv).r;
+        float here = ndc.z * 0.5 + 0.5;
+        if (here > scene && scene < 1.0) {
+            vec3 hit = behind(uv);
+            if (length(hit - p) < stride * 2.0) {
+                vec2 edge = smoothstep(vec2(0.0), vec2(0.1), uv) * (1.0 - smoothstep(vec2(0.9), vec2(1.0), uv));
+                // Blurred over the patch a cone as wide as the roughness
+                // covers where it meets the thing reflected.
+                vec3 across = normalize(cross(r, abs(r.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0)));
+                vec4 side = viewProjection * vec4(hit + across * rough * 0.5 * length(hit - start), 1.0);
+                float radius = side.w > 0.0 ? length(side.xy / side.w * 0.5 + 0.5 - uv) : 0.0;
+                vec3 seen = vec3(0.0);
+                for (int x = -1; x <= 1; x++) {
+                    for (int y = -1; y <= 1; y++) {
+                        seen += texture(colorCopy, clamp(uv + vec2(float(x), float(y)) * radius * 0.5, vec2(0.0), vec2(1.0))).rgb;
+                    }
+                }
+                return vec4(seen / 9.0, edge.x * edge.y * (1.0 - float(i) / 40.0));
+            }
+            break;
+        }
+    }
+    return vec4(0.0);
+}
+#endif
+
+#ifdef WATER
+uniform vec3 waterColor;
+uniform float waterClarity;
+uniform float waterWaves;
+uniform int waterFoam;
+
+// The water's surface turned by its waves: long ones in four directions,
+// and ripples on them, moving with time.
+vec3 waterNormal(vec2 p, vec3 up)
+{
+    const vec4 waves[6] = vec4[6](
+        vec4(1.0, 0.3, 9.0, 0.6), vec4(-0.6, 1.0, 6.0, 0.45), vec4(0.2, -1.0, 4.0, 0.35),
+        vec4(-1.0, -0.4, 2.6, 0.25), vec4(0.7, 0.8, 1.1, 0.12), vec4(-0.3, 0.9, 0.7, 0.08));
+    vec2 slope = vec2(0.0);
+    for (int i = 0; i < 6; i++) {
+        vec2 d = normalize(waves[i].xy);
+        float k = 6.2831853 / waves[i].z;
+        float speed = sqrt(9.81 / k);
+        slope += d * k * waves[i].w * 0.04 * cos(dot(d, p) * k - time * speed * k);
+    }
+    slope *= waterWaves;
+    return normalize(up + vec3(-slope.x, 0.0, -slope.y));
+}
+
+// What the water shows: through it, the bottom bent by its waves and
+// fading into its color with depth, foam where it is shallow; on it, the
+// sun's glints and what it reflects, the pass itself where the reflection
+// is on the screen (screen-space reflections), the probes and the sky
+// elsewhere.
+vec3 waterLight(vec3 light, vec3 n, vec3 v, vec3 fresnel, vec3 mirrored)
+{
+    vec2 screen = gl_FragCoord.xy / viewSize;
+    vec3 surface = worldPosition;
+    // Through: bent by the waves, and not past something in front of the
+    // water.
+    vec2 bent = clamp(screen + n.xz * 0.04 * waterWaves, vec2(0.001), vec2(0.999));
+    vec3 bottom = behind(bent);
+    if (dot(bottom - eye, normalize(surface - eye)) < length(surface - eye)) {
+        bent = screen;
+        bottom = behind(bent);
+    }
+    vec3 seen = texture(colorCopy, bent).rgb;
+    float depth = length(bottom - surface);
+    float murk = 1.0 - exp(-depth / max(waterClarity, 0.01));
+    // The light the water scatters back: the sky's and the sun's.
+    vec3 lit = skyColor + groundColor + sunColor * max(-sunDirection.y, 0.0);
+    vec3 through = mix(seen, waterColor * lit, murk);
+    if (waterFoam == 1) {
+        float edge = 1.0 - smoothstep(0.0, 0.35, depth);
+        float bubbles = 0.5 + 0.5 * sin(surface.x * 7.0 + time * 1.3) * sin(surface.z * 6.0 - time * 1.1);
+        through = mix(through, vec3(0.85) * lit, clamp(edge * (0.6 + 0.4 * bubbles), 0.0, 1.0));
+    }
+
+    // Reflected: marched along the reflection through the pass's depth.
+    vec4 found = screenReflection(surface, reflect(-v, n), 0.0);
+    vec3 reflected = mix(mirrored, found.rgb, found.a);
+    // light holds the glints and fresnel times mirrored; the reflection
+    // found on the screen takes mirrored's place, and what shows through
+    // fills the rest.
+    return light + fresnel * (reflected - mirrored) + (1.0 - fresnel) * through;
+}
+#endif
 
 // What a material's surface is at one point, which a game's own shader,
 // Material.Shader, changes before GoLib lights it.
@@ -505,6 +843,9 @@ struct Surface {
     float time;      // seconds of game time
 };
 
+// HAZE
+
+#ifndef HAZE
 // SURFACE
 
 void main()
@@ -539,6 +880,16 @@ void main()
     rough = s.roughness;
     n = normalize(s.normal);
 #endif
+#ifdef WATER
+    // Water: its waves bend the light, and what comes back from it is what
+    // it reflects and what shows through it, worked out below.
+    n = waterNormal(worldPosition.xz, n);
+    albedo = vec4(0.0, 0.0, 0.0, 1.0);
+    glow = vec3(0.0);
+    metal = 0.0;
+    rough = 0.02;
+    occlusion = 1.0;
+#endif
 
     if (alphaMode == 1 && albedo.a < alphaCutoff) discard;
     float alpha = alphaMode == 2 ? albedo.a : 1.0;
@@ -551,7 +902,9 @@ void main()
     vec3 v = normalize(eye - worldPosition);
     vec3 f0 = mix(vec3(0.04), albedo.rgb, metal);
 
-    vec3 light = shade(n, v, -sunDirection, sunColor * sunShadow(n), albedo.rgb, metal, rough, f0);
+    float sunLit = sunShadow(n);
+    if (toonBands > 0.0) sunLit = smoothstep(0.4, 0.6, sunLit);
+    vec3 light = shade(n, v, -sunDirection, sunColor * sunLit, albedo.rgb, metal, rough, f0);
     for (int i = 0; i < 8; i++) {
         if (i >= lightCount) break;
         vec3 toLight = lightPositions[i].xyz - worldPosition;
@@ -565,6 +918,7 @@ void main()
             float along = dot(-l, lightDirections[i].xyz);
             strength *= smoothstep(outer, inner, along);
         }
+        if (hasLampShadows == 1 && strength > 0.0) strength *= lampShadow(i, n, l, distance);
         light += shade(n, v, l, lightColors[i].rgb * strength, albedo.rgb, metal, rough, f0);
     }
 
@@ -581,10 +935,45 @@ void main()
         // A rough surface blurs its reflection into the light all around it.
         mirrored = mix(mix(groundColor, skyColor, smoothstep(-0.2, 0.2, r.y)), around, rough);
     }
+#ifndef LIGHTMAPPED
+    if (hasProbes == 1) {
+        // The light baked in the level's probes in place of the sky's and
+        // the ground's, and reflections dimmed where less of the sky reaches.
+        vec4 probe = probeLight(worldPosition, n);
+        if (probe.a > 0.0) {
+            const vec3 luma = vec3(0.2126, 0.7152, 0.0722);
+            float open = clamp(dot(probe.rgb, luma) / max(dot(around, luma), 1e-4), 0.0, 1.0);
+            mirrored *= mix(1.0, open, probe.a);
+            around = mix(around, probe.rgb, probe.a);
+        }
+    }
+#endif
+#ifdef LIGHTMAPPED
+    // The light baked in Blender in place of the sky's and the ground's:
+    // the sky's as much of it as reaches here, and what the sun, the lamps
+    // and the sky bounced off everything around. Reflections of the sky
+    // dim where less of it reaches, as in a room.
+    vec3 baked = texture(lightmap, lightcoord).rgb;
+    const vec3 luma = vec3(0.2126, 0.7152, 0.0722);
+    mirrored *= clamp(dot(baked, luma) / max(dot(around, luma), 1e-4), 0.0, 1.0);
+    around = baked;
+#endif
+    // Inside a reflection probe's box, the level reflects itself.
+    vec4 boxed = reflectionAt(worldPosition, r, rough);
+    if (boxed.a > 0.0) mirrored = boxed.rgb;
+#ifdef MIRROR
+    // A smooth surface reflects what the pass shows, where it can see it,
+    // fading out as the surface roughens, since it isn't blurred.
+    vec4 onScreen = screenReflection(worldPosition, r, rough);
+    mirrored = mix(mirrored, onScreen.rgb, onScreen.a * (1.0 - smoothstep(0.1, MIRROR_ROUGHNESS, rough)));
+#endif
     float nv = max(dot(n, v), 0.0);
     vec3 fresnel = f0 + (max(vec3(1.0 - rough), f0) - f0) * pow(1.0 - nv, 5.0);
     vec3 ambient = (1.0 - fresnel) * (1.0 - metal) * albedo.rgb * around + fresnel * mirrored;
     light += ambient * occlusion + glow;
+#ifdef WATER
+    light = waterLight(light, n, v, fresnel, mirrored);
+#endif
 
     if (fog.w > 0.0) {
         float distance = length(eye - worldPosition);
@@ -593,6 +982,7 @@ void main()
     }
     fragColor = vec4(light * alpha, alpha);
 }
+#endif
 `
 	// fullscreenVertexShader covers the view with one triangle, its corners
 	// worked out from gl_VertexID, for the sky and the composing.
@@ -650,6 +1040,8 @@ uniform float glowStrength;
 uniform float exposure;
 uniform vec2 texel;
 uniform int smoothEdges;
+uniform sampler2D blurred;
+uniform int useBlur;
 out vec4 fragColor;
 
 vec3 neutral(vec3 color)
@@ -672,7 +1064,7 @@ vec3 neutral(vec3 color)
 // by its opacity.
 vec4 finished(vec2 uv)
 {
-    vec4 c = texture(picture, uv);
+    vec4 c = useBlur == 1 ? texture(blurred, uv) : texture(picture, uv);
     vec3 light = c.rgb;
     float a = c.a;
     if (glowStrength > 0.0) {
@@ -803,6 +1195,16 @@ void animate(inout vec3 position, inout vec3 n)
 }
 `
 
+// litFragment fills in the sizes the lit fragment shader reads its probes
+// with.
+func litFragment(fragment string) string {
+	fragment = strings.ReplaceAll(fragment, "DATA_WIDTH", strconv.Itoa(device.DataTextureWidth))
+	fragment = strings.ReplaceAll(fragment, "LAMP_TILE", strconv.Itoa(lampTile)+".0")
+	fragment = strings.ReplaceAll(fragment, "LAMP_ACROSS", strconv.Itoa(lampTilesAcross)+".0")
+	fragment = strings.ReplaceAll(fragment, "MIRROR_ROUGHNESS", strconv.FormatFloat(mirrorRoughness, 'f', 2, 32))
+	return strings.ReplaceAll(fragment, "PROBE_TEXELS", strconv.Itoa(probeTexels))
+}
+
 // animated3D returns a vertex shader made to bend what it draws by bones and
 // shape keys.
 func animated3D(vertex string) string {
@@ -843,6 +1245,20 @@ type litProgram struct {
 	environmentTurn                             int32
 	shadowMatrices                              [shadowCascades]int32
 	shadowSplits, shadowTexels, viewForward     int32
+	lightmap                                    int32
+	hasProbes, probes, probeGrid, probeSize     int32
+	reflectionCount, levelFromWorld             int32
+	reflectionCenters, reflectionLows           int32
+	reflectionHighs                             int32
+	reflections                                 [maxReflections]int32
+	shadowRows, hasLampShadows                  int32
+	toonBands                                   int32
+	lampShadows, spotShadowViews                int32
+	colorCopy, depthCopy                        int32
+	inverseViewProjection, viewSize             int32
+	waterColor, waterClarity                    int32
+	waterWaves, waterFoam                       int32
+	haze, hazeHeight, hazeReach                 int32
 	bending                                     bendingUniforms
 }
 
@@ -921,6 +1337,7 @@ type composeProgram struct {
 	picture, exposure  int32
 	glow, glowStrength int32
 	texel, smoothEdges int32
+	blurred, useBlur   int32
 }
 
 // state3D is what every 3D pass draws with: made when the first one ends,
@@ -936,21 +1353,38 @@ type state3D struct {
 	bloomDown bloomProgram
 	bloomUp   bloomProgram
 	bloom     bloomChain
-	surfaces  map[programKind]*litProgram // programs with a game's own surface or bending, nil for one that didn't compile
+	blurDown  blurProgram
+	blurUp    blurProgram
+	blur      blurChain
+	surfaces  map[programKind]*litProgram // programs with a game's own surface, bending or a lightmap, nil for one that didn't compile
 	lineMesh  device.Mesh
 	instances []float32 // the instances of the draw being built
 
-	shadowBent    *shadowProgram     // the shadow program that bends, once a pass needs it
+	shadowBent    *shadowProgram  // the shadow program that bends, once a pass needs it
+	decals        *decalProgram   // the program that presses decals, once a pass has one
+	outline       *outlineProgram // the programs that draw outlines, once a pass has one
+	outlineBent   *outlineProgram
+	hazeBlender   *hazeBlendProgram  // the program that lays haze over the pass, once a pass has haze
+	hazeTarget    device.WorkTarget  // the picture haze is walked into
 	animation     []float32          // the animated items' blocks, as the animation texture gets them
 	animationData device.DataTexture // the animation texture
 }
 
 // programKind says which lit program a draw needs: with a game's own
-// surface, and bending what it draws by bones and shape keys.
+// surface, bending what it draws by bones and shape keys, and lit by a
+// lightmap.
 type programKind struct {
-	surface  string
-	animated bool
+	surface     string
+	animated    bool
+	lightmapped bool
+	water       bool
+	haze        bool
+	mirror      bool // reflecting the pass's copy, for a smooth surface
 }
+
+// mirrorRoughness is the roughness below which a surface reflects what the
+// pass shows, fading out towards it.
+const mirrorRoughness = 0.35
 
 var renderer3D state3D
 
@@ -979,7 +1413,7 @@ func (r *state3D) load() error {
 		made = append(made, p)
 		return p, nil
 	}
-	lit, err := build("lit", litVertexShader, litFragmentShader)
+	lit, err := build("lit", litVertexShader, litFragment(litFragmentShader))
 	if err != nil {
 		return err
 	}
@@ -1007,6 +1441,14 @@ func (r *state3D) load() error {
 	if err != nil {
 		return err
 	}
+	blurDown, err := build("blur", fullscreenVertexShader, blurDownShader)
+	if err != nil {
+		return err
+	}
+	blurUp, err := build("blur", fullscreenVertexShader, blurUpShader)
+	if err != nil {
+		return err
+	}
 	at := func(p device.Program, name string) int32 { return device.UniformLocation(p, name) }
 	r.lit = locateLit(lit)
 	r.lines = lineProgram{program: lines, model: at(lines, "model"), viewProjection: at(lines, "viewProjection"), color: at(lines, "color")}
@@ -1018,7 +1460,10 @@ func (r *state3D) load() error {
 		program: compose, picture: at(compose, "picture"), exposure: at(compose, "exposure"),
 		glow: at(compose, "glow"), glowStrength: at(compose, "glowStrength"),
 		texel: at(compose, "texel"), smoothEdges: at(compose, "smoothEdges"),
+		blurred: at(compose, "blurred"), useBlur: at(compose, "useBlur"),
 	}
+	r.blurDown = blurProgram{program: blurDown, source: at(blurDown, "source"), texel: at(blurDown, "texel")}
+	r.blurUp = blurProgram{program: blurUp, source: at(blurUp, "source"), texel: at(blurUp, "texel")}
 	r.bloomDown = bloomProgram{program: bloomDown, source: at(bloomDown, "source"), texel: at(bloomDown, "texel"), first: at(bloomDown, "first")}
 	r.bloomUp = bloomProgram{program: bloomUp, source: at(bloomUp, "source"), texel: at(bloomUp, "texel")}
 	r.shadow = locateShadow(shadow)
@@ -1027,6 +1472,10 @@ func (r *state3D) load() error {
 	r.loaded = true
 	return nil
 }
+
+// water says whether p is the water program: only it reads the pass's
+// copy.
+func (p *litProgram) water() bool { return p != nil && p.waterColor >= 0 }
 
 // locateLit finds where the lit shader's uniforms sit in program, the
 // plain one or one with a game's own surface, bending what it draws or not.
@@ -1050,6 +1499,21 @@ func locateLit(program device.Program) litProgram {
 		environmentMap: at("environmentMap"), hasEnvironment: at("hasEnvironment"),
 		environmentLevels: at("environmentLevels"), irradiance: at("irradiance"), environmentTurn: at("environmentTurn"),
 		shadowSplits: at("shadowSplits"), shadowTexels: at("shadowTexels"), viewForward: at("viewForward"),
+		lightmap:  at("lightmap"),
+		hasProbes: at("hasProbes"), probes: at("probes"), probeGrid: at("probeGrid"), probeSize: at("probeSize"),
+		reflectionCount: at("reflectionCount"), levelFromWorld: at("levelFromWorld"),
+		shadowRows: at("shadowRows"), hasLampShadows: at("hasLampShadows"),
+		toonBands:   at("toonBands"),
+		lampShadows: at("lampShadows"), spotShadowViews: at("spotShadowViews"),
+		colorCopy: at("colorCopy"), depthCopy: at("depthCopy"),
+		inverseViewProjection: at("inverseViewProjection"), viewSize: at("viewSize"),
+		waterColor: at("waterColor"), waterClarity: at("waterClarity"),
+		waterWaves: at("waterWaves"), waterFoam: at("waterFoam"),
+		haze: at("haze"), hazeHeight: at("hazeHeight"), hazeReach: at("hazeReach"),
+		reflectionCenters: at("reflectionCenters"), reflectionLows: at("reflectionLows"), reflectionHighs: at("reflectionHighs"),
+	}
+	for k := range maxReflections {
+		p.reflections[k] = at(fmt.Sprintf("reflection%d", k))
 	}
 	for k := range shadowCascades {
 		p.shadowMatrices[k] = at(fmt.Sprintf("shadowMatrix%d", k))
@@ -1060,11 +1524,12 @@ func locateLit(program device.Program) litProgram {
 
 // surfaceProgram returns the lit program for a material: the plain one, or,
 // for one with a shader of the game's own, that shader's, compiled the first
-// time a material uses it, and one that bends what it draws for animated
-// meshes. A shader that doesn't compile is reported, and the material drawn
-// with the plain program.
-func (r *state3D) surfaceProgram(m *material3D, animated bool) *litProgram {
-	kind := programKind{surface: m.surface, animated: animated}
+// time a material uses it, one that bends what it draws for animated
+// meshes, and one lit by a lightmap. A shader that doesn't compile is
+// reported, and the material drawn with the plain program.
+func (r *state3D) surfaceProgram(m *material3D, kind programKind) *litProgram {
+	kind.surface = m.surface
+	animated, lightmapped, water := kind.animated, kind.lightmapped, kind.water
 	if kind == (programKind{}) {
 		return &r.lit
 	}
@@ -1074,13 +1539,23 @@ func (r *state3D) surfaceProgram(m *material3D, animated bool) *litProgram {
 		}
 		return p
 	}
-	vertex, fragment := litVertexShader, litFragmentShader
+	vertex, fragment := litVertexShader, litFragment(litFragmentShader)
 	if animated {
 		vertex = animated3D(vertex)
 	}
 	if m.surface != "" {
 		fragment = strings.Replace(fragment, "// SURFACE", m.surface, 1)
 		fragment = strings.Replace(fragment, "#version 330\n", "#version 330\n#define CUSTOM_SURFACE\n", 1)
+	}
+	if lightmapped {
+		vertex = strings.Replace(vertex, "#version 330\n", "#version 330\n#define LIGHTMAPPED\n", 1)
+		fragment = strings.Replace(fragment, "#version 330\n", "#version 330\n#define LIGHTMAPPED\n", 1)
+	}
+	if water {
+		fragment = strings.Replace(fragment, "#version 330\n", "#version 330\n#define WATER\n", 1)
+	}
+	if kind.mirror {
+		fragment = strings.Replace(fragment, "#version 330\n", "#version 330\n#define MIRROR\n", 1)
 	}
 	program, err := device.NewProgram(vertex, fragment)
 	if r.surfaces == nil {
@@ -1090,7 +1565,7 @@ func (r *state3D) surfaceProgram(m *material3D, animated bool) *litProgram {
 		if m.surface != "" {
 			reportError(fmt.Errorf("golib: a Material's Shader doesn't compile: %w", err))
 		} else {
-			reportError(fmt.Errorf("golib: the 3D's animated shader doesn't compile on this graphics card: %w", err))
+			reportError(fmt.Errorf("golib: the 3D's animated, lightmapped, water or reflecting shader doesn't compile on this graphics card: %w", err))
 		}
 		r.surfaces[kind] = nil
 		return &r.lit
@@ -1106,7 +1581,7 @@ func (r *state3D) unload() {
 	if !r.loaded {
 		return
 	}
-	for _, p := range []device.Program{r.lit.program, r.lines.program, r.sky.program, r.compose.program, r.shadow.program, r.bloomDown.program, r.bloomUp.program} {
+	for _, p := range []device.Program{r.lit.program, r.lines.program, r.sky.program, r.compose.program, r.shadow.program, r.bloomDown.program, r.bloomUp.program, r.blurDown.program, r.blurUp.program} {
 		device.UnloadProgram(p)
 	}
 	for _, p := range r.surfaces {
@@ -1117,8 +1592,21 @@ func (r *state3D) unload() {
 	if r.shadowBent != nil {
 		device.UnloadProgram(r.shadowBent.program)
 	}
+	if r.decals != nil && r.decals.program.ID != 0 {
+		device.UnloadProgram(r.decals.program)
+	}
+	for _, o := range []*outlineProgram{r.outline, r.outlineBent} {
+		if o != nil && o.program.ID != 0 {
+			device.UnloadProgram(o.program)
+		}
+	}
+	if r.hazeBlender != nil && r.hazeBlender.program.ID != 0 {
+		device.UnloadProgram(r.hazeBlender.program)
+	}
+	device.UnloadWorkTarget(r.hazeTarget)
 	device.UnloadDataTexture(r.animationData)
 	r.unloadBloom()
+	r.unloadBlur()
 	device.UnloadShadowMap(r.shadowMap)
 	device.UnloadMesh(r.lineMesh)
 	*r = state3D{}
@@ -1129,6 +1617,13 @@ func (r *state3D) unload() {
 const (
 	shadowUnit      = 5
 	environmentUnit = 6
+	lightmapUnit    = 10 // past the animation's and the shape keys'
+	probesUnit      = 11
+	reflectionUnit  = 12 // and the three after it
+
+	// maxReflections is how many reflection probes a pass uses: the nearest
+	// to the camera.
+	maxReflections = 4
 )
 
 // colorFloats returns c as four numbers from 0 to 1, as it is: sRGB.
@@ -1197,10 +1692,12 @@ func (r *state3D) draw(pass *pass3D) {
 		mesh     uint32
 		material *material3D
 		floats   int // an animated item's block: items bent alike go together
+		lightmap *texture3D
 	}
 	type group struct {
 		gpu      device.Mesh
 		material *material3D
+		lightmap *texture3D
 		items    []int
 	}
 	var groups []group
@@ -1217,12 +1714,12 @@ func (r *state3D) draw(pass *pass3D) {
 		case item.material.alpha == alphaBlend || item.tint.A < 255:
 			seeThrough = append(seeThrough, i)
 		default:
-			key := groupKey{item.gpu.ID, item.material, item.anim.floats}
+			key := groupKey{item.gpu.ID, item.material, item.anim.floats, item.lightmap}
 			at, ok := byKey[key]
 			if !ok {
 				at = len(groups)
 				byKey[key] = at
-				groups = append(groups, group{gpu: item.gpu, material: item.material})
+				groups = append(groups, group{gpu: item.gpu, material: item.material, lightmap: item.lightmap})
 			}
 			groups[at].items = append(groups[at].items, i)
 		}
@@ -1250,7 +1747,7 @@ func (r *state3D) draw(pass *pass3D) {
 			data = append(data, tint[:]...)
 			r.animation = append(r.animation, pass.animation[item.anim.at:item.anim.at+item.anim.floats]...)
 		}
-		built[k] = shadowGroup{gpu: g.gpu, material: g.material, instances: data, animation: bending}
+		built[k] = shadowGroup{gpu: g.gpu, material: g.material, instances: data, animation: bending, lightmap: g.lightmap}
 	}
 	seeThroughBending := make([]groupAnimation, len(seeThrough))
 	for k, i := range seeThrough {
@@ -1267,10 +1764,19 @@ func (r *state3D) draw(pass *pass3D) {
 		device.BindDataTexture(animationUnit, r.animationData)
 	}
 	shadows := env.shadows && len(built) > 0
+	lamps := lampShadowsFor(lights.chosen)
+	lampShadowing := lamps.count > 0 && len(built) > 0
+	rows := 1
+	if shadows || lampShadowing {
+		rows = r.shadowMapFor(lampShadowing)
+	}
 	var sunViews cascades
 	if shadows {
 		sunViews = cascadesFor(pass.camera, env.sunDirection, env.shadowDistance)
 		r.drawShadows(&sunViews, built)
+	}
+	if lampShadowing {
+		r.drawLampShadows(&lamps, built, !shadows)
 	}
 
 	// The HDRI, when there is one, lights the pass in place of Sky and
@@ -1287,8 +1793,32 @@ func (r *state3D) draw(pass *pass3D) {
 	if hasEnvironment {
 		device.BindTexture3D(environmentUnit, environment)
 	}
-	if shadows {
+	if shadows || lampShadowing {
 		device.BindShadowMap(shadowUnit, r.shadowMap)
+	}
+	// A level's light probes light what has no lightmap, and its
+	// reflection probes are reflected inside their boxes.
+	var probeGrid, levelFromWorld [16]float32
+	hasProbes := pass.probes != nil && pass.probes.hasGrid()
+	if hasProbes {
+		device.BindDataTexture(probesUnit, pass.probes.upload())
+		probeGrid = [16]float32(pass.probes.fromWorld(pass.probesPlace))
+	}
+	var reflections []reflectionProbe
+	var reflectionCenters, reflectionLows, reflectionHighs []float32
+	if pass.probes != nil && len(pass.probes.reflections) > 0 {
+		levelFromWorld = [16]float32(pass.probesPlace.inverse())
+		reflections = nearestReflections(pass.probes.reflections, pass.probesPlace.inverse().transformPoint(eye))
+		for k, r := range reflections {
+			texture, err := r.hdri.upload()
+			if err != nil {
+				reportError(err)
+			}
+			device.BindTexture3D(reflectionUnit+k, texture)
+			reflectionCenters = append(reflectionCenters, r.position.X, r.position.Y, r.position.Z, float32(len(r.hdri.levels)-1))
+			reflectionLows = append(reflectionLows, r.lo.X, r.lo.Y, r.lo.Z, 0)
+			reflectionHighs = append(reflectionHighs, r.hi.X, r.hi.Y, r.hi.Z, 0)
+		}
 	}
 	var irradiance []float32
 	if hasEnvironment {
@@ -1332,7 +1862,39 @@ func (r *state3D) draw(pass *pass3D) {
 			device.SetUniform(lit.environmentTurn, 2, env.hdriTurn)
 		}
 		device.SetUniformInt(lit.shadowMap, shadowUnit)
+		device.SetUniformInt(lit.lightmap, lightmapUnit)
+		device.SetUniformInt(lit.probes, probesUnit)
+		for k := range maxReflections {
+			device.SetUniformInt(lit.reflections[k], int32(reflectionUnit+k))
+		}
+		device.SetUniformInt(lit.reflectionCount, int32(len(reflections)))
+		if len(reflections) > 0 {
+			device.SetUniformMatrix(lit.levelFromWorld, &levelFromWorld)
+			device.SetUniformVec4s(lit.reflectionCenters, reflectionCenters)
+			device.SetUniformVec4s(lit.reflectionLows, reflectionLows)
+			device.SetUniformVec4s(lit.reflectionHighs, reflectionHighs)
+		}
+		device.SetUniformInt(lit.hasProbes, boolInt(hasProbes))
+		if hasProbes {
+			device.SetUniformMatrix(lit.probeGrid, &probeGrid)
+			size := pass.probes.size
+			device.SetUniform(lit.probeSize, 3, [4]float32{float32(size[0]), float32(size[1]), float32(size[2])})
+		}
 		device.SetUniformInt(lit.hasShadows, boolInt(shadows))
+		device.SetUniformInt(lit.hasLampShadows, boolInt(lampShadowing))
+		device.SetUniform(lit.shadowRows, 1, [4]float32{float32(rows)})
+		if lampShadowing {
+			device.SetUniformVec4s(lit.lampShadows, lamps.uniforms)
+			if len(lamps.spots) > 0 {
+				device.SetUniformVec4s(lit.spotShadowViews, lamps.spots)
+			}
+			texels := [4]float32{0, 0, 0, shadowResolution}
+			if shadows {
+				texels = sunViews.texels
+				texels[3] = shadowResolution
+			}
+			device.SetUniform(lit.shadowTexels, 4, texels)
+		}
 		if shadows {
 			for k := range shadowCascades {
 				m := [16]float32(sunViews.viewProjections[k])
@@ -1346,15 +1908,28 @@ func (r *state3D) draw(pass *pass3D) {
 		}
 	}
 	var current *material3D
-	var currentBent bool
+	var currentBent, currentLightmapped, currentWater, currentMirror bool
 	var program *litProgram
+	var boundLightmap *texture3D
 	culling := true
-	use := func(m *material3D, bent bool) {
-		if m == current && bent == currentBent {
+	water := false     // whether use gives the water program
+	mirroring := false // whether use gives programs that reflect the pass's copy
+	use := func(m *material3D, bent bool, lightmap *texture3D) {
+		if lightmap != nil && lightmap != boundLightmap {
+			if gpu := lightmap.upload(); gpu.ID != 0 {
+				device.BindTexture3D(lightmapUnit, gpu)
+				boundLightmap = lightmap
+			} else {
+				lightmap = nil
+			}
+		}
+		lightmapped := lightmap != nil
+		if m == current && bent == currentBent && lightmapped == currentLightmapped && water == currentWater && mirroring == currentMirror {
 			return
 		}
-		current, currentBent = m, bent
-		if p := r.surfaceProgram(m, bent); p != program {
+		current, currentBent, currentLightmapped, currentWater, currentMirror = m, bent, lightmapped, water, mirroring
+		kind := programKind{animated: bent, lightmapped: lightmapped, water: water, mirror: mirroring}
+		if p := r.surfaceProgram(m, kind); p != program {
 			program = p
 			frame(p)
 		}
@@ -1368,6 +1943,7 @@ func (r *state3D) draw(pass *pass3D) {
 		device.SetUniformInt(lit.alphaMode, int32(m.alpha))
 		device.SetUniform(lit.alphaCutoff, 1, [4]float32{m.alphaCutoff})
 		device.SetUniformInt(lit.unlit, boolInt(m.unlit))
+		device.SetUniform(lit.toonBands, 1, [4]float32{float32(m.toon)})
 		tiling := m.tiling
 		if tiling == [2]float32{} {
 			tiling = [2]float32{1, 1}
@@ -1396,13 +1972,59 @@ func (r *state3D) draw(pass *pass3D) {
 		tint := colorFloats(item.tint)
 		r.instances = append(r.instances, tint[:]...)
 	}
+	// What is rough first; then, from a copy of it, what is smooth enough
+	// to reflect it.
+	smooth := func(m *material3D) bool {
+		return env.screenReflections && !m.unlit && m.roughness < mirrorRoughness
+	}
+	reflecting := false
 	for _, g := range built {
+		if smooth(g.material) {
+			reflecting = true
+			continue
+		}
 		bent := g.animation.stride > 0
-		use(g.material, bent)
+		use(g.material, bent, g.lightmap)
 		if bent {
 			program.bending.set(g.animation)
 		}
 		device.DrawMeshInstanced(g.gpu, g.instances)
+	}
+	if reflecting {
+		device.CopyPass()
+		device.BindPassCopy(colorCopyUnit, depthCopyUnit)
+		inverse := [16]float32(viewProjectionMatrix.inverse())
+		mirroring = true
+		for _, g := range built {
+			if !smooth(g.material) {
+				continue
+			}
+			bent := g.animation.stride > 0
+			use(g.material, bent, g.lightmap)
+			device.SetUniformInt(program.colorCopy, colorCopyUnit)
+			device.SetUniformInt(program.depthCopy, depthCopyUnit)
+			device.SetUniformMatrix(program.inverseViewProjection, &inverse)
+			device.SetUniform(program.viewSize, 2, [4]float32{float32(pass.width), float32(pass.height)})
+			if bent {
+				program.bending.set(g.animation)
+			}
+			device.DrawMeshInstanced(g.gpu, g.instances)
+		}
+		mirroring = false
+		current, program = nil, nil
+	}
+
+	// The outlines round what has them.
+	for _, g := range built {
+		if g.material.outline[3] > 0 {
+			r.drawOutlines(built, &viewProjection, pass.width, pass.height, eye, env.fog)
+			culling = true
+			current, program = nil, nil
+			if len(r.animation) > 0 {
+				device.BindDataTexture(animationUnit, r.animationData)
+			}
+			break
+		}
 	}
 
 	if env.background {
@@ -1426,6 +2048,83 @@ func (r *state3D) draw(pass *pass3D) {
 		device.SetCulling(false)
 		device.DrawFullscreen()
 		device.SetCulling(true)
+	}
+
+	// Decals pressed onto what is solid, read back from a copy of it.
+	if len(pass.decals) > 0 {
+		inverse := [16]float32(viewProjectionMatrix.inverse())
+		device.CopyPass()
+		r.drawDecals(pass, &viewProjection, &inverse)
+		culling = true
+		current, program = nil, nil
+	}
+
+	// Water, over what is under it, read back from a copy of the pass.
+	if len(pass.waters) > 0 {
+		device.CopyPass()
+		device.BindPassCopy(colorCopyUnit, depthCopyUnit)
+		inverse := [16]float32(viewProjectionMatrix.inverse())
+		plane := waterPlane.upload()
+		water = true
+		current, program = nil, nil
+		for _, w := range pass.waters {
+			use(waterMaterial, false, nil)
+			if !program.water() {
+				break // the water program didn't compile, as reported
+			}
+			device.SetUniformInt(program.colorCopy, colorCopyUnit)
+			device.SetUniformInt(program.depthCopy, depthCopyUnit)
+			device.SetUniformMatrix(program.inverseViewProjection, &inverse)
+			device.SetUniform(program.viewSize, 2, [4]float32{float32(pass.width), float32(pass.height)})
+			device.SetUniform(program.waterColor, 3, w.color)
+			device.SetUniform(program.waterClarity, 1, [4]float32{w.clarity})
+			device.SetUniform(program.waterWaves, 1, [4]float32{w.waves})
+			device.SetUniformInt(program.waterFoam, boolInt(w.foam))
+			r.instances = append(r.instances[:0], w.place[:]...)
+			r.instances = append(r.instances, 1, 1, 1, 1)
+			device.DrawMeshInstanced(plane, r.instances)
+		}
+		water = false
+		current, program = nil, nil
+	}
+
+	// Haze over all of it, read back from a copy of the pass.
+	if env.haze[3] > 0 {
+		p, blend := r.hazeProgram(), r.hazeBlend()
+		if p != nil && blend != nil {
+			device.CopyPass()
+			device.BindPassCopy(colorCopyUnit, depthCopyUnit)
+			inverse := [16]float32(viewProjectionMatrix.inverse())
+			target := r.hazeTargetFor(pass.width, pass.height)
+			device.SetCulling(false)
+			device.BeginWork(target, false)
+			frame(p)
+			device.SetUniformInt(p.depthCopy, depthCopyUnit)
+			device.SetUniformMatrix(p.inverseViewProjection, &inverse)
+			device.SetUniform(p.viewSize, 2, [4]float32{float32(target.Width), float32(target.Height)})
+			device.SetUniform(p.haze, 4, env.haze)
+			device.SetUniform(p.hazeHeight, 1, [4]float32{env.hazeHeight})
+			device.SetUniform(p.hazeReach, 1, [4]float32{env.shadowDistance})
+			device.DrawFullscreen()
+			device.EndWork()
+
+			device.UseProgram(blend.program)
+			device.BindWorkTarget(0, target)
+			device.SetUniformInt(blend.hazed, 0)
+			device.SetUniformInt(blend.colorCopy, colorCopyUnit)
+			device.SetUniformInt(blend.depthCopy, depthCopyUnit)
+			device.SetUniformMatrix(blend.inverseViewProjection, &inverse)
+			device.SetUniform(blend.eye, 3, vec3(eye))
+			device.SetUniform(blend.hazeTexel, 2, [4]float32{1 / float32(target.Width), 1 / float32(target.Height)})
+			device.SetDepthTest(false)
+			device.SetDepthWrite(false)
+			device.DrawFullscreen()
+			device.SetDepthTest(true)
+			device.SetDepthWrite(true)
+			device.SetCulling(true)
+			culling = true
+			current, program = nil, nil
+		}
 	}
 
 	if len(wires) > 0 || len(pass.lines) > 0 {
@@ -1466,7 +2165,7 @@ func (r *state3D) draw(pass *pass3D) {
 				material = &see
 			}
 			bending := seeThroughBending[k]
-			use(material, bending.stride > 0)
+			use(material, bending.stride > 0, item.lightmap)
 			if bending.stride > 0 {
 				program.bending.set(bending)
 			}
@@ -1487,9 +2186,31 @@ func (r *state3D) draw(pass *pass3D) {
 		device.SetBlend3D(false)
 	}
 
+	// Particles last, over everything, behind what is nearer: those that
+	// glow add their light, the rest cover what is behind them.
+	if len(pass.particles) > 0 {
+		quad := particleQuad.upload()
+		device.SetDepthWrite(false)
+		for _, d := range pass.particles {
+			current, program = nil, nil
+			use(d.material, false, nil)
+			if d.glow {
+				device.SetAdditive3D(true)
+			} else {
+				device.SetBlend3D(true)
+			}
+			device.DrawMeshInstanced(quad, d.instances)
+		}
+		device.SetBlend3D(false)
+		device.SetDepthWrite(true)
+	}
+
 	width, height := pass.width, pass.height
 	if env.bloom > 0 {
 		r.glow(width, height)
+	}
+	if env.blur > 0 {
+		r.soften(width, height, env.blur)
 	}
 	compose := r.compose
 	device.UseProgram(compose.program)
@@ -1501,8 +2222,36 @@ func (r *state3D) draw(pass *pass3D) {
 	}
 	device.SetUniform(compose.exposure, 1, [4]float32{env.exposure})
 	device.SetUniform(compose.texel, 2, [4]float32{1 / float32(width), 1 / float32(height)})
-	device.SetUniformInt(compose.smoothEdges, boolInt(smoothEdges3D))
+	device.SetUniformInt(compose.blurred, 2)
+	device.SetUniformInt(compose.useBlur, boolInt(env.blur > 0))
+	if env.blur > 0 {
+		device.BindWorkTarget(2, r.blur.levels[0])
+	}
+	// A softened picture has no hard edges to smooth.
+	device.SetUniformInt(compose.smoothEdges, boolInt(smoothEdges3D && env.blur == 0))
 	device.End3D(compose.program)
+}
+
+// nearestReflections returns the reflection probes a pass uses, the nearest
+// to eye, in the level's space, keeping the smallest box first.
+func nearestReflections(all []reflectionProbe, eye Vector3) []reflectionProbe {
+	if len(all) <= maxReflections {
+		return all
+	}
+	order := make([]int, len(all))
+	for i := range order {
+		order[i] = i
+	}
+	slices.SortStableFunc(order, func(a, b int) int {
+		return cmp.Compare(all[a].position.Distance(eye), all[b].position.Distance(eye))
+	})
+	order = order[:maxReflections]
+	slices.Sort(order)
+	chosen := make([]reflectionProbe, len(order))
+	for k, i := range order {
+		chosen[k] = all[i]
+	}
+	return chosen
 }
 
 func boolInt(b bool) int32 {
@@ -1527,6 +2276,10 @@ func (m matrix) largestScale() float32 {
 func (t *texture3D) upload() device.Texture3D {
 	if t == nil || t.err != nil {
 		return device.Texture3D{}
+	}
+	if t.gpu.ID == 0 && t.hdr != nil {
+		t.gpu = device.NewHDRTexture(t.hdrWidth, t.hdrHeight, [][]uint16{t.hdr}, false)
+		loadedTextures.add(t)
 	}
 	if t.gpu.ID == 0 {
 		if t.decoded.Width == 0 {

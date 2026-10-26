@@ -233,11 +233,11 @@ func TestFontsInAWindow(t *testing.T) {
 
 	// Only the sizes used last stay.
 	onMainThread(func() {
-		for size := float32(11); size <= 19; size++ {
-			screen.TextWidth("A", size, options)
+		for size := 11; size <= 11+maxFontSizes; size++ {
+			screen.TextWidth("A", float32(size), options)
 		}
 	})
-	if len(font.sizes) != maxFontSizes || font.sizes[10] != nil || font.sizes[11] != nil || font.sizes[19] == nil {
+	if len(font.sizes) != maxFontSizes || font.sizes[10] != nil || font.sizes[11] != nil || font.sizes[11+maxFontSizes] == nil {
 		var sizes []int
 		for size := range font.sizes {
 			sizes = append(sizes, size)

@@ -37,6 +37,7 @@ const (
 	glCullFace           = 0x0B44
 	glBlend              = 0x0BE2
 	glBack               = 0x0405
+	glFront              = 0x0404
 	glCCW                = 0x0901
 	glSrcAlpha           = 0x0302
 	glOneMinusSrcAlpha   = 0x0303
@@ -82,6 +83,10 @@ const (
 	glTextureMaxLevel    = 0x813D
 	glColor              = 0x1800
 	glDepth              = 0x1801
+	glReadFramebuffer    = 0x8CA8
+	glDrawFramebuffer    = 0x8CA9
+	glColorBufferBit     = 0x4000
+	glDstColor           = 0x0306
 	glRGBA32F            = 0x8814
 )
 
@@ -119,6 +124,7 @@ var gl struct {
 	RenderbufferStorage, FramebufferRenderbuffer, DeleteRenderbuffers        uintptr
 	Viewport, ClearBufferfv, BlendFuncSeparate, DrawArrays                   uintptr
 	DrawBuffer, ReadBuffer, TexSubImage2D, ColorMask                         uintptr
+	BlitFramebuffer                                                          uintptr
 
 	// empty is a vertex array with nothing in it, for a triangle over the
 	// whole view whose corners the vertex shader works out.
@@ -172,6 +178,7 @@ func loadGL() {
 		{&gl.BlendFuncSeparate, "glBlendFuncSeparate"}, {&gl.DrawArrays, "glDrawArrays"},
 		{&gl.DrawBuffer, "glDrawBuffer"}, {&gl.ReadBuffer, "glReadBuffer"},
 		{&gl.TexSubImage2D, "glTexSubImage2D"}, {&gl.ColorMask, "glColorMask"},
+		{&gl.BlitFramebuffer, "glBlitFramebuffer"},
 	} {
 		*f.to = uintptr(rl.GetProcAddress(f.name))
 		if *f.to == 0 {
@@ -195,6 +202,10 @@ func forgetGL() {
 		width, height     int32
 		previous          int32
 		viewport          [4]int32
+	}{}
+	passCopy = struct {
+		fbo, color, depth uint32
+		width, height     int32
 	}{}
 }
 
@@ -241,6 +252,96 @@ func prepareTarget3D(width, height int32) {
 	glCall(gl.FramebufferRenderbuffer, glFramebuffer, glDepthAttachment, glRenderbuffer, uintptr(target3D.depth))
 }
 
+// passCopy is the pass as it was when CopyPass copied it: its colors and its
+// depth, as textures a program can read while the pass goes on.
+var passCopy struct {
+	fbo, color, depth uint32
+	width, height     int32
+}
+
+// CopyPass copies the pass's picture and depth as they are, for programs
+// drawn after it that read what is behind them: decals, water, fog.
+func CopyPass() {
+	w, h := target3D.width, target3D.height
+	if passCopy.fbo == 0 || passCopy.width != w || passCopy.height != h {
+		if passCopy.fbo != 0 {
+			glCall(gl.DeleteFramebuffers, 1, uintptr(unsafe.Pointer(&passCopy.fbo)))
+			glCall(gl.DeleteTextures, 1, uintptr(unsafe.Pointer(&passCopy.color)))
+			glCall(gl.DeleteTextures, 1, uintptr(unsafe.Pointer(&passCopy.depth)))
+		}
+		passCopy.width, passCopy.height = w, h
+		glCall(gl.ActiveTexture, glTexture0+scratchUnit)
+		glCall(gl.GenTextures, 1, uintptr(unsafe.Pointer(&passCopy.color)))
+		glCall(gl.BindTexture, glTexture2D, uintptr(passCopy.color))
+		glCall(gl.TexImage2D, glTexture2D, 0, glRGBA16F, uintptr(w), uintptr(h), 0, glRGBA, glHalfFloat, 0)
+		glCall(gl.TexParameteri, glTexture2D, glTextureMinFilter, glLinear)
+		glCall(gl.TexParameteri, glTexture2D, glTextureMagFilter, glLinear)
+		glCall(gl.TexParameteri, glTexture2D, glTextureWrapS, glClampToEdge)
+		glCall(gl.TexParameteri, glTexture2D, glTextureWrapT, glClampToEdge)
+		glCall(gl.GenTextures, 1, uintptr(unsafe.Pointer(&passCopy.depth)))
+		glCall(gl.BindTexture, glTexture2D, uintptr(passCopy.depth))
+		glCall(gl.TexImage2D, glTexture2D, 0, glDepthComponent24, uintptr(w), uintptr(h), 0, glDepthComponent, glUnsignedInt, 0)
+		glCall(gl.TexParameteri, glTexture2D, glTextureMinFilter, glNearest)
+		glCall(gl.TexParameteri, glTexture2D, glTextureMagFilter, glNearest)
+		glCall(gl.TexParameteri, glTexture2D, glTextureWrapS, glClampToEdge)
+		glCall(gl.TexParameteri, glTexture2D, glTextureWrapT, glClampToEdge)
+		glCall(gl.BindTexture, glTexture2D, 0)
+		glCall(gl.ActiveTexture, glTexture0)
+		glCall(gl.GenFramebuffers, 1, uintptr(unsafe.Pointer(&passCopy.fbo)))
+		glCall(gl.BindFramebuffer, glFramebuffer, uintptr(passCopy.fbo))
+		glCall(gl.FramebufferTexture2D, glFramebuffer, glColorAttachment0, glTexture2D, uintptr(passCopy.color), 0)
+		glCall(gl.FramebufferTexture2D, glFramebuffer, glDepthAttachment, glTexture2D, uintptr(passCopy.depth), 0)
+	}
+	glCall(gl.BindFramebuffer, glReadFramebuffer, uintptr(target3D.fbo))
+	glCall(gl.BindFramebuffer, glDrawFramebuffer, uintptr(passCopy.fbo))
+	glCall(gl.BlitFramebuffer, 0, 0, uintptr(w), uintptr(h), 0, 0, uintptr(w), uintptr(h), glColorBufferBit|glDepthBufferBit, glNearest)
+	glCall(gl.BindFramebuffer, glFramebuffer, uintptr(target3D.fbo))
+}
+
+// BindPassCopy makes CopyPass's picture the one a sampler set to
+// colorUnit reads, and its depth, from 0 near to 1 far, the one at
+// depthUnit.
+func BindPassCopy(colorUnit, depthUnit int) {
+	glCall(gl.ActiveTexture, glTexture0+uintptr(colorUnit))
+	glCall(gl.BindTexture, glTexture2D, uintptr(passCopy.color))
+	glCall(gl.ActiveTexture, glTexture0+uintptr(depthUnit))
+	glCall(gl.BindTexture, glTexture2D, uintptr(passCopy.depth))
+	glCall(gl.ActiveTexture, glTexture0)
+}
+
+// SetMultiply3D says whether what is drawn next multiplies the colors
+// already there, as a stain darkens what it is on, rather than replacing
+// them; their opacity stays.
+func SetMultiply3D(on bool) {
+	if on {
+		glCall(gl.BlendFuncSeparate, glDstColor, glZero, glZero, glOne)
+		glCall(gl.Enable, glBlend)
+	} else {
+		glCall(gl.Disable, glBlend)
+	}
+}
+
+// SetDepthTest says whether what is drawn next is hidden behind what is
+// nearer, as everything solid is, or drawn over everything.
+func SetDepthTest(on bool) {
+	if on {
+		glCall(gl.Enable, glDepthTest)
+	} else {
+		glCall(gl.Disable, glDepthTest)
+	}
+}
+
+// SetCullFront says whether what is drawn next leaves out its front faces
+// rather than its back ones, so only the far side of a box is drawn.
+func SetCullFront(on bool) {
+	face := uintptr(glBack)
+	if on {
+		face = glFront
+	}
+	glCall(gl.CullFace, face)
+	glCall(gl.Enable, glCullFace)
+}
+
 // glCall calls an OpenGL function with integer and pointer arguments.
 func glCall(fn uintptr, args ...uintptr) uintptr {
 	r, _, _ := purego.SyscallN(fn, args...)
@@ -277,14 +378,17 @@ func NewMesh(layout int, vertices []float32, indices []uint32, lines bool) Mesh 
 		glCall(gl.VertexAttribPointer, location, size, glFloat, 0, stride, offset*4)
 	}
 	switch layout {
-	case LayoutLit, LayoutSkinned:
+	case LayoutLit, LayoutSkinned, LayoutLightmapped:
 		attribute(0, 3, 0)
 		attribute(1, 3, 3)
 		attribute(2, 2, 6)
 		attribute(3, 4, 8)
-		if layout == LayoutSkinned {
+		switch layout {
+		case LayoutSkinned:
 			attribute(9, 4, 12)
 			attribute(10, 4, 16)
+		case LayoutLightmapped:
+			attribute(11, 2, 12)
 		}
 		glCall(gl.BindBuffer, glArrayBuffer, uintptr(gl.instances))
 		for i := uintptr(0); i < 5; i++ { // the matrix's four columns, then the tint
@@ -721,12 +825,13 @@ func SetColorWrite(on bool) {
 }
 
 // SetBlend3D says whether what is drawn next is blended over what is behind
-// it by its opacity, as see-through things are.
+// it by its opacity, as see-through things are. The lit shader's colors
+// come premultiplied by their opacity.
 func SetBlend3D(on bool) {
 	if on {
 		// Opacity piles up as coverage, so End3D can put the pass over the
 		// 2D with what shows through.
-		glCall(gl.BlendFuncSeparate, glSrcAlpha, glOneMinusSrcAlpha, glOne, glOneMinusSrcAlpha)
+		glCall(gl.BlendFuncSeparate, glOne, glOneMinusSrcAlpha, glOne, glOneMinusSrcAlpha)
 		glCall(gl.Enable, glBlend)
 	} else {
 		glCall(gl.Disable, glBlend)
@@ -829,10 +934,10 @@ func wrap(clamp, mirror bool) uintptr {
 
 // NewHDRTexture puts a picture brighter than white on the graphics card, in
 // half floats, RGBA, with the mipmaps given: levels[0] is width by height,
-// each next one half as large, down to one texel, the top row first. It is
-// smoothed between texels and mipmaps, repeated across and clamped down,
-// as a panorama of the sky wants.
-func NewHDRTexture(width, height int, levels [][]uint16) Texture3D {
+// each next one half as large, the top row first. It is smoothed between
+// texels and mipmaps. A panorama of the sky repeats across and is clamped
+// down; anything else, such as a lightmap, is clamped both ways.
+func NewHDRTexture(width, height int, levels [][]uint16, panorama bool) Texture3D {
 	if len(levels) == 0 {
 		return Texture3D{}
 	}
@@ -851,7 +956,11 @@ func NewHDRTexture(width, height int, levels [][]uint16) Texture3D {
 	glCall(gl.TexParameteri, glTexture2D, glTextureMaxLevel, uintptr(len(levels)-1))
 	glCall(gl.TexParameteri, glTexture2D, glTextureMinFilter, glLinearMipLinear)
 	glCall(gl.TexParameteri, glTexture2D, glTextureMagFilter, glLinear)
-	glCall(gl.TexParameteri, glTexture2D, glTextureWrapS, glRepeat)
+	across := uintptr(glClampToEdge)
+	if panorama {
+		across = glRepeat
+	}
+	glCall(gl.TexParameteri, glTexture2D, glTextureWrapS, across)
 	glCall(gl.TexParameteri, glTexture2D, glTextureWrapT, glClampToEdge)
 	glCall(gl.BindTexture, glTexture2D, 0)
 	glCall(gl.ActiveTexture, glTexture0)

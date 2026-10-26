@@ -43,6 +43,10 @@ type Mesh struct {
 	morphReach []float32 // for each shape key, the farthest it moves a vertex
 	shapeKeys  []string  // their names, as Blender gave them
 	morphGPU   device.DataTexture
+
+	// lightcoords is where each vertex is on the lightmap a model's level
+	// was baked into, u and v, or nil.
+	lightcoords []float32
 }
 
 // sphereSlices and sphereRings are how finely spheres and cylinders are cut:
@@ -345,12 +349,23 @@ func (m *Mesh) addQuad(a, b, c, d uint32) {
 }
 
 // upload puts the mesh on the graphics card, the first time it is drawn: a
-// skinned one with its joints and weights after each vertex.
+// skinned one with its joints and weights after each vertex, a lightmapped
+// one with where it is on its lightmap.
 func (m *Mesh) upload() device.Mesh {
 	if m.gpu.ID == 0 {
-		if m.skin == nil {
+		switch {
+		case m.skin == nil && m.lightcoords != nil:
+			stride := device.LayoutFloats[device.LayoutLit]
+			count := int(m.vertexCount())
+			vertices := make([]float32, 0, count*device.LayoutFloats[device.LayoutLightmapped])
+			for i := 0; i < count; i++ {
+				vertices = append(vertices, m.vertices[i*stride:(i+1)*stride]...)
+				vertices = append(vertices, m.lightcoords[i*2:i*2+2]...)
+			}
+			m.gpu = device.NewMesh(device.LayoutLightmapped, vertices, m.indices, false)
+		case m.skin == nil:
 			m.gpu = device.NewMesh(device.LayoutLit, m.vertices, m.indices, false)
-		} else {
+		default:
 			stride := device.LayoutFloats[device.LayoutLit]
 			count := int(m.vertexCount())
 			vertices := make([]float32, 0, count*device.LayoutFloats[device.LayoutSkinned])

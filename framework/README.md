@@ -104,6 +104,7 @@ func main() {
 | `Config.Title` | `"GoLib"` | Window title |
 | `Config.Width`, `Config.Height` | 1280, 720 | Size of the screen the game draws on, in pixels. It never changes, unless `WindowScale` or `FillWindow` is set; the window scales it. `golib shot` always takes pictures of this size. The window opens at this size, or, when that doesn't fit in nine tenths of the monitor, smaller with the same shape (1728 by 972 for 1920 by 1080 on a 1920 by 1080 monitor), so its title bar and the taskbar stay in sight; `PixelArt` opens it larger instead, unless `WindowScale` is set. |
 | `Config.Fullscreen` | `false` | Start in fullscreen |
+| `Config.HighDPI` | `false` | Request the desktop display's physical framebuffer. With `WindowScale: 1`, a Retina window measuring 2560 by 1440 logical points draws at 5120 by 2880 physical pixels; resize callbacks and input use the screen's physical pixels. Scale the game's layout and camera accordingly. Window sizes still use desktop coordinates. Browsers already use physical canvas pixels. Screenshots keep `Width` by `Height`, independently of display density. |
 | `Config.PauseUnfocused` | `false` | Stop the game while its window doesn't have the player's attention, such as while they work in another program, and carry on where it was. `Draw` keeps running, so the window still shows the game, and sound and music play on. Ask `WindowFocused` to draw a sign or quieten the music. |
 | `Config.PixelArt` | `false` | Scale the screen by whole numbers only, without smoothing, so pixels stay square and sharp. Use it with a small screen, such as 320 by 180: the window opens as many times larger as fits in most of the monitor, 1280 by 720 on a 1920 by 1080 monitor. With `WindowScale`, the window opens as it does without `PixelArt`. |
 | `Config.WindowScale` | 0 | When positive, the screen follows the window's drawing area, at this fraction of it: 2 makes it half the window's width and height, so a 1920 by 1080 window, or fullscreen on a 1920 by 1080 monitor, gives a 960 by 540 screen. It changes whenever the window does: when the player resizes it, with `SetWindowSize` and with `SetFullscreen`. Takes precedence over `FillWindow`. `golib shot` still takes `Width` by `Height` pictures. |
@@ -450,7 +451,7 @@ func (s *titleScene) Draw(screen *golib.Screen) {
 }
 ```
 
-- **Draw text at a few sizes.** GoLib draws a font's letters at each size the first time the game uses it, so text stays sharp, and keeps the last eight sizes of each font. Text whose size changes every frame, such as a title that grows, makes that work every frame: grow it in a few steps instead.
+- **Draw text at a few sizes.** GoLib draws a font's letters at each size the first time the game uses it, so text stays sharp, and keeps the last 24 sizes of each font. Text whose size changes every frame, such as a title that grows, makes that work every frame: grow it in a few steps instead.
 - Any letter the font has can be drawn, in any language: letters beyond English, such as ñ, é or ü, are added the first time they are drawn. A letter the font doesn't have shows as a question mark.
 - The file is read the first time text is drawn with the font, so a missing or broken file stops `Run` under `golib shot` too. Measuring and drawing need the window, so they work only in `Draw`.
 - Font collections (`.ttc`), web fonts (`.woff`) and bitmap fonts (`.fnt`) aren't read. Pixel fonts in `.ttf` look best at the sizes they were made for, or whole multiples of them.
@@ -479,6 +480,7 @@ A sprite is a picture from the game's assets folder, made of frames of one size:
 | `DrawOptions.Rotation` | 0 | Degrees, clockwise, around the origin. |
 | `DrawOptions.OriginX`, `DrawOptions.OriginY` | 0, 0 | The point of the frame, in its own pixels from its top-left corner, that goes at x, y and that `Rotation` turns around. The middle of a 32 by 32 frame is 16, 16. |
 | `DrawOptions.Tint` | `White` | Multiplies the frame's colors; its `A` makes the frame see-through: `golib.Color{R: 255, G: 255, B: 255, A: 128}` is half. |
+| `DrawOptions.Smooth` | `false` | Filter a sprite with bilinear sampling and mipmaps, with positions between pixels. For painted backgrounds and rendered icons. Keeps the current draw order, camera, blending and post-processing; pixel-art draws of the same sprite keep their sharp sampling. Applies to `DrawSprite`; `DrawImage` keeps its pixel sampling. |
 | `DrawOptions.FullResolution` | `false` | Draw the frame at the window's own resolution, smoothed, instead of in the screen's pixels: for a picture with more detail than the screen has room for, such as a studio's logo or art painted at high resolution, in a game whose small screen the window enlarges. See below. |
 
 An `Animation` is a list of frames, each shown for a while. It keeps no time of its own: keep the seconds it has played in the game's state, add `dt` in `Update`, and ask which frame to draw.
@@ -543,6 +545,7 @@ var (
 - Keep the `.aseprite` file in the assets folder: the game reads it as it is, so there is no export step to forget.
 - For a PNG sheet with no animation data, write the animations in code, as above. Only frames on a grid can be drawn; there is no way yet to draw a part of an image of another size.
 - Pixels stay sharp: sprites are drawn without smoothing, at whole pixels, rounding x and y, as maps and text are. For pixel art, also set `Config.PixelArt` with a small screen, and round the camera's position too, so everything moves together.
+- For painted art already drawn on a large screen, use `DrawOptions.Smooth`. This filters the sprite inside the scene; later panels, fades and post-processing still cover it normally.
 - **A large picture drawn small loses its detail on a small screen; `FullResolution` keeps it.** Everything is drawn into the screen, `Config.Width` by `Config.Height` pixels, which the window then enlarges, so a 1500-pixel logo drawn at `Scale: 0.2` on a 640 by 360 screen keeps one pixel in five and is then enlarged blocky. With `DrawOptions.FullResolution` the frame is drawn after the screen is in the window, smoothed, at the window's pixels: x, y and `Scale` are still in screen pixels and need not be whole, and a camera still moves it. It goes over everything else the frame draws, in the order such frames are drawn, after the post-processing shaders, which don't reach it, and it always blends normally. `golib shot` pictures are the screen's size, so they show it at that size.
 - `Width`, `Height`, `Frames` and `Animation` read the file, so they work in tests and before `Run`.
 - Only use art the user provides, and write where it came from, and its license, in `assets/ATTRIBUTION.md`, as `games/platformer` does.
@@ -853,12 +856,15 @@ A 3D world, seen through a `Camera3D`, drawn between `screen.Begin3D` and `scree
 | --- | --- |
 | `Material` | How a surface looks: `&golib.Material{Color: golib.Gold, Metallic: 1, Roughness: 0.3}`. Fields left at zero keep a painted look: white, not metallic, roughness 0.6. A changed field shows at the next draw. |
 | `Screen.DrawMeshWith` | `DrawMeshWith(mesh *Mesh, transform Transform, material *Material)`: the mesh, its surface as the material says. |
+| `Screen.DrawMeshWithTint` | `DrawMeshWithTint(mesh *Mesh, transform Transform, material *Material, tint Color)`: the same, its colors multiplied by `tint` and see-through by its opacity: one `Material` for every shade of a thing, a wake that fades. |
 | `Material.Color` | Multiplies the texture, or is the color; White when zero. `A` below 255 is see-through. |
 | `Material.Texture`, `Material.Tiling` | A `Texture` wrapped around the mesh by its texture coordinates; `Tiling` repeats it that many times each way, for a floor of tiles (1 when zero). |
 | `Material.Metallic`, `Material.Roughness` | 0 for paint, wood, stone or plastic, 1 for bare metal, which tints what it reflects; and how blurred reflections are, 0.05 for a mirror, 1 for chalk (0.6 when zero). |
 | `Material.Emission`, `Material.EmissionStrength` | The light the surface gives off, shown even in the dark: lava, screens, neon. `EmissionStrength` multiplies it (1 when zero); above white it glows with `Environment.Bloom`. |
 | `Material.Unlit` | The color or texture as it is, with no light or shadow: a sky dome, a sign. As everywhere in the 3D, `Environment.Exposure` brightens or darkens it, and only colors above about 225 of 255 are softened a little by the tonemapper. |
 | `Material.TwoSided` | Draws the back of each triangle too: leaves, flags, paper. |
+| `Material.Toon` | Lights the surface in flat bands, as a cartoon is drawn: 2 for light and shade, 3 or 4 for softer steps, with a sharp highlight. 0 is lit smoothly. Shadows, lamps, the sky's light and fog still reach it. |
+| `Material.Outline`, `Material.OutlineWidth` | A line of that color round the surface's edges as the camera sees them, `OutlineWidth` pixels wide whatever the distance (2 when zero); the zero `Color` is none. A mesh with smooth normals, such as a sphere or most models, gets a line all round; one whose faces don't share their corners, such as `NewBoxMesh`, gets one broken at its corners, and a sharp point, a gem's tip, gets a line thinning towards it. Only solid surfaces get one. Lines fade into fog and haze as what they outline does, and a bright glow nearby, bloom, spills over them. |
 | `Material.Shader` | A GLSL function of the game's own, `void surface(inout Surface s)`, that changes the surface before GoLib lights it: `s.color` (vec4, linear), `s.emission` (vec3), `s.metallic`, `s.roughness`, `s.normal` (in the world), and to read, `s.position` (in the world), `s.texcoord` and `s.time` (seconds of game time). Lighting, shadows and fog stay GoLib's. One that doesn't compile stops `Run` with what the graphics card said. |
 | `Texture` | A picture for 3D, from a PNG or JPEG file: smoothed, with mipmaps, repeating past its edges. |
 | `NewTexture` | `NewTexture(name string) *Texture`: the texture in the assets folder named `name`, read the first time it is drawn. |
@@ -870,6 +876,7 @@ var (
 	gold  = &golib.Material{Color: golib.Gold, Metallic: 1, Roughness: 0.3}
 	lava  = &golib.Material{Color: golib.Black, Emission: golib.Orange, EmissionStrength: 4}
 	tiles = &golib.Material{Texture: golib.NewTexture("textures/tiles.png"), Tiling: 20}
+	toon  = &golib.Material{Color: golib.Orange, Toon: 2, Outline: golib.Black, OutlineWidth: 3}
 	water = &golib.Material{Color: golib.Color{R: 40, G: 110, B: 160, A: 255}, Roughness: 0.05, Shader: `
 void surface(inout Surface s) {
     s.normal = normalize(s.normal + 0.08 * vec3(sin(s.position.x * 3.0 + s.time * 2.0), 0.0, cos(s.position.z * 2.5 + s.time)));
@@ -893,6 +900,8 @@ A model is a glTF file, `.glb` or `.gltf`, or an FBX file, `.fbx`, in the game's
 | `Model.Bounds` | `Bounds() (lowest, upmost Vector3)`: the box around it, in its own space: how big it is, and where its feet are. |
 | `Model.Markers` | `Markers() []ModelMarker`: the empties placed in it, and any other node without a mesh, in the file's order. |
 | `Model.Marker` | `Marker(name string) (ModelMarker, bool)`: the first marker called `name`, such as the player's start. |
+| `Model.Toon`, `Model.Outline` | `Toon(bands int)` and `Outline(color Color, width float32)`: what `Material.Toon` and `Material.Outline` do, for every material of the model, wherever it is drawn: `hero.Toon(2); hero.Outline(golib.Black, 3)` for a cartoon character. `Toon(0)` and the zero `Color` take them away. |
+| `Model.Hide`, `Model.Show` | `Hide(names ...string)`: hides the objects Blender named so, and the objects under them, wherever the model is drawn, until `Show(names ...string)`: a coin collected from a level, a door opened. A name the model doesn't have is reported. A `PhysicsWorld` the model was added to keeps them solid: `Remove` what goes. |
 | `Model.Err` | `Err() error`: reads it, and says what stopped it from loading. Drawing or asking a model that didn't load stops `Run` with the same message, so a game needs it only to handle the mistake itself, or to check its models in a test. |
 | `ModelMarker` | A marker: `ModelMarker.Name`, `ModelMarker.Position`, `ModelMarker.Rotation` and `ModelMarker.Scale` in the model's own space, and `ModelMarker.Properties`, its custom properties, read like a Tiled object's (`Properties.String`, `Properties.Float` and the others). |
 
@@ -1164,6 +1173,7 @@ A pass is lit by a sun and by the soft light of the sky and the ground; `Screen.
 | `Environment.Sky`, `Environment.Ground` | The soft light from above and below that lights the side away from the sun; with `SkyBackground`, also the sky overhead and the ground below the horizon. |
 | `Environment.SkyBackground`, `Environment.Horizon` | Draws the sky behind everything, fading from `Sky` overhead to `Horizon` at eye level, a paler `Sky` when zero, and to `Ground` below. Without it, what `Draw` drew before `Begin3D` shows behind the 3D. |
 | `Environment.FogColor`, `Environment.FogDistance` | Fog that starts at a tenth of `FogDistance` meters and hides everything at `FogDistance`; 0 is no fog. The color defaults to the horizon's. |
+| `Environment.Haze`, `Environment.HazeColor`, `Environment.HazeHeight` | Air that catches the light: lit where the sun and the lamps reach it and dark in their shadows, so sunlight through a window or between beams shows as shafts and a spotlight as a beam. `Haze` is how much light it takes in a meter: 0.01 for a hazy day, 0.05 for a dusty hall, 0.2 for smoke; 0 is none. Shafts show where the sun or a lamp is far brighter than the light all around: in a night level lit by its probes, a moon of `Strength` about 2, Blender's 7, shows them, and one of 0.8 is lost in the probes' haze. `HazeColor` tints the light it gives back, white when zero. `HazeHeight` keeps it below a height, thinning out over a meter or a quarter of the height above it, for mist on a lake or smoke in a cellar; 0 is everywhere. Inside a level with light probes it is lit by them, not the sky. Its shadows reach as far as `ShadowDistance`. It covers what is solid, the sky and water, not what is see-through or particles. It costs a walk of 40 steps for every pixel of a picture half the pass's size, and shows a fine grain up close. |
 | `Environment.HDRI` | An `HDRI` that lights the world as the place in its panorama would, soft light from all around and reflections in shiny things, in place of `Sky` and `Ground`; with `SkyBackground`, it shows behind everything. |
 | `Environment.HDRITurn` | Turns the HDRI's panorama round, in degrees, as `Yaw` turns a model: a larger one turns it left. Its sun, its light and its reflections turn with it. |
 | `HDRI` | A panorama of a sky or a place, brighter than white where the sun is, from a Radiance `.hdr` file: the equirectangular kind Poly Haven (CC0) and most HDRI sites give. The middle of the picture faces +Z, as a zero `Rotation` does, and its right half is to the -X side. Its sun, thousands of times brighter than its sky, is taken out of its light as it loads and becomes the pass's sun, which casts the shadows: leave `SunDirection` and `SunColor` at zero to light the world as the photograph was, and set them for a sun of the game's own. Everything else in the picture shows as it is, ground and houses too: GoLib can't hide parts of it yet. |
@@ -1171,8 +1181,10 @@ A pass is lit by a sun and by the soft light of the sky and the ground; `Screen.
 | `HDRI.Err` | `Err() error`: reads it, and says what stopped it from loading. Using one that didn't load stops `Run` with the same message. |
 | `Environment.Exposure` | Brightens or darkens the whole picture: 1 when zero, 2 twice as bright. Under a bright HDRI, below 1. |
 | `Environment.Bloom`, `Environment.NoBloom` | What is brighter than white glows, as in a camera's lens: emission, the sun off something shiny, a lamp close to a wall. `Bloom` is how strongly, 0.5 when zero; ordinary lit colors never glow. `NoBloom` turns it off. |
-| `Environment.ShadowDistance`, `Environment.NoShadows` | The sun casts shadows from everything solid onto everything, up to `ShadowDistance` meters from the camera, 50 when zero, sharpest near it. `NoShadows` turns them off. Lamps cast none yet. |
-| `Light` | A lamp: `Light.Position`, `Light.Color` (white when zero), `Light.Intensity` (1 when zero: lights what faces it a meter away as brightly as the sun, fading with the square of the distance), `Light.Range` (meters it reaches, 10 when zero). With `Light.Direction`, a spotlight lighting a cone `Light.Cone` degrees across, 45 when zero. |
+| `Environment.Blur` | Softens the whole 3D picture by about this many pixels, as a camera out of focus: for a menu, a map or a pause screen over a world that goes on behind it, which the 2D drawn after `End3D` stays sharp over. 0, the default, is none; 8 is soft, 32 strong. It comes in steps, each twice the one before, and costs about as little as bloom: the picture is halved a few times and grown back. Where the pass drew nothing, the 2D under it still shows, but that 2D isn't blurred: blur a background picture of the game's own to match. |
+| `Environment.NoScreenReflections` | Smooth surfaces, roughness below 0.35, reflect what the pass shows where they can see it on the screen, blurred by their roughness and fading out towards 0.35, and the sky, the `HDRI` or a level's reflection probes elsewhere: a wet street shows its lamps, a polished floor its walls. They are drawn after everything rougher, from a copy of it, so they don't reflect each other, nor what is off the screen or hidden. `NoScreenReflections` turns them off, for a game that needs every frame it can get. |
+| `Environment.ShadowDistance`, `Environment.NoShadows` | The sun casts shadows from everything solid onto everything, up to `ShadowDistance` meters from the camera, 50 when zero, sharpest near it. `NoShadows` turns them off. Lamps cast shadows when they ask, with `Light.Shadows`. |
+| `Light` | A lamp: `Light.Position`, `Light.Color` (white when zero), `Light.Intensity` (1 when zero: lights what faces it a meter away as brightly as the sun, fading with the square of the distance), `Light.Range` (meters it reaches, 10 when zero). With `Light.Direction`, a spotlight lighting a cone `Light.Cone` degrees across, 45 when zero. `Light.Shadows` makes it cast shadows from everything solid: a spotlight costs one more drawing of the world a frame, a point light six; a pass gives them to the 4 nearest lamps that ask. The lamps of `Model.Lights` ask, as Blender's do. |
 | `Screen.AddLight` | `AddLight(light Light)`: adds a lamp to the pass begun last, lighting everything it draws. A pass uses the 8 lamps nearest to the camera. |
 
 ```go
@@ -1189,6 +1201,129 @@ for _, torch := range s.torches {
 screen.DrawModel(level, golib.Transform{}, golib.White)
 screen.End3D()
 ```
+
+### Particles
+
+Many small things that fly, change and are gone: fire, smoke, sparks, dust, rain, magic. Each is a picture facing the camera, moved by GoLib; all of one `Particles` are one draw.
+
+| Name | What it does |
+| --- | --- |
+| `Particles` | A set of particles that look and move alike. Make it once, as a package variable or in the scene. |
+| `NewParticles` | `NewParticles(spec ParticleSpec) *Particles`: none born yet. |
+| `ParticleSpec` | How they look and move; every field left at zero has a working default. |
+| `ParticleSpec.Texture` | The picture of each, a white one tinted by `Color`: nil is a soft round dot. |
+| `ParticleSpec.Color`, `ParticleSpec.EndColor` | Each particle's color as it is born and as it dies, blended along its life, opacity too: white when zero, and `Color` faded to nothing when `EndColor` is zero. |
+| `ParticleSpec.Brightness` | Multiplies the colors, past white for a glow that blooms: 3 for dazzling sparks. 1 when zero. |
+| `ParticleSpec.Size`, `ParticleSpec.EndSize` | Meters across as it is born, 0.2 when zero, and as it dies, `Size` when zero: smoke grows, embers shrink. |
+| `ParticleSpec.Life` | Seconds each lives, 1 when zero: each between three quarters and five quarters of it. |
+| `ParticleSpec.Speed`, `ParticleSpec.Spread` | How fast each leaves, in meters a second, along the direction `Emit` gives, turned by up to `Spread` degrees: 0 straight, 180 every way. |
+| `ParticleSpec.Gravity`, `ParticleSpec.Drag` | What pulls them each second, `golib.Vector3{Y: -9.81}` for sparks that fall, `golib.Vector3{Y: 1}` for smoke that rises; and how much of their speed they lose in a second, from 0 to 1. |
+| `ParticleSpec.Glow` | Adds their light to what is behind them, as fire, sparks and magic do. Without it they cover what is behind, as smoke and dust do. |
+| `Particles.Emit` | `Emit(position, direction Vector3, count int)`: `count` new particles at `position`, leaving along `direction`, up when zero. Past 10,000 alive, the oldest give way. |
+| `Particles.Update` | `Update(dt float32)`: moves them on and takes out those whose life is over. Call it in every `Update`. |
+| `Particles.Count`, `Particles.Clear` | How many are alive; take them all out at once. |
+| `Screen.DrawParticles` | `DrawParticles(p *Particles)`: draws them between `Begin3D` and `End3D`, after everything solid, lit by nothing. They are drawn after the haze and the reflections are made, so neither water nor a polished floor reflects them, and haze doesn't hide them. |
+
+```go
+var sparks = golib.NewParticles(golib.ParticleSpec{
+	Color: golib.Yellow, EndColor: golib.Red, Brightness: 3, Size: 0.06, Life: 0.8,
+	Speed: 4, Spread: 40, Gravity: golib.Vector3{Y: -9.81}, Glow: true,
+})
+
+// When a blade hits: sparks.Emit(hit.Position, hit.Normal, 30)
+// In Update: sparks.Update(dt)
+// In Draw, in the 3D: screen.DrawParticles(sparks)
+```
+
+- **A fire is two or three Particles:** flames that glow and rise, smoke that covers and grows, and a few sparks; emit a few flames every update, and a puff of smoke now and then.
+- **They don't collide:** sparks fall through the floor. Give them short lives, or a `Life` that ends as they reach it.
+- **Random numbers are golib's**, so `golib shot` draws them the same every time.
+
+### Decals
+
+A picture pressed onto whatever is solid inside a box: footprints, a scorch mark, blood, cracks, a bullet hole, a rune glowing on the floor. It follows the surface, a slope or the corner where a floor meets a step.
+
+| Name | What it does |
+| --- | --- |
+| `Decal` | What is pressed: `Decal.Texture`, the picture, a soft round dot when nil; `Decal.Color`, multiplying it, white when zero, its opacity fading the decal. |
+| `Decal.Glow`, `Decal.Brightness` | A decal darkens what it lies on by its picture's colors where it is opaque, as dirt and stains do; `Glow` adds its light instead, its colors times its opacity, `Brightness` times, 1 when zero, past white for a glow that blooms: a white picture with a transparent background and a `Color` glows in that color. |
+| `Screen.DrawDecal` | `DrawDecal(decal Decal, transform Transform)`: presses it onto what is solid in the meter box `transform` places, its picture on the box's X and Z, pressed along its Y, its top towards the box's +Z: flat on the ground as it is, on a wall turned with `Pitch` 90. Draw it every frame, as everything else. |
+
+```go
+var footprint = golib.NewTexture("textures/footprint.png")
+
+for _, step := range s.steps { // remembered where the player stepped
+	screen.DrawDecal(golib.Decal{Texture: footprint, Color: golib.Color{R: 255, G: 255, B: 255, A: step.fade}},
+		golib.Transform{Position: step.position, Rotation: golib.Rotation{Yaw: step.yaw}, Scale: golib.Vector3{X: 0.3, Y: 0.3, Z: 0.4}})
+}
+```
+
+- **Keep the box thin across the way it is pressed:** everything solid in it gets the picture, a character walking through it too. A surface turned away from the way it is pressed fades out, so a decal on the floor doesn't smear down a wall.
+- **They are drawn after the solid things and before what is see-through**, from a copy of what was drawn: see-through things and particles are never stained.
+
+### Water
+
+Lakes, seas, rivers and pools: a flat surface whose waves move in the light, that shows what is under it, bent and fading into its color as it deepens, with foam where it meets the shore, and reflects the sun, the level and what moves in it.
+
+| Name | What it does |
+| --- | --- |
+| `Water` | How the water looks; every field left at zero has a working default. |
+| `Water.Color`, `Water.Clarity` | Its color deep down, a blue-green when zero; and how many meters down the bottom still shows, 2 when zero: 0.5 for a muddy river, 6 for a tropical sea. |
+| `Water.Waves`, `Water.Still` | How big its waves are, 1 when zero, a lake in a breeze, 3 a rough sea; `Still` makes it a mirror. |
+| `Water.NoFoam` | Leaves out the foam where it is shallow: along the shore, around posts and rocks in it. |
+| `Screen.DrawWater` | `DrawWater(water Water, transform Transform)`: a square a meter across on X and Z, placed and scaled by `transform`, such as `golib.Transform{Position: golib.Vector3{Y: -0.3}, Scale: golib.Vector3{X: 80, Z: 80}}`. |
+
+```go
+screen.DrawModel(island, golib.Transform{}, golib.White)
+screen.DrawWater(golib.Water{Clarity: 3}, golib.Transform{Position: golib.Vector3{Y: -0.2}, Scale: golib.Vector3{X: 200, Z: 200}})
+```
+
+- **What it reflects:** what is on the screen, the shore, the boats, the player, wherever the reflection meets it there (screen-space reflections); past the screen's edge, a reflection probe's room or the sky. Something off the screen isn't reflected.
+- **It is drawn after the solid things and before what is see-through**, from a copy of what was drawn: a see-through thing under it doesn't show through it. Its waves move its light, not its surface: a boat stays level on it.
+
+### Light baked in Blender
+
+A level made in Blender can carry its light baked by Cycles, Blender's ray tracer, into a lightmap: the sky's light as much of it as reaches each corner, and the light the sun, the lamps and the sky bounce off the walls, red beside a red wall, darker under a roof. GoLib can't work that out as it draws; baked, it costs one texture read. The sun and the lamps themselves stay GoLib's, with their shadows, so a character walking through the level is lit and shades it as it moves. Bake with GoLib's script, from the project root, with Blender in the background:
+
+```bash
+blender --background games/<game>/sources/level.blend --python tools/blender/bake_lightmaps.py -- --output games/<game>/assets/models/level.glb
+```
+
+It writes `level.glb`, and `level.lightmap.hdr`, `level.probes.json` and any reflections beside it. `golib.NewModel("models/level.glb")` reads both, and `DrawModel` draws the level lit by its lightmap; light it with the sun and lamps it was baked with:
+
+| Name | What it does |
+| --- | --- |
+| `Model.Sun` | `Sun() (ModelSun, bool)`: the sun lamp the model was exported with, and false without one. |
+| `ModelSun` | `ModelSun.Direction`, the way its light travels in the model's space; `ModelSun.Color` and `ModelSun.Strength`, as an `Environment` takes them. |
+| `Model.Lights` | `Lights() []Light`: the model's point and spot lamps, as `Light`s in its own space, to add to every pass with `AddLight`. |
+
+```go
+var level = golib.NewModel("models/level.glb")
+
+func (s *playScene) Draw(screen *golib.Screen) {
+	screen.Begin3D(s.camera)
+	env := golib.Environment{SkyBackground: true}
+	if sun, ok := level.Sun(); ok {
+		env.SunDirection, env.SunColor, env.SunStrength = sun.Direction, sun.Color, sun.Strength
+	}
+	screen.SetEnvironment(env)
+	for _, lamp := range level.Lights() {
+		screen.AddLight(lamp)
+	}
+	screen.DrawModel(level, golib.Transform{}, golib.White) // drawn where it was baked
+	screen.End3D()
+}
+```
+
+- **Who exports the level:** the bake script does, with the lightmap's name in it: a level script for a baked level builds the scene and saves the `.blend`, and the bake then writes the `.glb`. A missing `.lightmap.hdr` stops `Run` with what is missing, as any asset does.
+- **Markers:** the bake adds an empty `GoLib light probes`, and the reflection boxes are empties too, so `Model.Markers` lists them with the game's: pick the game's by their custom properties, such as `kind`.
+- **What is baked:** every visible mesh, but those whose custom property `static` is `false`: the crates, doors and props the game moves.
+- **What moves is lit by light probes:** the script also bakes a grid of points over the level, 2 meters apart, each holding the light that reaches it from every way, sky and bounces, as the lightmap does; points inside walls are left out. Everything drawn without a lightmap in a pass with the level, characters, crates, `DrawMesh` shapes, takes its soft light from the probes around it in place of the `Environment`'s `Sky` and `Ground`: darker under a roof, red beside a red wall. Nothing to call: drawing the level is enough, the first one drawn when there are several. Beyond the grid, the `Environment` lights as before, fading in over a probe's spacing. `--probe-spacing 1` for a finer grid, `--no-probes` for none.
+- **Reflections of the level:** shiny things reflect the `Environment`'s sky, which looks wrong indoors. Add an empty in Blender, displayed as a cube and scaled over a room, with the custom property `reflection` set to true: the script renders a panorama of the level from its middle, `level.reflection1.hdr` and on, and inside its box a polished floor, a mirror or a chrome ball reflects the room, its walls where they are. Boxes may nest: the smallest a surface is in counts. A pass uses the 4 nearest the camera. What the game moves isn't in them. `--reflection-size 1024` for sharper ones (512 when not given).
+- **What isn't:** the sun, point lamps and spot lamps light the level directly in GoLib, so their direct light isn't in the lightmap, only what they bounce; area lamps and glowing materials are baked whole. Light the level with the same `Sun` and `Lights`, or the bounced light won't match. A level drawn moved or turned keeps its lightmap, but its sun and lamps must be placed with it.
+- **Lamps in many rooms:** `Model.Lights` gives each lamp a `Range` where it is a hundredth of the sun, about 11 m for a 50 W lamp, and asks for shadows, but a pass gives shadows to the 4 lamps nearest the camera: the others light through walls. In a level of many rooms, shorten their `Range` to their room, or turn the lamps past the nearest few off.
+- **The script** unwraps a second UV map, `Lightmap`, for every still object, packed for all of them at one density, and keeps one made by hand. It needs the level's objects to have at most one UV map of their own, and modifiers that copy geometry, such as Array, applied first. `--size 2048` for a large level (1024 when not given), `--samples 512` for less grain, `--gpu` to bake on the graphics card, `--save` to keep the `Lightmap` UV maps in the `.blend`. A courtyard of 7 objects baked at 1024 by 1024 texels and 256 samples in 95 seconds on an Intel iMac's CPU, its 72 light probes in 5 more and its reflection in 13; the script prints each. The lightmap's time grows with the texels and the samples. Bake again whenever the level changes.
+- **Units:** the script exports lamps in Blender's own units, Lighting Mode Raw; `Sun` and `Lights` turn them into GoLib's, a sun of strength 3 in Blender being `Strength` 0.95 here. A level exported by hand needs Include > Punctual Lights and Lighting Mode Raw for them.
 
 ### The 3D camera
 
@@ -1907,8 +2042,10 @@ A web build is what a phone plays, so a game meant for one is a game meant for t
 | Physics in 2D: things that fall, roll and bounce on their own | Not on the roadmap yet: 3D has rigid bodies, with Jolt | Simple movement and `Rectangle` overlap checks in the game |
 | Joints between rigid bodies (hinges, chains, ragdolls), cars, rigid bodies that push characters, and collision events | Not on the roadmap yet | A swinging door is a `Moved` body turned by the game; a falling crate the game checks against the player; a hit is a sudden change in `Velocity` |
 | Trigger pressure, vibration | Not on the roadmap yet | Triggers read as buttons |
-| 3D shadows from lamps, inverse kinematics, and hiding or reading one part of a model | Planned (M7, stage 7): see [docs/roadmap.md](../docs/roadmap.md#m7-3d-planned); inverse kinematics isn't on the roadmap yet | Models, materials, lights, the sun's shadows and fog work |
-| Reflections of the world in water and mirrors, a tint for each draw of one `Material`, and hiding or dimming part of an HDRI | Planned (M7, stage 7) | Shiny things reflect the HDRI or the sky; make a `Material` for each color; paint the HDRI over in a copy made offline, as [games/sunset](../games/sunset)'s `sources/skies/lakesky.go` does |
+| Inverse kinematics, and reading one part of a model, such as where its mesh is | Not on the roadmap yet | `Model.Hide` and `Show` hide parts; markers say where things are |
+| Hiding or dimming part of an HDRI | Not on the roadmap yet | Paint the HDRI over in a copy made offline, as [games/sunset](../games/sunset)'s `sources/skies/lakesky.go` does |
+| Smooth surfaces reflecting each other and what is off the screen; particles in reflections | Not on the roadmap yet | Reflection probes baked in Blender show the level off the screen; a small solid glowing shape under a flame is reflected where its particles aren't |
+| Keeping one thing out of the haze, a thing that casts no shadow, a color for each burst of one `Particles`, and taking one object of a model out of a `PhysicsWorld` | Not on the roadmap yet | A second `Begin3D` pass without haze over the first; a `Particles` for each color; what the game removes added on its own with `AddMesh` or `AddModel` |
 | `.qoa`, `.xm` and `.mod` in a browser | Not planned: browsers cannot decode them | Save the sound as `.wav`, `.ogg` or `.mp3`. For music, put that file next to the `.xm` under the same name: a web build plays it, and the desktop keeps playing the module |
 
 When a game needs one of these, say so to the user and point to [docs/roadmap.md](../docs/roadmap.md), as [AGENTS.md](../AGENTS.md) asks, instead of building an engine to fill the gap.

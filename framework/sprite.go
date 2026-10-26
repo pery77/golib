@@ -38,16 +38,18 @@ type Sprite struct {
 	label    string
 	generate func(*Sprite) error
 
-	mu         sync.Mutex
-	read       bool // the file has been read, successfully or not
-	err        error
-	width      int // of one frame, in pixels
-	height     int
-	frames     []image.Rectangle // where each frame is in pixels
-	animations map[string]Animation
-	pixels     *image.NRGBA // the picture, until it becomes a texture
-	texture    device.Texture
-	loaded     bool
+	mu             sync.Mutex
+	read           bool // the file has been read, successfully or not
+	err            error
+	width          int // of one frame, in pixels
+	height         int
+	frames         []image.Rectangle // where each frame is in pixels
+	animations     map[string]Animation
+	pixels         *image.NRGBA // the picture, until it becomes a texture
+	texture        device.Texture
+	loaded         bool
+	filtered       device.Texture
+	filteredLoaded bool
 
 	// smooth is the texture DrawOptions.FullResolution draws with: smoothed,
 	// with mipmaps, its colors premultiplied by their opacity.
@@ -275,6 +277,12 @@ func toNRGBA(img image.Image) *image.NRGBA {
 // frameTexture returns the texture and the place of frame, loading the
 // texture the first time. The window must be open.
 func (s *Sprite) frameTexture(frame int) (device.Texture, image.Rectangle, error) {
+	return s.frameTextureWithFilter(frame, false)
+}
+
+// frameTextureWithFilter keeps independent textures so smooth art and
+// pixel art can share a sprite without changing each other's filtering.
+func (s *Sprite) frameTextureWithFilter(frame int, filtered bool) (device.Texture, image.Rectangle, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.prepare(); err != nil {
@@ -283,18 +291,27 @@ func (s *Sprite) frameTexture(frame int) (device.Texture, image.Rectangle, error
 	if frame < 0 || frame >= len(s.frames) {
 		return device.Texture{}, image.Rectangle{}, fmt.Errorf("golib: Screen.DrawSprite got frame %d of %s, which has %d frame(s), numbered from 0 to %d", frame, s.call(), len(s.frames), len(s.frames)-1)
 	}
-	if !s.loaded {
+	texture, loaded := &s.texture, &s.loaded
+	if filtered {
+		texture, loaded = &s.filtered, &s.filteredLoaded
+	}
+	if !*loaded {
 		pixels, err := s.picture()
 		if err != nil {
 			return device.Texture{}, image.Rectangle{}, err
 		}
-		texture := device.NewTexture(pixels.Pix, pixels.Rect.Dx(), pixels.Rect.Dy())
-		if err := s.loadedAs(texture, pixels); err != nil {
+		var next device.Texture
+		if filtered {
+			next = device.NewSmoothTexture(pixels.Pix, pixels.Rect.Dx(), pixels.Rect.Dy())
+		} else {
+			next = device.NewTexture(pixels.Pix, pixels.Rect.Dx(), pixels.Rect.Dy())
+		}
+		if err := s.loadedAs(next, pixels); err != nil {
 			return device.Texture{}, image.Rectangle{}, err
 		}
-		s.texture, s.loaded = texture, true
+		*texture, *loaded = next, true
 	}
-	return s.texture, s.frames[frame], nil
+	return *texture, s.frames[frame], nil
 }
 
 // smoothFrameTexture returns the texture DrawOptions.FullResolution draws
@@ -346,7 +363,7 @@ func (s *Sprite) loadedAs(texture device.Texture, pixels *image.NRGBA) error {
 		s.err = fmt.Errorf("%s: raylib could not load the %d by %d pixel image as a texture: see the raylib warnings above; it may be larger than the graphics card allows", s.call(), pixels.Rect.Dx(), pixels.Rect.Dy())
 		return s.err
 	}
-	if !s.loaded && !s.smoothLoaded {
+	if !s.loaded && !s.smoothLoaded && !s.filteredLoaded {
 		loadedSprites.add(s)
 	}
 	s.pixels = nil
@@ -390,6 +407,10 @@ func (s *Sprite) unload() {
 	if s.smoothLoaded {
 		device.UnloadTexture(s.smooth)
 	}
+	if s.filteredLoaded {
+		device.UnloadTexture(s.filtered)
+	}
+	s.filtered, s.filteredLoaded = device.Texture{}, false
 	s.read, s.err, s.loaded, s.smoothLoaded = false, nil, false, false
 	s.width, s.height, s.frames, s.animations = 0, 0, nil, nil
 	s.pixels, s.texture, s.smooth = nil, device.Texture{}, device.Texture{}
@@ -445,6 +466,12 @@ type DrawOptions struct {
 	// which changes nothing.
 	Tint Color
 
+	// Smooth filters a sprite with bilinear sampling and mipmaps, keeping
+	// its position between pixels. It stays in draw order, with the current
+	// camera, blending and post-processing. Default: sharp pixel-art sampling.
+	// FullResolution always smooths, independently of this field.
+	Smooth bool
+
 	// FullResolution draws the frame at the window's own resolution,
 	// smoothed, instead of in the screen's pixels, so a picture larger than
 	// it is drawn, such as a studio's logo or art painted at high resolution,
@@ -458,7 +485,7 @@ type DrawOptions struct {
 
 // DrawSprite draws frame number frame of sprite with its top-left corner at x,
 // y, at its own size. Pass one DrawOptions to flip, scale, rotate or tint it.
-// x and y are rounded to whole pixels, so that pixel art stays sharp.
+// x and y are rounded to whole pixels unless DrawOptions.Smooth is true.
 // Frames are numbered from 0; a frame the sprite doesn't have stops Run with
 // an error.
 //
@@ -487,7 +514,7 @@ func (s *Screen) DrawSprite(sprite *Sprite, frame int, x, y float32, options ...
 		s.over = append(s.over, option.over(texture, place, x, y, s.camera))
 		return
 	}
-	texture, place, err := sprite.frameTexture(frame)
+	texture, place, err := sprite.frameTextureWithFilter(frame, option.Smooth)
 	if err != nil {
 		reportError(err)
 		return
@@ -499,7 +526,10 @@ func (s *Screen) DrawSprite(sprite *Sprite, frame int, x, y float32, options ...
 func (o DrawOptions) draw(texture device.Texture, place image.Rectangle, x, y float32) {
 	scale := o.scale()
 	width, height := float32(place.Dx()), float32(place.Dy())
-	dest := device.Rectangle{X: wholePixel(x), Y: wholePixel(y), Width: width * scale, Height: height * scale}
+	if !o.Smooth {
+		x, y = wholePixel(x), wholePixel(y)
+	}
+	dest := device.Rectangle{X: x, Y: y, Width: width * scale, Height: height * scale}
 	origin := device.Vector2{X: o.OriginX * scale, Y: o.OriginY * scale}
 	device.DrawTexture(texture, o.source(place), dest, origin, o.Rotation, o.tint())
 }

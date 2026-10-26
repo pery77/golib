@@ -91,6 +91,125 @@ func cascadesFor(camera *Camera3D, sun Vector3, distance float32) cascades {
 	return c
 }
 
+// Lamps cast shadows into the same depth picture, below the sun's slices,
+// which it grows to hold them the first time a lamp does: tiles half a
+// slice wide, six across and four down. A spotlight draws the world into
+// one, seen from the lamp; a point light into six, one for each face of a
+// cube around it, each seeing 90 degrees.
+const (
+	lampTile        = shadowResolution / 2
+	lampTilesAcross = 6
+	lampTilesDown   = 4
+	maxLampShadows  = 4
+	lampShadowNear  = 0.05
+)
+
+// cubeFaces are the ways a point light's six tiles look, and which way is up
+// in each, as the lit shader has them too.
+var cubeFaces = [6]struct{ forward, up Vector3 }{
+	{Vector3{X: 1}, Vector3{Y: 1}}, {Vector3{X: -1}, Vector3{Y: 1}},
+	{Vector3{Y: 1}, Vector3{Z: 1}}, {Vector3{Y: -1}, Vector3{Z: -1}},
+	{Vector3{Z: 1}, Vector3{Y: 1}}, {Vector3{Z: -1}, Vector3{Y: 1}},
+}
+
+// lampShadows are the lamps of a pass that cast shadows, and the views each
+// of their tiles is drawn with.
+type lampShadows struct {
+	tiles    []matrix  // the view of each tile, in order
+	uniforms []float32 // for each of the pass's lights: first tile or -1, spot index or -1, near, far
+	spots    []float32 // the spotlights' views, as the lit shader reads them
+	count    int       // how many lamps cast shadows
+}
+
+// lookAlong is the view of an eye looking along forward, with up as up.
+func lookAlong(eye, forward, up Vector3) matrix {
+	f := forward.Normalize()
+	s := f.Cross(up).Normalize()
+	u := s.Cross(f)
+	return matrix{
+		s.X, u.X, -f.X, 0,
+		s.Y, u.Y, -f.Y, 0,
+		s.Z, u.Z, -f.Z, 0,
+		-s.Dot(eye), -u.Dot(eye), f.Dot(eye), 1,
+	}
+}
+
+// lampShadowsFor picks, of the lights the pass uses, the nearest four that
+// ask for shadows, as many as the tiles hold, and works out their views.
+func lampShadowsFor(lights []Light) lampShadows {
+	out := lampShadows{uniforms: make([]float32, 0, 4*len(lights))}
+	for _, l := range lights {
+		reach := l.Range
+		if reach <= 0 {
+			reach = 10
+		}
+		tile, spot := float32(-1), float32(-1)
+		point := l.Direction.Normalize() == (Vector3{})
+		needs := 1
+		if point {
+			needs = 6
+		}
+		if l.Shadows && out.count < maxLampShadows && len(out.tiles)+needs <= lampTilesAcross*lampTilesDown {
+			out.count++
+			tile = float32(len(out.tiles))
+			if point {
+				projection := perspectiveMatrix(90, 1, lampShadowNear, reach)
+				for _, face := range cubeFaces {
+					out.tiles = append(out.tiles, projection.mul(lookAlong(l.Position, face.forward, face.up)))
+				}
+			} else {
+				cone := l.Cone
+				if cone <= 0 {
+					cone = 45
+				}
+				d := l.Direction.Normalize()
+				up := Vector3{Y: 1}
+				if math.Abs(float64(d.Y)) > 0.99 {
+					up = Vector3{Z: 1}
+				}
+				view := perspectiveMatrix(min(cone*1.1+4, 170), 1, lampShadowNear, reach).mul(lookAlong(l.Position, d, up))
+				spot = float32(len(out.spots) / 16)
+				out.tiles = append(out.tiles, view)
+				out.spots = append(out.spots, view[:]...)
+			}
+		}
+		out.uniforms = append(out.uniforms, tile, spot, lampShadowNear, reach)
+	}
+	return out
+}
+
+// drawLampShadows draws the solid groups into the lamps' tiles.
+func (r *state3D) drawLampShadows(lamps *lampShadows, groups []shadowGroup, clear bool) {
+	programs := r.shadowPrograms(groups)
+	culling := true
+	device.SetCulling(true)
+	for k, view := range lamps.tiles {
+		x, y := k%lampTilesAcross*lampTile, shadowResolution+k/lampTilesAcross*lampTile
+		device.BeginShadow(r.shadowMap, x, y, lampTile, lampTile, clear && k == 0)
+		lightViewProjection := [16]float32(view)
+		for bending, s := range programs {
+			r.drawShadowGroups(s, &lightViewProjection, groups, bending == 1, &culling)
+		}
+	}
+	device.EndShadow()
+	device.SetCulling(true)
+}
+
+// shadowPrograms returns the programs the groups' shadows are drawn with:
+// the plain one, and the one that bends when any group is animated.
+func (r *state3D) shadowPrograms(groups []shadowGroup) []*shadowProgram {
+	programs := []*shadowProgram{&r.shadow}
+	for _, g := range groups {
+		if g.animation.stride > 0 {
+			if bent := r.bentShadow(); bent != nil {
+				programs = append(programs, bent)
+			}
+			break
+		}
+	}
+	return programs
+}
+
 // The program that draws depth into a shadow map: everything solid, and of
 // what is cut out, only what isn't cut away.
 const (
@@ -178,22 +297,25 @@ func (r *state3D) bentShadow() *shadowProgram {
 	return r.shadowBent
 }
 
+// shadowMapFor makes sure the shadow map is there, tall enough for the
+// lamps' tiles when lamps is true, and says how many slices tall it is.
+func (r *state3D) shadowMapFor(lamps bool) int {
+	rows := 1
+	if lamps || r.shadowMap.Height > shadowResolution {
+		rows = 3
+	}
+	if r.shadowMap.ID == 0 || r.shadowMap.Height != rows*shadowResolution {
+		device.UnloadShadowMap(r.shadowMap)
+		r.shadowMap = device.NewShadowMap(shadowCascades*shadowResolution, rows*shadowResolution)
+	}
+	return rows
+}
+
 // drawShadows draws the solid groups into the sun's shadow map, one slice at
 // a time, and leaves the pass's own target bound: those that aren't
 // animated, then those that are, with the program that bends them.
 func (r *state3D) drawShadows(c *cascades, groups []shadowGroup) {
-	if r.shadowMap.ID == 0 {
-		r.shadowMap = device.NewShadowMap(shadowCascades*shadowResolution, shadowResolution)
-	}
-	programs := []*shadowProgram{&r.shadow}
-	for _, g := range groups {
-		if g.animation.stride > 0 {
-			if bent := r.bentShadow(); bent != nil {
-				programs = append(programs, bent)
-			}
-			break
-		}
-	}
+	programs := r.shadowPrograms(groups)
 	culling := true
 	device.SetCulling(true)
 	for k := range shadowCascades {
@@ -250,4 +372,5 @@ type shadowGroup struct {
 	material  *material3D
 	instances []float32
 	animation groupAnimation
+	lightmap  *texture3D // for the picture: the light baked for it, or nil
 }

@@ -160,7 +160,7 @@ func DeleteFromStore(name string) error {
 // reports whether it is ready. hidden has no meaning in a browser: a page is
 // shown or it isn't, and golib shot doesn't run here; nor has resizable: the
 // canvas follows the page.
-func OpenWindow(width, height int, title string, hidden, resizable bool) bool {
+func OpenWindow(width, height int, title string, hidden, resizable, highDPI bool) bool {
 	if !js_().Truthy() {
 		return false
 	}
@@ -215,6 +215,9 @@ func Time() float64 {
 func WindowSize() (width, height int) {
 	return frame.width, frame.height
 }
+
+// The canvas is already measured in physical pixels by web.js.
+func FramebufferSize() (width, height int) { return WindowSize() }
 
 // WindowPosition is 0, 0: a page doesn't choose where it sits.
 func WindowPosition() (x, y int) {

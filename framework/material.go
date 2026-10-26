@@ -55,6 +55,19 @@ type Material struct {
 	// paper.
 	TwoSided bool
 
+	// Toon lights the surface in flat bands, as a cartoon is drawn: 2 for
+	// light and shade, 3 or 4 for softer steps, with a sharp highlight.
+	// 0 is lit smoothly, as everything else.
+	Toon int
+
+	// Outline draws a line of this color round the surface's edges as the
+	// camera sees them, OutlineWidth pixels wide, 2 when zero. The zero
+	// Color is no line. Meshes with smooth normals get a line all round;
+	// one whose faces don't share their corners, such as NewBoxMesh, gets
+	// a broken one at its corners.
+	Outline      Color
+	OutlineWidth float32
+
 	// Shader is a function of the game's own, in GLSL, that changes the
 	// surface before GoLib lights it:
 	//
@@ -91,6 +104,9 @@ type materialSettings struct {
 	emissionStrength float32
 	unlit, twoSided  bool
 	shader           string
+	toon             int
+	outline          Color
+	outlineWidth     float32
 }
 
 // material returns what the renderer draws m with, made again when a field
@@ -99,6 +115,7 @@ func (m *Material) material() *material3D {
 	settings := materialSettings{
 		m.Color, m.Texture, m.Tiling, m.Metallic, m.Roughness,
 		m.Emission, m.EmissionStrength, m.Unlit, m.TwoSided, m.Shader,
+		m.Toon, m.Outline, m.OutlineWidth,
 	}
 	if m.ready && settings == m.from {
 		return m.made
@@ -129,6 +146,8 @@ func (m *Material) material() *material3D {
 		made.emissive = [3]float32{e[0] * strength, e[1] * strength, e[2] * strength}
 	}
 	made.unlit, made.twoSided, made.surface = m.Unlit, m.TwoSided, m.Shader
+	made.toon = max(m.Toon, 0)
+	made.setOutline(m.Outline, m.OutlineWidth)
 	both := *made
 	both.twoSided = true
 	m.made, m.twoSided, m.from, m.ready = made, &both, settings, true
@@ -142,6 +161,20 @@ func (s *Screen) DrawMeshWith(mesh *Mesh, transform Transform, material *Materia
 	if !s.in3D("DrawMeshWith") {
 		return
 	}
+	s.drawMeshWith(mesh, transform, material, White)
+}
+
+// DrawMeshWithTint draws mesh as DrawMeshWith does, its colors multiplied by
+// tint, and see-through by tint's opacity: one Material for every shade of a
+// thing, a wake that fades, a ghost.
+func (s *Screen) DrawMeshWithTint(mesh *Mesh, transform Transform, material *Material, tint Color) {
+	if !s.in3D("DrawMeshWithTint") {
+		return
+	}
+	s.drawMeshWith(mesh, transform, material, tint)
+}
+
+func (s *Screen) drawMeshWith(mesh *Mesh, transform Transform, material *Material, tint Color) {
 	if mesh == nil {
 		reportError(errors.New("golib: Screen.DrawMeshWith got a nil mesh: make one with golib.NewBoxMesh or another New...Mesh"))
 		return
@@ -160,7 +193,7 @@ func (s *Screen) DrawMeshWith(mesh *Mesh, transform Transform, material *Materia
 	if mesh.twoSided {
 		made = material.twoSided
 	}
-	s.addItem(mesh, made, transform.matrix(), White)
+	s.addItem(mesh, made, transform.matrix(), tint)
 }
 
 // Texture is a picture for 3D, from a PNG or JPEG file in the game's assets

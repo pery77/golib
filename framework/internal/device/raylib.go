@@ -79,16 +79,22 @@ func DeleteFromStore(name string) error { return nil }
 // bottom of the next, cut along a line across the screen that flickers while
 // the picture moves, most of all in fullscreen. A hidden window, for golib
 // shot, has no monitor to wait for.
-func OpenWindow(width, height int, title string, hidden, resizable bool) bool {
+func OpenWindow(width, height int, title string, hidden, resizable, highDPI bool) bool {
 	rl.SetTraceLogLevel(rl.LogWarning)
+	windowHighDPI = highDPI
+	var flags uint32
 	switch {
 	case hidden:
-		rl.SetConfigFlags(rl.FlagWindowHidden)
+		flags = rl.FlagWindowHidden
 	case resizable:
-		rl.SetConfigFlags(rl.FlagWindowResizable | rl.FlagVsyncHint)
+		flags = rl.FlagWindowResizable | rl.FlagVsyncHint
 	default:
-		rl.SetConfigFlags(rl.FlagVsyncHint)
+		flags = rl.FlagVsyncHint
 	}
+	if highDPI {
+		flags |= rl.FlagWindowHighdpi
+	}
+	rl.SetConfigFlags(flags)
 	rl.InitWindow(int32(width), int32(height), title)
 	if !rl.IsWindowReady() {
 		return false
@@ -131,6 +137,14 @@ func Time() float64 {
 func WindowSize() (width, height int) {
 	return rl.GetScreenWidth(), rl.GetScreenHeight()
 }
+
+// FramebufferSize is the drawing surface in physical pixels, which can be
+// larger than WindowSize on a high-density desktop display.
+func FramebufferSize() (width, height int) {
+	return rl.GetRenderWidth(), rl.GetRenderHeight()
+}
+
+var windowHighDPI bool
 
 // WindowPosition returns the window's top-left corner on the desktop.
 func WindowPosition() (x, y int) {

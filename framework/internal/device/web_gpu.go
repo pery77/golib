@@ -381,10 +381,10 @@ func wrapMode(clamp, mirror bool) int {
 
 // NewHDRTexture puts a picture brighter than white on the graphics card, in
 // half floats, RGBA, with the mipmaps given: levels[0] is width by height,
-// each next one half as large, down to one texel, the top row first. It is
-// smoothed between texels and mipmaps, repeated across and clamped down,
-// as a panorama of the sky wants.
-func NewHDRTexture(width, height int, levels [][]uint16) Texture3D {
+// each next one half as large, the top row first. It is smoothed between
+// texels and mipmaps. A panorama of the sky repeats across and is clamped
+// down; anything else, such as a lightmap, is clamped both ways.
+func NewHDRTexture(width, height int, levels [][]uint16, panorama bool) Texture3D {
 	if len(levels) == 0 {
 		return Texture3D{}
 	}
@@ -394,7 +394,7 @@ func NewHDRTexture(width, height int, levels [][]uint16) Texture3D {
 		all = append(all, level...)
 	}
 	bytes := unsafe.Slice((*byte)(unsafe.Pointer(&all[0])), len(all)*2)
-	id := js_().Call("newHDRTexture", width, height, jsBytes(bytes), len(levels)).Int()
+	id := js_().Call("newHDRTexture", width, height, jsBytes(bytes), len(levels), panorama).Int()
 	return Texture3D{ID: uint32(id), Width: width, Height: height}
 }
 
@@ -418,4 +418,36 @@ func DrawMesh(mesh Mesh) {
 		return
 	}
 	push(opDrawMesh, float32(mesh.ID))
+}
+
+// CopyPass copies the pass's picture and depth as they are, for programs
+// drawn after it that read what is behind them: decals, water, fog.
+func CopyPass() {
+	push(opCopyPass)
+}
+
+// BindPassCopy makes CopyPass's picture the one a sampler set to
+// colorUnit reads, and its depth, from 0 near to 1 far, the one at
+// depthUnit.
+func BindPassCopy(colorUnit, depthUnit int) {
+	push(opBindPassCopy, float32(colorUnit), float32(depthUnit))
+}
+
+// SetMultiply3D says whether what is drawn next multiplies the colors
+// already there, as a stain darkens what it is on, rather than replacing
+// them; their opacity stays.
+func SetMultiply3D(on bool) {
+	push(opMultiply3D, onOff(on))
+}
+
+// SetDepthTest says whether what is drawn next is hidden behind what is
+// nearer, as everything solid is, or drawn over everything.
+func SetDepthTest(on bool) {
+	push(opDepthTest, onOff(on))
+}
+
+// SetCullFront says whether what is drawn next leaves out its front faces
+// rather than its back ones, so only the far side of a box is drawn.
+func SetCullFront(on bool) {
+	push(opCullFront, onOff(on))
 }

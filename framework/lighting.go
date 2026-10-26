@@ -67,6 +67,20 @@ type Environment struct {
 	FogColor    Color
 	FogDistance float32
 
+	// Haze is air that catches the light, lit where the sun and the lamps
+	// reach it and dark in their shadows, so light through a window shows
+	// as shafts and a spotlight as a beam: how much of the light it takes
+	// in a meter, 0.01 for a hazy day, 0.05 for a dusty hall, 0.2 for
+	// smoke. 0 is none. HazeColor tints the light it gives back, white
+	// when zero, and HazeHeight keeps it below a height, thinning out over
+	// a meter or a quarter of the height above it, for mist on a lake or
+	// smoke in a cellar: 0 is everywhere. Its shadows reach as far as
+	// ShadowDistance. It covers what is solid, the sky and water, not what
+	// is see-through or particles.
+	Haze       float32
+	HazeColor  Color
+	HazeHeight float32
+
 	// Exposure brightens or darkens the whole picture, as a camera's would:
 	// 1, as 0 counts, is as it is; 2 is twice as bright.
 	Exposure float32
@@ -83,6 +97,22 @@ type Environment struct {
 	// counts as 0.5; ordinary lit colors never glow. NoBloom turns it off.
 	Bloom   float32
 	NoBloom bool
+
+	// Blur softens the whole 3D picture by about this many pixels, as a
+	// camera out of focus sees it: for a menu, a map or a pause screen over
+	// a world that goes on behind it, which the 2D drawn after End3D stays
+	// sharp over. 0 is none; 8 is soft, 32 strong. It comes in steps, each
+	// twice the one before, and costs about as little as Bloom.
+	Blur float32
+
+	// Smooth surfaces, their roughness below 0.35, reflect what
+	// the pass shows where they can see it on the screen, fading out as
+	// they roughen, and the sky, the HDRI or the level's reflection probes
+	// elsewhere: a wet street shows the lamps, a polished floor the walls.
+	// They don't reflect each other, nor what is off the screen or behind
+	// something. NoScreenReflections turns them off, for a game that needs
+	// every frame it can get.
+	NoScreenReflections bool
 }
 
 // SetEnvironment sets how the 3D pass begun last is lit, and what shows
@@ -122,6 +152,12 @@ type Light struct {
 	// Cone is a spotlight's width, in degrees, softening at its edge. 0
 	// counts as 45.
 	Cone float32
+
+	// Shadows makes the lamp cast shadows from everything solid, as the sun
+	// does. A spotlight's cost one more drawing of the world a frame, a
+	// point light's six: a pass gives shadows to the 4 nearest lamps that
+	// ask for them.
+	Shadows bool
 }
 
 // maxLights is how many lights a pass uses: the nearest to the camera, when
@@ -143,6 +179,7 @@ func (s *Screen) AddLight(light Light) {
 type lightUniforms struct {
 	count                         int32
 	positions, colors, directions []float32
+	chosen                        []Light // the lights used, in the shader's order
 }
 
 // lightsFor turns lights into what the lit shader reads, keeping the
@@ -164,6 +201,7 @@ func lightsFor(lights []Light, eye Vector3) lightUniforms {
 	}
 	var u lightUniforms
 	u.count = int32(len(lights))
+	u.chosen = lights
 	for _, l := range lights {
 		reach := l.Range
 		if reach <= 0 {
@@ -200,19 +238,23 @@ func lightsFor(lights []Light, eye Vector3) lightUniforms {
 // environmentUniforms are an Environment, with its defaults, as the shaders
 // read it: linear light.
 type environmentUniforms struct {
-	sunDirection    Vector3
-	sun             [4]float32
-	sky, ground     [4]float32
-	horizon, skyTop [4]float32 // the background's colors, linear
-	skyBottom       [4]float32
-	background      bool
-	fog             [4]float32 // color, then its distance in w; 0 for none
-	exposure        float32
-	shadows         bool
-	shadowDistance  float32
-	hdri            *HDRI
-	hdriTurn        [4]float32 // the turn's cosine and sine, to turn a direction back onto the picture
-	bloom           float32    // 0 for none
+	sunDirection      Vector3
+	sun               [4]float32
+	sky, ground       [4]float32
+	horizon, skyTop   [4]float32 // the background's colors, linear
+	skyBottom         [4]float32
+	background        bool
+	fog               [4]float32 // color, then its distance in w; 0 for none
+	haze              [4]float32 // color, then how much it takes in a meter; 0 for none
+	hazeHeight        float32
+	exposure          float32
+	shadows           bool
+	shadowDistance    float32
+	hdri              *HDRI
+	hdriTurn          [4]float32 // the turn's cosine and sine, to turn a direction back onto the picture
+	bloom             float32    // 0 for none
+	blur              int        // halvings the picture is softened by; 0 for none
+	screenReflections bool
 }
 
 // The default light: a sun high behind and to the right of a camera facing
@@ -291,6 +333,14 @@ func (e Environment) uniforms() environmentUniforms {
 		}
 		u.fog = [4]float32{fog[0], fog[1], fog[2], e.FogDistance}
 	}
+	if e.Haze > 0 {
+		tint := [4]float32{1, 1, 1}
+		if e.HazeColor != (Color{}) {
+			tint = linearColor(e.HazeColor)
+		}
+		u.haze = [4]float32{tint[0], tint[1], tint[2], e.Haze}
+		u.hazeHeight = max(e.HazeHeight, 0)
+	}
 	if e.Exposure > 0 {
 		u.exposure = e.Exposure
 	}
@@ -301,6 +351,8 @@ func (e Environment) uniforms() environmentUniforms {
 			u.bloom = e.Bloom
 		}
 	}
+	u.blur = blurLevels(e.Blur)
+	u.screenReflections = !e.NoScreenReflections
 	u.shadows = !e.NoShadows && (u.sun[0] > 0 || u.sun[1] > 0 || u.sun[2] > 0)
 	u.shadowDistance = 50
 	if e.ShadowDistance > 0 {

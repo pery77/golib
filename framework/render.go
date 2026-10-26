@@ -285,6 +285,7 @@ func (r *renderer) close() {
 	loadedFonts.unloadAll()
 	loadedMeshes.unloadAll()
 	loadedTextures.unloadAll()
+	unloadProbes()
 	freePhysicsWorlds()
 	renderer3D.unload()
 	r.unloadScene()

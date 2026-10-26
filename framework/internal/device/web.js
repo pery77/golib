@@ -24,11 +24,12 @@ window.golib = (function () {
 		DRAW_FULLSCREEN = 32, UNIFORM_VEC4S = 33, BEGIN_SHADOW = 34, END_SHADOW = 35,
 		BIND_SHADOW_MAP = 36, BEGIN_WORK = 37, END_WORK = 38, BIND_WORK_TARGET = 39,
 		BIND_PASS_PICTURE = 40, ADDITIVE_3D = 41, UPDATE_DATA = 42, BIND_DATA = 43,
-		COLOR_WRITE = 44;
+		COLOR_WRITE = 44, COPY_PASS = 45, BIND_PASS_COPY = 46, MULTIPLY_3D = 47,
+		DEPTH_TEST = 48, CULL_FRONT = 49;
 
 	// The vertex layouts of 3D meshes, as gpu.go defines them, and how many
 	// floats an instance of a lit mesh takes: its matrix and its tint.
-	const LAYOUT_LIT = 0, LAYOUT_COLORED = 1, LAYOUT_SKINNED = 2, INSTANCE_FLOATS = 20;
+	const LAYOUT_LIT = 0, LAYOUT_COLORED = 1, LAYOUT_SKINNED = 2, LAYOUT_LIGHTMAPPED = 3, INSTANCE_FLOATS = 20;
 
 	// How many texels a row of a data texture holds, as gpu.go says.
 	const DATA_WIDTH = 1024;
@@ -433,6 +434,36 @@ void main() {
 					gl.bindTexture(gl.TEXTURE_2D, pass3D.color);
 					i += 1;
 					break;
+				case COPY_PASS:
+					copyPass();
+					break;
+				case BIND_PASS_COPY:
+					gl.activeTexture(gl.TEXTURE0 + c[i]);
+					gl.bindTexture(gl.TEXTURE_2D, passCopy.color);
+					gl.activeTexture(gl.TEXTURE0 + c[i + 1]);
+					gl.bindTexture(gl.TEXTURE_2D, passCopy.depth);
+					gl.activeTexture(gl.TEXTURE0);
+					boundTexture = -1;
+					i += 2;
+					break;
+				case DEPTH_TEST:
+					if (c[i] !== 0) gl.enable(gl.DEPTH_TEST); else gl.disable(gl.DEPTH_TEST);
+					i += 1;
+					break;
+				case CULL_FRONT:
+					gl.cullFace(c[i] !== 0 ? gl.FRONT : gl.BACK);
+					gl.enable(gl.CULL_FACE);
+					i += 1;
+					break;
+				case MULTIPLY_3D:
+					if (c[i] !== 0) {
+						gl.blendFuncSeparate(gl.DST_COLOR, gl.ZERO, gl.ZERO, gl.ONE);
+						gl.enable(gl.BLEND);
+					} else {
+						gl.disable(gl.BLEND);
+					}
+					i += 1;
+					break;
 				case ADDITIVE_3D:
 					if (c[i] !== 0) {
 						gl.blendFunc(gl.ONE, gl.ONE);
@@ -479,9 +510,11 @@ void main() {
 					break;
 				case BLEND_3D:
 					if (c[i] !== 0) {
-						// Opacity piles up as coverage, so end3D can put
-						// the pass over the 2D with what shows through.
-						gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+						// The lit shader's colors come premultiplied by their
+						// opacity; opacity piles up as coverage, so end3D
+						// can put the pass over the 2D with what shows
+						// through.
+						gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
 						gl.enable(gl.BLEND);
 					} else {
 						gl.disable(gl.BLEND);
@@ -852,11 +885,11 @@ void main() {
 			}, function () { done(-1, 0, 0); });
 	}
 
-	// newHDRTexture puts a panorama brighter than white on the graphics
-	// card, in half floats, with the mipmaps package golib made, one after
-	// another in bytes: WebGL can't make them for a format it can't render
-	// into without an extension.
-	function newHDRTexture(width, height, bytes, levels) {
+	// newHDRTexture puts a picture brighter than white, a panorama or a
+	// lightmap, on the graphics card, in half floats, with the mipmaps
+	// package golib made, one after another in bytes: WebGL can't make them
+	// for a format it can't render into without an extension.
+	function newHDRTexture(width, height, bytes, levels, panorama) {
 		const halves = new Uint16Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 2);
 		const id = nextID++;
 		const made = gl.createTexture();
@@ -874,7 +907,7 @@ void main() {
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAX_LEVEL, levels - 1);
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, panorama ? gl.REPEAT : gl.CLAMP_TO_EDGE);
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 		gl.bindTexture(gl.TEXTURE_2D, null);
 		gl.activeTexture(gl.TEXTURE0);
@@ -923,8 +956,8 @@ void main() {
 		gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
 		const ibo = gl.createBuffer();
 		gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
-		if (layout === LAYOUT_LIT || layout === LAYOUT_SKINNED) {
-			const stride = layout === LAYOUT_SKINNED ? 80 : 48;
+		if (layout === LAYOUT_LIT || layout === LAYOUT_SKINNED || layout === LAYOUT_LIGHTMAPPED) {
+			const stride = layout === LAYOUT_SKINNED ? 80 : (layout === LAYOUT_LIGHTMAPPED ? 56 : 48);
 			bindAttribute(0, 3, 0, stride);
 			bindAttribute(1, 3, 12, stride);
 			bindAttribute(2, 2, 24, stride);
@@ -932,6 +965,9 @@ void main() {
 			if (layout === LAYOUT_SKINNED) {
 				bindAttribute(9, 4, 48, stride);
 				bindAttribute(10, 4, 64, stride);
+			}
+			if (layout === LAYOUT_LIGHTMAPPED) {
+				bindAttribute(11, 2, 48, stride);
 			}
 			if (!instanceBuffer) instanceBuffer = gl.createBuffer();
 			gl.bindBuffer(gl.ARRAY_BUFFER, instanceBuffer);
@@ -1047,6 +1083,44 @@ void main() {
 		gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, pass3D.color, 0);
 		gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, pass3D.depth);
 		boundTexture = -1;
+	}
+
+	// passCopy is the pass as copyPass found it, its colors and its depth,
+	// as textures programs drawn after it read: decals, water, fog.
+	const passCopy = { framebuffer: null, color: null, depth: null, width: 0, height: 0 };
+
+	function copyPass() {
+		const w = pass3D.width, h = pass3D.height;
+		if (!passCopy.framebuffer || passCopy.width !== w || passCopy.height !== h) {
+			if (passCopy.framebuffer) {
+				gl.deleteFramebuffer(passCopy.framebuffer);
+				gl.deleteTexture(passCopy.color);
+				gl.deleteTexture(passCopy.depth);
+			}
+			passCopy.width = w;
+			passCopy.height = h;
+			gl.activeTexture(gl.TEXTURE7);
+			passCopy.color = gl.createTexture();
+			gl.bindTexture(gl.TEXTURE_2D, passCopy.color);
+			if (pass3D.float) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, w, h, 0, gl.RGBA, gl.HALF_FLOAT, null);
+			else gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+			clampAndFilter(gl.LINEAR);
+			passCopy.depth = gl.createTexture();
+			gl.bindTexture(gl.TEXTURE_2D, passCopy.depth);
+			gl.texImage2D(gl.TEXTURE_2D, 0, gl.DEPTH_COMPONENT24, w, h, 0, gl.DEPTH_COMPONENT, gl.UNSIGNED_INT, null);
+			clampAndFilter(gl.NEAREST);
+			gl.bindTexture(gl.TEXTURE_2D, null);
+			gl.activeTexture(gl.TEXTURE0);
+			passCopy.framebuffer = gl.createFramebuffer();
+			gl.bindFramebuffer(gl.FRAMEBUFFER, passCopy.framebuffer);
+			gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, passCopy.color, 0);
+			gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.TEXTURE_2D, passCopy.depth, 0);
+			boundTexture = -1;
+		}
+		gl.bindFramebuffer(gl.READ_FRAMEBUFFER, pass3D.framebuffer);
+		gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, passCopy.framebuffer);
+		gl.blitFramebuffer(0, 0, w, h, 0, 0, w, h, gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT, gl.NEAREST);
+		gl.bindFramebuffer(gl.FRAMEBUFFER, pass3D.framebuffer);
 	}
 
 	// Shadow maps: depth textures sampled with comparison, each with a
@@ -1421,6 +1495,11 @@ void main() {
 		gl.bindTexture(gl.TEXTURE_2D, pass3D.color);
 		gl.bindVertexArray(emptyArray);
 		gl.drawArrays(gl.TRIANGLES, 0, 3);
+		// The pass's picture leaves unit 0: the next pass draws into it, and
+		// WebGL refuses a draw whose program has a sampler on a unit holding
+		// the picture it draws into, even one the shader doesn't read, as a
+		// lit material without a texture doesn't. The 2D binds its own.
+		gl.bindTexture(gl.TEXTURE_2D, null);
 		const mode = boundBlend;
 		boundBlend = -1;
 		setBlend(mode < 0 ? BLEND_NORMAL : mode);

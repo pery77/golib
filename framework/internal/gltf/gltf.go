@@ -5,8 +5,9 @@
 // it uses the standard library only.
 //
 // What it reads: triangles (lists, strips and fans), positions, normals
-// (made flat when a file has none, as the specification asks), the first set
-// of texture coordinates, the first vertex colors, indices of every size,
+// (made flat when a file has none, as the specification asks), the first two
+// sets of texture coordinates, the second for a lightmap, the first vertex
+// colors, indices of every size,
 // sparse accessors, the quantized attributes of KHR_mesh_quantization; PBR
 // metallic-roughness materials with their textures, emissive color and
 // strength (KHR_materials_emissive_strength), unlit materials
@@ -60,9 +61,12 @@ type Primitive struct {
 	Positions []float32 // x, y, z for each vertex
 	Normals   []float32 // x, y, z for each vertex, length 1
 	Texcoords []float32 // u, v for each vertex, or nil
-	Colors    []float32 // r, g, b, a for each vertex, linear, or nil
-	Indices   []uint32  // three a triangle, counterclockwise seen from the front
-	Material  int       // -1 for glTF's default material
+	// Lightcoords are the second set of texture coordinates, u, v for each
+	// vertex, or nil: where each vertex is on a lightmap baked in Blender.
+	Lightcoords []float32
+	Colors      []float32 // r, g, b, a for each vertex, linear, or nil
+	Indices     []uint32  // three a triangle, counterclockwise seen from the front
+	Material    int       // -1 for glTF's default material
 
 	// Joints and Weights skin the primitive: for each vertex, four joints,
 	// as places in its skin's Joints, and how much each moves it, adding up
@@ -1069,6 +1073,15 @@ func (r *reader) primitive(attributes map[string]int, indicesAt *int, modeAt *in
 			return p, false, fmt.Errorf("%d texture coordinates for %d positions", n, count)
 		}
 	}
+	if at, ok := attributes["TEXCOORD_1"]; ok {
+		var n int
+		if p.Lightcoords, n, err = r.floats(at, 2, 0); err != nil {
+			return p, false, err
+		}
+		if n != count {
+			return p, false, fmt.Errorf("%d second texture coordinates for %d positions", n, count)
+		}
+	}
 	if at, ok := attributes["COLOR_0"]; ok {
 		var n int
 		if p.Colors, n, err = r.floats(at, 4, 1); err != nil {
@@ -1180,12 +1193,15 @@ func normalizeWeights(weights []float32) {
 // flatten gives every triangle its own three vertices, with the triangle's
 // own normal: the flat normals glTF asks for when a file has none.
 func (p *Primitive) flatten() {
-	var positions, normals, texcoords, colors, joints, weights []float32
+	var positions, normals, texcoords, lightcoords, colors, joints, weights []float32
 	targets := make([]MorphTarget, len(p.Targets))
 	for _, i := range p.Indices {
 		positions = append(positions, p.Positions[i*3:i*3+3]...)
 		if p.Texcoords != nil {
 			texcoords = append(texcoords, p.Texcoords[i*2:i*2+2]...)
+		}
+		if p.Lightcoords != nil {
+			lightcoords = append(lightcoords, p.Lightcoords[i*2:i*2+2]...)
 		}
 		if p.Colors != nil {
 			colors = append(colors, p.Colors[i*4:i*4+4]...)
@@ -1213,7 +1229,7 @@ func (p *Primitive) flatten() {
 		}
 		normals = append(normals, nx, ny, nz, nx, ny, nz, nx, ny, nz)
 	}
-	p.Positions, p.Normals, p.Texcoords, p.Colors = positions, normals, texcoords, colors
+	p.Positions, p.Normals, p.Texcoords, p.Lightcoords, p.Colors = positions, normals, texcoords, lightcoords, colors
 	p.Indices = make([]uint32, len(positions)/3)
 	for k := range p.Indices {
 		p.Indices[k] = uint32(k)

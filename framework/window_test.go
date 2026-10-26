@@ -54,6 +54,38 @@ func openTestWindow(t *testing.T, width, height int) (*Screen, func(draw func())
 	return screen, capture
 }
 
+func TestSmoothSpritesInAWindow(t *testing.T) {
+	screen, capture := openTestWindow(t, 16, 4)
+	sprite := newGeneratedSprite("smooth sampling test", func(s *Sprite) error {
+		s.pixels = image.NewNRGBA(image.Rect(0, 0, 2, 1))
+		s.pixels.SetNRGBA(0, 0, color.NRGBA{R: 255, A: 255})
+		s.pixels.SetNRGBA(1, 0, color.NRGBA{B: 255, A: 255})
+		s.width, s.height = 2, 1
+		s.frames = []image.Rectangle{s.pixels.Rect}
+		return nil
+	})
+	picture := capture(func() {
+		screen.Clear(Black)
+		screen.DrawSprite(sprite, 0, 0, 0, DrawOptions{Scale: 4, Smooth: true})
+		screen.DrawRectangle(Rectangle{Width: 2, Height: 4}, Green)
+		screen.DrawSprite(sprite, 0, 8, 0, DrawOptions{Scale: 4})
+	})
+	if err := takeError(); err != nil {
+		t.Fatal(err)
+	}
+	if p := picture.NRGBAAt(3, 2); p.R == 0 || p.R == 255 || p.B == 0 || p.B == 255 {
+		t.Errorf("smooth sampling has no intermediate colors: %v", p)
+	}
+	if p := picture.NRGBAAt(0, 2); p.R != Green.R || p.G != Green.G || p.B != Green.B {
+		t.Errorf("a later rectangle did not cover the smooth sprite: %v", p)
+	}
+	for x, want := range map[int]color.NRGBA{11: {R: 255, A: 255}, 12: {B: 255, A: 255}} {
+		if got := picture.NRGBAAt(x, 2); got != want {
+			t.Errorf("smooth drawing changed sharp sampling at %d: got %v, want %v", x, got, want)
+		}
+	}
+}
+
 func TestSpritesInAWindow(t *testing.T) {
 	useAssets(t, map[string][]byte{"dots.png": pngFile(t, 4, 2)})
 	screen, capture := openTestWindow(t, 16, 8)
