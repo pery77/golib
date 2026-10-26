@@ -82,10 +82,12 @@ func (c *cli) distGame(game string) string {
 		return ""
 	}
 
+	// Players get files named after game.json's "fileName", or the folder.
+	name := c.fileName(game)
 	distDir := c.path("build", game, "dist")
-	folder := filepath.Join(distDir, game)
-	shownFolder := "build/" + game + "/dist/" + game + "/"
-	exe := c.executable(game)
+	folder := filepath.Join(distDir, name)
+	shownFolder := "build/" + game + "/dist/" + name + "/"
+	exe := c.executable(name)
 	if err := os.RemoveAll(distDir); err != nil {
 		c.check("fail", fmt.Sprintf("cannot empty build/%s/dist/ (is the game still running?): %v", game, err))
 		return ""
@@ -95,7 +97,7 @@ func (c *cli) distGame(game string) string {
 		return ""
 	}
 
-	info, ok := c.buildExecutable(game, tags, filepath.Join(folder, exe))
+	info, ok := c.buildExecutable(game, name, tags, filepath.Join(folder, exe))
 	if !ok {
 		return ""
 	}
@@ -172,7 +174,7 @@ func (c *cli) distGame(game string) string {
 	if osName == "darwin" {
 		osName = "macos"
 	}
-	zipName := fmt.Sprintf("%s-%s%s-%s-%s.zip", game, info.Version, c.tagsInName(), osName, c.goarch)
+	zipName := fmt.Sprintf("%s-%s%s-%s-%s.zip", name, info.Version, c.tagsInName(), osName, c.goarch)
 	size, err := zipFolder(folder, filepath.Join(distDir, zipName))
 	if err != nil {
 		c.check("fail", "cannot zip "+shownFolder+": "+err.Error())
@@ -182,15 +184,15 @@ func (c *cli) distGame(game string) string {
 
 	switch c.goos {
 	case "windows":
-		c.check("info", fmt.Sprintf("players unzip it and start %s, which needs the files next to it and writes nothing to their machine but what the game saves with golib.SaveData, in %%AppData%%\\GoLib games\\%s", exe, game))
+		c.check("info", fmt.Sprintf("players unzip it and start %s, which needs the files next to it and writes nothing to their machine but what the game saves with golib.SaveData, in %%AppData%%\\GoLib games\\%s", exe, name))
 	case "linux":
-		c.check("info", fmt.Sprintf("players unzip it and start %s, which needs the files next to it, and libX11.so.6, libGL.so.1 and libffi.so.8 from their system. What the game saves with golib.SaveData goes in ~/.config/GoLib games/%s", exe, game))
+		c.check("info", fmt.Sprintf("players unzip it and start %s, which needs the files next to it, and libX11.so.6, libGL.so.1 and libffi.so.8 from their system. What the game saves with golib.SaveData goes in ~/.config/GoLib games/%s", exe, name))
 	default:
 		native := ""
 		if usesNative {
 			native = ", and golibnative.dylib, which it loads from Contents/Frameworks/"
 		}
-		c.check("info", fmt.Sprintf("players unzip it and open %s, which carries %s inside, and copies them into the player's ~/Library/Caches folder when it first starts%s. What the game saves with golib.SaveData goes in ~/Library/Application Support/GoLib games/%s. No Apple developer account signs the app, so the first time macOS stops it: players open it from System Settings, Privacy & Security, Open Anyway", built, joinWords(names), native, game))
+		c.check("info", fmt.Sprintf("players unzip it and open %s, which carries %s inside, and copies them into the player's ~/Library/Caches folder when it first starts%s. What the game saves with golib.SaveData goes in ~/Library/Application Support/GoLib games/%s. No Apple developer account signs the app, so the first time macOS stops it: players open it from System Settings, Privacy & Security, Open Anyway", built, joinWords(names), native, name))
 	}
 	return exePath
 }
@@ -327,13 +329,13 @@ func copyTree(source, target, name string, leave []*leaveOut) (copied bool, err 
 	return true, err
 }
 
-// buildExecutable builds game's executable into output with the build tags
-// tags, and returns what game.json says. On Windows it adds the game's
-// icon and version information; on macOS it reports what the app will say. It returns false after reporting a failure.
-func (c *cli) buildExecutable(game, tags, output string) (gameInfo, bool) {
+// buildExecutable builds game's executable, called name, into output with
+// the build tags tags, and returns what game.json says. On Windows it adds
+// the game's icon and version information; on macOS it reports what the app will say. It returns false after reporting a failure.
+func (c *cli) buildExecutable(game, name, tags, output string) (gameInfo, bool) {
 	dir := c.path("games", game)
-	// golib.SaveData saves in a folder named after the game.
-	ldflags := "-s -w -X golib.saveName=" + game
+	// golib.SaveData saves in a folder named as the executable is.
+	ldflags := "-s -w -X golib.saveName=" + name
 	var info gameInfo
 	var ok bool
 	switch c.goos {
@@ -341,7 +343,7 @@ func (c *cli) buildExecutable(game, tags, output string) (gameInfo, bool) {
 		// -H=windowsgui makes a program that opens no console window.
 		ldflags += " -H=windowsgui"
 		var removeResources func()
-		info, removeResources, ok = c.addWindowsResources(game, true)
+		info, removeResources, ok = c.addWindowsResources(game, name, true)
 		defer removeResources()
 	case "linux":
 		// The dynamic linker looks for the libraries in the executable's
@@ -445,10 +447,11 @@ func (c *cli) gameNotices(game, exe string, modules []goModule, libraries []libr
 // addWindowsResources writes the Windows resources of game, its icon from
 // icon.png and the details Explorer shows from game.json, into a .syso file
 // next to its main.go, where the next go build links them into the
-// executable. With describe, it reports what it found. It returns what
-// game.json says, and a function that deletes the file, to call once the
-// build is over, even after a failure. ok is false after reporting a failure.
-func (c *cli) addWindowsResources(game string, describe bool) (info gameInfo, remove func(), ok bool) {
+// executable, called name. With describe, it reports what it found. It
+// returns what game.json says, and a function that deletes the file, to
+// call once the build is over, even after a failure. ok is false after
+// reporting a failure.
+func (c *cli) addWindowsResources(game, name string, describe bool) (info gameInfo, remove func(), ok bool) {
 	// Go links the .syso files in a package's folder into the program, and
 	// only from there, so the resources sit next to main.go for the length of
 	// the build. .gitignore lists the name. Debug and dist builds use the
@@ -464,7 +467,7 @@ func (c *cli) addWindowsResources(game string, describe bool) (info gameInfo, re
 	if !ok {
 		return info, remove, false
 	}
-	data, err := windowsResources(info, icon, game, c.goarch)
+	data, err := windowsResources(info, icon, name, c.goarch)
 	if err == nil {
 		err = os.WriteFile(path, data, 0o644)
 	}
@@ -532,7 +535,7 @@ func (c *cli) readGameFiles(game string, describe bool) (info gameInfo, icon *im
 }
 
 // windowsResources returns a .syso file with the Windows resources of the
-// game called name, built for arch processors: the version information from
+// game whose executable is called name, built for arch processors: the version information from
 // info, and the icon, unless icon is nil.
 func windowsResources(info gameInfo, icon *image.NRGBA, name, arch string) ([]byte, error) {
 	target, found := targets[arch]

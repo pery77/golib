@@ -133,7 +133,7 @@ Each slice ends with a game that builds and runs. Never write the whole game bef
 
 ## Content
 
-GoLib has no editors. Content comes from established tools, and the game loads their files from its `assets/` folder. Formats and support status are in [architecture.md](../architecture.md).
+GoLib has no editors, and a game doesn't redo what Tiled, Aseprite, jfxr or Blender do. Content comes from established tools, and the game loads their files from its `assets/` folder. Formats and support status are in [architecture.md](../architecture.md).
 
 | Content | Tool |
 | --- | --- |
@@ -147,7 +147,7 @@ GoLib has no editors. Content comes from established tools, and the game loads t
 - A game with an `assets/` folder also needs `assets.go` next to `main.go`, so `golib dist` embeds the folder. Copy it exactly from the `EmbedAssets` example in the API guide, [framework/README.md](../../framework/README.md). `golib dist` stops and says so when it is missing.
 - Load a list of levels, or of any other files, with `golib.ListAssets`, instead of naming each file in code, and check a map with `Map.Err` when the game should carry on without it.
 - When a game has levels, make them Tiled maps instead of arrays in code, so the user can open and change them in Tiled. Tiled needs a tileset picture to show them: without art from the user, draw a small one yourself, as a PNG made by a short Go program in the game's `sources/` folder, run with `golib go run`, so the user can see how it was made, change it or replace the picture with one drawn in Aseprite. A map is XML you can write directly: see the example below and the Maps section of [framework/README.md](../../framework/README.md). Put the tileset in its own `.tsx` file, so every level shares it, and mark tiles there with properties such as `solid`, not by ID in code.
-- Never build a level editor, sprite editor or other content tool, inside the game or next to it.
+- Never build a tool, inside the game or next to it, that redoes Tiled's, Aseprite's, jfxr's or Blender's job. A small tool inside the game for what only the game knows, such as tuning its sounds by ear or editing one feature of its own, is allowed; keep it behind a build tag when players shouldn't see it (golden rule 10, clarified 2026-10-23).
 
 A level written by hand, `assets/maps/level1.tmx`, with the tileset `assets/maps/tiles.tsx` for the 16 by 16 pixel tiles of `assets/sprites/tiles.png`. Tile layer data is one tile per cell, row by row: 0 for none, else the tile's ID in the tileset plus the tileset's `firstgid`.
 
@@ -268,7 +268,7 @@ Before calling a game done:
 
 - Writing the entire game in one go, then running it for the first time.
 - Building an engine layer, ECS or plugin system on top of GoLib "for later".
-- Building a level editor, sprite editor or content GUI instead of using Tiled, Aseprite or Blender files.
+- Building a level editor, sprite editor or content GUI that redoes what Tiled, Aseprite, jfxr or Blender do, instead of loading their files.
 - Adding third-party dependencies without the user's explicit approval.
 - Downloading images or sounds from the internet: their licenses are unknown. Use shapes, art generated in code, or files the user provides.
 - Magic numbers scattered through the code.

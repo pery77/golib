@@ -24,6 +24,14 @@ func TestSoundSpecDefaults(t *testing.T) {
 	if loud.Volume != 1 || loud.Duty != 0.95 || loud.Attack != 0.1 || loud.Release != 0.1 {
 		t.Errorf("out-of-range values resolved to %+v, want them kept in range", loud)
 	}
+
+	// Resolving twice, as NewSound and samples do, changes nothing.
+	for _, spec := range []SoundSpec{{}, loud, {Attack: -1, Release: -1}, {Attack: -1, Duration: 0.5}} {
+		once := spec.resolve()
+		if twice := once.resolve(); twice != once {
+			t.Errorf("%+v resolved once is %+v, twice %+v", spec, once, twice)
+		}
+	}
 }
 
 func TestSamplesLengthAndEnvelope(t *testing.T) {
@@ -389,8 +397,9 @@ func TestSoundFilesWithADevice(t *testing.T) {
 }
 
 func TestNegativeFadesMeanNone(t *testing.T) {
-	// A loop needs full volume from its first sample to its last.
-	samples := SoundSpec{Attack: -1, Release: -1, Duration: 0.25}.samples()
+	// A loop needs full volume from its first sample to its last, made as a
+	// game makes it: NewSound resolves the recipe, and samples again.
+	samples := NewSound(SoundSpec{Attack: -1, Release: -1, Duration: 0.25}).spec.samples()
 	loudest := samples[len(samples)/2]
 	if loudest < 0 {
 		loudest = -loudest

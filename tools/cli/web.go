@@ -315,7 +315,7 @@ func (c *cli) distWeb(game string) bool {
 	}
 	c.check("ok", fmt.Sprintf("wrote %s next to it, with the licenses of %s", noticesFile, joinWords(titles)))
 
-	zipName := fmt.Sprintf("%s-%s%s-web.zip", game, info.Version, c.tagsInName())
+	zipName := fmt.Sprintf("%s-%s%s-web.zip", info.FileName, info.Version, c.tagsInName())
 	zipPath := filepath.Join(distDir, zipName)
 	if err := os.Remove(zipPath); err != nil && !os.IsNotExist(err) {
 		c.check("fail", fmt.Sprintf("cannot replace %s: %v", c.shown(zipPath), err))

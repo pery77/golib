@@ -83,7 +83,7 @@ func (c *cli) runDist(game string) int {
 	if exe == "" {
 		return c.summary("run")
 	}
-	folder := c.path("build", game, "dist", game)
+	folder := c.path("build", game, "dist", c.fileName(game))
 	shownExe := c.shown(exe)
 	c.check("info", fmt.Sprintf("running %s as a player would, from its own folder", shownExe))
 	code, _, err := c.runGame(gameRun{exe: exe, dir: folder, env: c.cleanEnv()})
@@ -117,7 +117,7 @@ func (c *cli) buildGame(game string) string {
 	var info gameInfo
 	if c.goos == "windows" {
 		var ok bool
-		info, removeResources, ok = c.addWindowsResources(game, false)
+		info, removeResources, ok = c.addWindowsResources(game, game, false)
 		if !ok {
 			removeResources()
 			return ""
