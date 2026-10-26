@@ -171,6 +171,10 @@ func (r *renderer) present(picture *device.Target, fit device.Rectangle, time fl
 	device.Clear(device.Black) // the bars around a screen that doesn't fill the window
 	r.drawThrough(last, source, fit, time)
 	r.drawOver(fit)
+	// The screen keeps the opacity see-through drawing leaves in it, which
+	// drawThrough copies; the window must be opaque, or on macOS the desktop
+	// shows through it.
+	device.MakeOpaque(fit)
 	if picture != nil {
 		device.EndTarget()
 	} else {
