@@ -1195,6 +1195,43 @@ screen.DrawModel(level, golib.Transform{}, golib.White)
 screen.End3D()
 ```
 
+### Particles
+
+Many small things that fly, change and are gone: fire, smoke, sparks, dust, rain, magic. Each is a picture facing the camera, moved by GoLib; all of one `Particles` are one draw.
+
+| Name | What it does |
+| --- | --- |
+| `Particles` | A set of particles that look and move alike. Make it once, as a package variable or in the scene. |
+| `NewParticles` | `NewParticles(spec ParticleSpec) *Particles`: none born yet. |
+| `ParticleSpec` | How they look and move; every field left at zero has a working default. |
+| `ParticleSpec.Texture` | The picture of each, a white one tinted by `Color`: nil is a soft round dot. |
+| `ParticleSpec.Color`, `ParticleSpec.EndColor` | Each particle's color as it is born and as it dies, blended along its life, opacity too: white when zero, and `Color` faded to nothing when `EndColor` is zero. |
+| `ParticleSpec.Brightness` | Multiplies the colors, past white for a glow that blooms: 3 for dazzling sparks. 1 when zero. |
+| `ParticleSpec.Size`, `ParticleSpec.EndSize` | Meters across as it is born, 0.2 when zero, and as it dies, `Size` when zero: smoke grows, embers shrink. |
+| `ParticleSpec.Life` | Seconds each lives, 1 when zero: each between three quarters and five quarters of it. |
+| `ParticleSpec.Speed`, `ParticleSpec.Spread` | How fast each leaves, in meters a second, along the direction `Emit` gives, turned by up to `Spread` degrees: 0 straight, 180 every way. |
+| `ParticleSpec.Gravity`, `ParticleSpec.Drag` | What pulls them each second, `golib.Vector3{Y: -9.81}` for sparks that fall, `golib.Vector3{Y: 1}` for smoke that rises; and how much of their speed they lose in a second, from 0 to 1. |
+| `ParticleSpec.Glow` | Adds their light to what is behind them, as fire, sparks and magic do. Without it they cover what is behind, as smoke and dust do. |
+| `Particles.Emit` | `Emit(position, direction Vector3, count int)`: `count` new particles at `position`, leaving along `direction`, up when zero. Past 10,000 alive, the oldest give way. |
+| `Particles.Update` | `Update(dt float32)`: moves them on and takes out those whose life is over. Call it in every `Update`. |
+| `Particles.Count`, `Particles.Clear` | How many are alive; take them all out at once. |
+| `Screen.DrawParticles` | `DrawParticles(p *Particles)`: draws them between `Begin3D` and `End3D`, after everything solid, lit by nothing. |
+
+```go
+var sparks = golib.NewParticles(golib.ParticleSpec{
+	Color: golib.Yellow, EndColor: golib.Red, Brightness: 3, Size: 0.06, Life: 0.8,
+	Speed: 4, Spread: 40, Gravity: golib.Vector3{Y: -9.81}, Glow: true,
+})
+
+// When a blade hits: sparks.Emit(hit.Position, hit.Normal, 30)
+// In Update: sparks.Update(dt)
+// In Draw, in the 3D: screen.DrawParticles(sparks)
+```
+
+- **A fire is two or three Particles:** flames that glow and rise, smoke that covers and grows, and a few sparks; emit a few flames every update, and a puff of smoke now and then.
+- **They don't collide:** sparks fall through the floor. Give them short lives, or a `Life` that ends as they reach it.
+- **Random numbers are golib's**, so `golib shot` draws them the same every time.
+
 ### Light baked in Blender
 
 A level made in Blender can carry its light baked by Cycles, Blender's ray tracer, into a lightmap: the sky's light as much of it as reaches each corner, and the light the sun, the lamps and the sky bounce off the walls, red beside a red wall, darker under a roof. GoLib can't work that out as it draws; baked, it costs one texture read. The sun and the lamps themselves stay GoLib's, with their shadows, so a character walking through the level is lit and shades it as it moves. Bake with GoLib's script, from the project root, with Blender in the background:

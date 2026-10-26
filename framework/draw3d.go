@@ -108,6 +108,7 @@ type pass3D struct {
 	animation   []float32 // the blocks of the animated items, see itemAnimation
 	environment Environment
 	lights      []Light
+	particles   []particleDraw
 	probes      *lightProbes // the light probes of a level drawn in the pass, or nil
 	probesPlace matrix       // where that level is drawn
 	width       int          // the size of the target the pass draws over, in its texels
@@ -1783,6 +1784,25 @@ func (r *state3D) draw(pass *pass3D) {
 		}
 		device.SetDepthWrite(true)
 		device.SetBlend3D(false)
+	}
+
+	// Particles last, over everything, behind what is nearer: those that
+	// glow add their light, the rest cover what is behind them.
+	if len(pass.particles) > 0 {
+		quad := particleQuad.upload()
+		device.SetDepthWrite(false)
+		for _, d := range pass.particles {
+			current, program = nil, nil
+			use(d.material, false, nil)
+			if d.glow {
+				device.SetAdditive3D(true)
+			} else {
+				device.SetBlend3D(true)
+			}
+			device.DrawMeshInstanced(quad, d.instances)
+		}
+		device.SetBlend3D(false)
+		device.SetDepthWrite(true)
 	}
 
 	width, height := pass.width, pass.height
