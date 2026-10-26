@@ -46,6 +46,7 @@ type Model struct {
 	rootSkin   int // the skin whose top bone root motion follows
 	animations []modelAnimation
 	lights     []modelLight // its lamps, which Sun and Lights give
+	hidden     []bool       // for each node, whether Hide hid it, or nil
 	probes     *lightProbes // the light probes baked with it, or nil
 	rest       modelPose    // the model as the file has it, which DrawModel draws
 	extra      []string  // files of more animations, from AddAnimations
@@ -776,12 +777,63 @@ func (m *Model) readyToDraw() bool {
 
 // drawPose draws model posed as pose, placed by place: each part where its
 // node is, or bent by its skin and its shape keys.
+// Hide hides the parts of the model in the objects named names, as Blender
+// named them, and in the objects under them, wherever the model is drawn,
+// until Show shows them again: a coin collected from a level, a door
+// opened, a sword sheathed. A name the model doesn't have is reported.
+func (m *Model) Hide(names ...string) {
+	m.setHidden(names, true, "Hide")
+}
+
+// Show shows again the objects named names that Hide hid.
+func (m *Model) Show(names ...string) {
+	m.setHidden(names, false, "Show")
+}
+
+func (m *Model) setHidden(names []string, hide bool, call string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.prepare() != nil {
+		return
+	}
+	if m.hidden == nil {
+		m.hidden = make([]bool, len(m.nodes))
+	}
+	for _, name := range names {
+		found := false
+		for i, n := range m.nodes {
+			if n.name == name {
+				m.hidden[i], found = hide, true
+			}
+		}
+		if !found {
+			reportError(fmt.Errorf("golib: Model.%s(%q): %s has no object of that name", call, name, m.name))
+		}
+	}
+}
+
+// partHidden says whether Hide hid the node part sits on, or one above it.
+func (m *Model) partHidden(node int) bool {
+	if m.hidden == nil {
+		return false
+	}
+	for ; node >= 0; node = m.nodes[node].parent {
+		if m.hidden[node] {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Screen) drawPose(model *Model, pose *modelPose, place matrix, tint Color) {
 	if model.probes != nil && s.pass.probes == nil {
 		// A level's light probes light everything else in the pass.
 		s.pass.probes, s.pass.probesPlace = model.probes, place
 	}
 	for _, part := range model.parts {
+		if model.partHidden(part.node) {
+			continue
+		}
 		weights := pose.weights[part.node]
 		shaped := false
 		for _, w := range weights {

@@ -856,6 +856,7 @@ A 3D world, seen through a `Camera3D`, drawn between `screen.Begin3D` and `scree
 | --- | --- |
 | `Material` | How a surface looks: `&golib.Material{Color: golib.Gold, Metallic: 1, Roughness: 0.3}`. Fields left at zero keep a painted look: white, not metallic, roughness 0.6. A changed field shows at the next draw. |
 | `Screen.DrawMeshWith` | `DrawMeshWith(mesh *Mesh, transform Transform, material *Material)`: the mesh, its surface as the material says. |
+| `Screen.DrawMeshWithTint` | `DrawMeshWithTint(mesh *Mesh, transform Transform, material *Material, tint Color)`: the same, its colors multiplied by `tint` and see-through by its opacity: one `Material` for every shade of a thing, a wake that fades. |
 | `Material.Color` | Multiplies the texture, or is the color; White when zero. `A` below 255 is see-through. |
 | `Material.Texture`, `Material.Tiling` | A `Texture` wrapped around the mesh by its texture coordinates; `Tiling` repeats it that many times each way, for a floor of tiles (1 when zero). |
 | `Material.Metallic`, `Material.Roughness` | 0 for paint, wood, stone or plastic, 1 for bare metal, which tints what it reflects; and how blurred reflections are, 0.05 for a mirror, 1 for chalk (0.6 when zero). |
@@ -896,6 +897,7 @@ A model is a glTF file, `.glb` or `.gltf`, or an FBX file, `.fbx`, in the game's
 | `Model.Bounds` | `Bounds() (lowest, upmost Vector3)`: the box around it, in its own space: how big it is, and where its feet are. |
 | `Model.Markers` | `Markers() []ModelMarker`: the empties placed in it, and any other node without a mesh, in the file's order. |
 | `Model.Marker` | `Marker(name string) (ModelMarker, bool)`: the first marker called `name`, such as the player's start. |
+| `Model.Hide`, `Model.Show` | `Hide(names ...string)`: hides the objects Blender named so, and the objects under them, wherever the model is drawn, until `Show(names ...string)`: a coin collected from a level, a door opened. A name the model doesn't have is reported. A `PhysicsWorld` the model was added to keeps them solid: `Remove` what goes. |
 | `Model.Err` | `Err() error`: reads it, and says what stopped it from loading. Drawing or asking a model that didn't load stops `Run` with the same message, so a game needs it only to handle the mistake itself, or to check its models in a test. |
 | `ModelMarker` | A marker: `ModelMarker.Name`, `ModelMarker.Position`, `ModelMarker.Rotation` and `ModelMarker.Scale` in the model's own space, and `ModelMarker.Properties`, its custom properties, read like a Tiled object's (`Properties.String`, `Properties.Float` and the others). |
 
@@ -1951,7 +1953,7 @@ A web build is what a phone plays, so a game meant for one is a game meant for t
 | Physics in 2D: things that fall, roll and bounce on their own | Not on the roadmap yet: 3D has rigid bodies, with Jolt | Simple movement and `Rectangle` overlap checks in the game |
 | Joints between rigid bodies (hinges, chains, ragdolls), cars, rigid bodies that push characters, and collision events | Not on the roadmap yet | A swinging door is a `Moved` body turned by the game; a falling crate the game checks against the player; a hit is a sudden change in `Velocity` |
 | Trigger pressure, vibration | Not on the roadmap yet | Triggers read as buttons |
-| Inverse kinematics, and hiding or reading one part of a model | Hiding a part planned (M7, stage 7): see [docs/roadmap.md](../docs/roadmap.md#m7-3d-planned); inverse kinematics isn't on the roadmap yet | Models, materials, lights, the sun's and the lamps' shadows and fog work |
+| Inverse kinematics, and reading one part of a model, such as where its mesh is | Not on the roadmap yet | `Model.Hide` and `Show` hide parts; markers say where things are |
 | Reflections of the world in water and mirrors, a tint for each draw of one `Material`, and hiding or dimming part of an HDRI | Planned (M7, stage 7) | Shiny things reflect the HDRI or the sky; make a `Material` for each color; paint the HDRI over in a copy made offline, as [games/sunset](../games/sunset)'s `sources/skies/lakesky.go` does |
 | `.qoa`, `.xm` and `.mod` in a browser | Not planned: browsers cannot decode them | Save the sound as `.wav`, `.ogg` or `.mp3`. For music, put that file next to the `.xm` under the same name: a web build plays it, and the desktop keeps playing the module |
 

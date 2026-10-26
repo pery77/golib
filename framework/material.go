@@ -142,6 +142,20 @@ func (s *Screen) DrawMeshWith(mesh *Mesh, transform Transform, material *Materia
 	if !s.in3D("DrawMeshWith") {
 		return
 	}
+	s.drawMeshWith(mesh, transform, material, White)
+}
+
+// DrawMeshWithTint draws mesh as DrawMeshWith does, its colors multiplied by
+// tint, and see-through by tint's opacity: one Material for every shade of a
+// thing, a wake that fades, a ghost.
+func (s *Screen) DrawMeshWithTint(mesh *Mesh, transform Transform, material *Material, tint Color) {
+	if !s.in3D("DrawMeshWithTint") {
+		return
+	}
+	s.drawMeshWith(mesh, transform, material, tint)
+}
+
+func (s *Screen) drawMeshWith(mesh *Mesh, transform Transform, material *Material, tint Color) {
 	if mesh == nil {
 		reportError(errors.New("golib: Screen.DrawMeshWith got a nil mesh: make one with golib.NewBoxMesh or another New...Mesh"))
 		return
@@ -160,7 +174,7 @@ func (s *Screen) DrawMeshWith(mesh *Mesh, transform Transform, material *Materia
 	if mesh.twoSided {
 		made = material.twoSided
 	}
-	s.addItem(mesh, made, transform.matrix(), White)
+	s.addItem(mesh, made, transform.matrix(), tint)
 }
 
 // Texture is a picture for 3D, from a PNG or JPEG file in the game's assets

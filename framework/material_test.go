@@ -62,3 +62,29 @@ void surface(inout Surface s) {
 		t.Errorf("a missing texture reported %v", err)
 	}
 }
+
+// DrawMeshWithTint shades one Material differently each draw, and fades it.
+func TestDrawMeshWithTint(t *testing.T) {
+	screen, capture := openTestWindow(t, 64, 64)
+	takeError()
+	camera := NewCamera3D(64, 64)
+	camera.Position, camera.Target = Vector3{Z: -4}, Vector3{}
+	white := &Material{Color: White, Unlit: true}
+	middle := func(tint Color) color.NRGBA {
+		return capture(func() {
+			screen.Begin3D(camera)
+			screen.SetEnvironment(Environment{NoBloom: true})
+			screen.DrawMeshWithTint(NewBoxMesh(), Transform{Scale: Vector3{X: 2, Y: 2, Z: 2}}, white, tint)
+			screen.End3D()
+		}).NRGBAAt(32, 32)
+	}
+	if c := middle(Color{R: 200, G: 40, B: 40, A: 255}); c.R < 190 || c.G > 50 {
+		t.Errorf("a white material tinted red is %v, want red", c)
+	}
+	if c := middle(Color{R: 255, G: 255, B: 255, A: 0}); c.A > 5 {
+		t.Errorf("a white material tinted to nothing is %v, want see-through", c)
+	}
+	if err := takeError(); err != nil {
+		t.Fatal(err)
+	}
+}
