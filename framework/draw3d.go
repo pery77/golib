@@ -1397,6 +1397,7 @@ type state3D struct {
 	hazeTarget    device.WorkTarget  // the picture haze is walked into
 	animation     []float32          // the animated items' blocks, as the animation texture gets them
 	animationData device.DataTexture // the animation texture
+	resolution    float32            // the pass being drawn's share of the screen's pixels across
 }
 
 // programKind says which lit program a draw needs: with a game's own
@@ -1715,6 +1716,12 @@ func (r *state3D) draw(pass *pass3D) {
 	eye, _ := pass.camera.view()
 	env := pass.environment.uniforms()
 	lights := lightsFor(pass.lights, eye)
+	// At a lower Resolution the pass is drawn smaller, and End3D enlarges it.
+	if env.resolution < 1 {
+		pass.width = max(1, int(float32(pass.width)*env.resolution+0.5))
+		pass.height = max(1, int(float32(pass.height)*env.resolution+0.5))
+	}
+	r.resolution = env.resolution
 
 	// What is solid, grouped by mesh and material in the order first drawn,
 	// so every copy of a mesh is one draw; what is see-through, one by one.
@@ -1760,7 +1767,7 @@ func (r *state3D) draw(pass *pass3D) {
 		return cmp.Compare(distance(b), distance(a)) // farthest first
 	})
 
-	device.Begin3D()
+	device.Begin3D(pass.width, pass.height)
 
 	// Each group's instances, built once for the shadows and the picture,
 	// and the blocks of the animated ones, each draw's together, for the

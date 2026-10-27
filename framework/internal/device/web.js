@@ -372,7 +372,8 @@ void main() {
 					i += 7;
 					break;
 				case BEGIN_3D:
-					begin3D();
+					begin3D(c[i], c[i + 1]);
+					i += 2;
 					break;
 				case END_3D:
 					end3D(c[i]);
@@ -1460,9 +1461,11 @@ void main() {
 		workTargets.delete(id);
 	}
 
-	function begin3D() {
+	// begin3D starts a pass width by height, the size of the target it is
+	// drawn over or smaller: end3D enlarges it to cover that target.
+	function begin3D(width, height) {
 		flush();
-		preparePass3D(Math.max(1, viewWidth), Math.max(1, viewHeight));
+		preparePass3D(Math.max(1, width), Math.max(1, height));
 		gl.bindFramebuffer(gl.FRAMEBUFFER, pass3D.framebuffer);
 		gl.viewport(0, 0, pass3D.width, pass3D.height);
 		gl.enable(gl.DEPTH_TEST);

@@ -517,14 +517,15 @@ func UniformLocation(program Program, name string) int32 {
 
 // Begin3D starts a 3D pass over the target being drawn on: it sends
 // raylib's waiting 2D first, and draws what follows into a target of its own,
-// in half floats, the same size, cleared to nothing, with depth testing and
-// back faces culled, blending off. End3D puts it over the 2D.
-func Begin3D() {
+// in half floats, width by height, the target's size or smaller, cleared to
+// nothing, with depth testing and back faces culled, blending off. End3D
+// puts it over the 2D, enlarged to cover it.
+func Begin3D(width, height int) {
 	loadGL()
 	rl.DrawRenderBatchActive()
 	glCall(gl.GetIntegerv, glFramebufferBinding, uintptr(unsafe.Pointer(&target3D.previous)))
 	glCall(gl.GetIntegerv, glViewportParameter, uintptr(unsafe.Pointer(&target3D.viewport[0])))
-	prepareTarget3D(max(1, target3D.viewport[2]), max(1, target3D.viewport[3]))
+	prepareTarget3D(int32(max(1, width)), int32(max(1, height)))
 	glCall(gl.BindFramebuffer, glFramebuffer, uintptr(target3D.fbo))
 	glCall(gl.Viewport, 0, 0, uintptr(target3D.width), uintptr(target3D.height))
 	glCall(gl.DepthMask, 1)

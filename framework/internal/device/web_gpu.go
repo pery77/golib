@@ -105,10 +105,11 @@ func UniformLocation(program Program, name string) int32 {
 
 // Begin3D starts a 3D pass over the target being drawn on: what follows goes
 // into a target of its own, in half floats where the browser can render into
-// them, the same size, cleared to nothing, with depth testing and back faces
-// culled, blending off. End3D puts it over the 2D.
-func Begin3D() {
-	push(opBegin3D)
+// them, width by height, the target's size or smaller, cleared to nothing,
+// with depth testing and back faces culled, blending off. End3D puts it over
+// the 2D, enlarged to cover it.
+func Begin3D(width, height int) {
+	push(opBegin3D, float32(width), float32(height))
 }
 
 // End3D ends the pass Begin3D started: it draws the pass's picture over the

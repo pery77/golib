@@ -113,6 +113,14 @@ type Environment struct {
 	// something. NoScreenReflections turns them off, for a game that needs
 	// every frame it can get.
 	NoScreenReflections bool
+
+	// Resolution is the share of the screen's pixels, across and down, the
+	// 3D is drawn at before it is enlarged onto the screen: 0.75 draws about
+	// half as many pixels and 0.5 a quarter, softer, for a graphics card
+	// that can't keep up, as a game's graphics settings offer. The 2D drawn
+	// after End3D stays sharp, and outlines and Blur keep their size on the
+	// screen. 0 counts as 1, and it goes no lower than 0.25.
+	Resolution float32
 }
 
 // SetEnvironment sets how the 3D pass begun last is lit, and what shows
@@ -255,6 +263,7 @@ type environmentUniforms struct {
 	bloom             float32    // 0 for none
 	blur              int        // halvings the picture is softened by; 0 for none
 	screenReflections bool
+	resolution        float32 // the share of the screen's pixels across the pass is drawn at
 }
 
 // The default light: a sun high behind and to the right of a camera facing
@@ -351,7 +360,12 @@ func (e Environment) uniforms() environmentUniforms {
 			u.bloom = e.Bloom
 		}
 	}
-	u.blur = blurLevels(e.Blur)
+	u.resolution = 1
+	if e.Resolution > 0 {
+		u.resolution = Clamp(e.Resolution, 0.25, 1)
+	}
+	// The blur is measured in the screen's pixels, fewer in the pass's.
+	u.blur = blurLevels(e.Blur * u.resolution)
 	u.screenReflections = !e.NoScreenReflections
 	u.shadows = !e.NoShadows && (u.sun[0] > 0 || u.sun[1] > 0 || u.sun[2] > 0)
 	u.shadowDistance = 50
