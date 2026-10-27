@@ -366,6 +366,10 @@ func EndBlend() {
 	push(opBlend, blendNormal)
 }
 
+// MakeOpaque does nothing in a browser: the canvas is made without
+// opacity, so the page never shows through it.
+func MakeOpaque(rect Rectangle) {}
+
 // NewShader compiles a post-processing shader from the source of a fragment
 // shader, or says why it couldn't. The source is a game's, written for
 // desktop OpenGL, so ESShader turns its first lines into the ones a browser

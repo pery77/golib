@@ -221,6 +221,19 @@ func EndBlend() {
 	rl.EndBlendMode()
 }
 
+// MakeOpaque sets the opacity of every pixel in rect to 1, leaving its
+// colors as they are. A window copies the opacity a game's see-through
+// drawing leaves in its pixels, and on macOS the desktop shows through
+// where it is below 1.
+func MakeOpaque(rect Rectangle) {
+	// The colors keep what is there; the opacity adds 1 to it, which the
+	// window holds at 1.
+	rl.SetBlendFactorsSeparate(glZero, glOne, glOne, glOne, glFuncAdd, glFuncAdd)
+	rl.BeginBlendMode(rl.BlendCustomSeparate)
+	DrawRectangle(rect, White)
+	rl.EndBlendMode()
+}
+
 // NewShader compiles a post-processing shader from the source of a fragment
 // shader, or says why it couldn't.
 func NewShader(fragment string) (Shader, error) {
