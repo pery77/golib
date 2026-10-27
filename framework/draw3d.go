@@ -359,6 +359,11 @@ out vec4 color;
 layout(location = 11) in vec2 vertexLightcoord;
 out vec2 lightcoord;
 #endif
+#ifdef CUSTOM_SURFACE
+out vec3 meshPosition;
+out vec3 meshNormal;
+out mat3 normalTurn;
+#endif
 
 // ANIMATION
 
@@ -371,6 +376,11 @@ void main()
 #endif
     mat3 turn = mat3(instanceModel);
     normal = transpose(inverse(turn)) * shapeNormal;
+#ifdef CUSTOM_SURFACE
+    meshPosition = position;
+    meshNormal = shapeNormal;
+    normalTurn = transpose(inverse(turn));
+#endif
     texcoord = vertexTexcoord;
 #ifdef LIGHTMAPPED
     lightcoord = vertexLightcoord;
@@ -833,15 +843,34 @@ vec3 waterLight(vec3 light, vec3 n, vec3 v, vec3 fresnel, vec3 mirrored)
 // What a material's surface is at one point, which a game's own shader,
 // Material.Shader, changes before GoLib lights it.
 struct Surface {
-    vec4 color;      // linear, with its opacity
-    vec3 emission;   // linear light it gives off
+    vec4 color;        // linear, with its opacity
+    vec3 emission;     // linear light it gives off
     float metallic;
     float roughness;
-    vec3 normal;     // length 1, in the world
-    vec3 position;   // in the world
-    vec2 texcoord;   // tiled
-    float time;      // seconds of game time
+    vec3 normal;       // length 1, in the world
+    vec3 position;     // in the world
+    vec2 texcoord;     // tiled
+    float time;        // seconds of game time
+    vec3 meshPosition; // in the mesh's own space, before its Transform
+    vec3 meshNormal;   // length 1, in the mesh's own space
+    vec4 vertexColor;  // the mesh's, tinted, linear, before the material's color and texture
 };
+
+#ifdef CUSTOM_SURFACE
+in vec3 meshPosition;
+in vec3 meshNormal;
+in mat3 normalTurn;
+
+// The material's texture, for a shader that wraps it its own way.
+#define materialTexture baseTexture
+
+// meshToWorld turns a normal worked out in the mesh's own space, such as
+// a wave's on a planet that turns, into the world's, for s.normal.
+vec3 meshToWorld(vec3 n)
+{
+    return normalize(normalTurn * n);
+}
+#endif
 
 // HAZE
 
@@ -872,7 +901,7 @@ void main()
     float occlusion = 1.0;
     if (hasOcclusionTexture == 1) occlusion = mix(1.0, texture(occlusionTexture, uv).r, occlusionStrength);
 #ifdef CUSTOM_SURFACE
-    Surface s = Surface(albedo, glow, metal, rough, n, worldPosition, uv, time);
+    Surface s = Surface(albedo, glow, metal, rough, n, worldPosition, uv, time, meshPosition, normalize(meshNormal), color);
     surface(s);
     albedo = s.color;
     glow = s.emission;
@@ -1546,6 +1575,7 @@ func (r *state3D) surfaceProgram(m *material3D, kind programKind) *litProgram {
 	if m.surface != "" {
 		fragment = strings.Replace(fragment, "// SURFACE", m.surface, 1)
 		fragment = strings.Replace(fragment, "#version 330\n", "#version 330\n#define CUSTOM_SURFACE\n", 1)
+		vertex = strings.Replace(vertex, "#version 330\n", "#version 330\n#define CUSTOM_SURFACE\n", 1)
 	}
 	if lightmapped {
 		vertex = strings.Replace(vertex, "#version 330\n", "#version 330\n#define LIGHTMAPPED\n", 1)
