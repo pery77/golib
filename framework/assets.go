@@ -94,8 +94,9 @@ func assetSource(caller string, embedded fs.FS, dist bool) (fs.FS, string, error
 // working directory, which golib run, golib shot, F5 and go test set to the
 // game's folder. A debug build started another way, such as a double click on
 // build/<game>/<game>.exe, runs somewhere else: when the working directory has
-// no assets folder, it reads the one in games/<game>/, found from the
-// executable's place in build/<game>/, if there is one.
+// no assets folder, it reads the one in games/<game>/, or in
+// examples/<game>/ for one of GoLib's examples, found from the executable's
+// place in build/<game>/, if there is one.
 func debugGameDir(workDir, exe string, isDir func(string) bool) string {
 	if exe == "" || isDir(filepath.Join(workDir, assetsDir)) {
 		return workDir
@@ -104,11 +105,13 @@ func debugGameDir(workDir, exe string, isDir func(string) bool) string {
 	if filepath.Base(filepath.Dir(buildGameDir)) != "build" {
 		return workDir
 	}
-	gameDir := filepath.Join(buildGameDir, "..", "..", "games", filepath.Base(buildGameDir))
-	if !isDir(filepath.Join(gameDir, assetsDir)) {
-		return workDir
+	for _, folder := range []string{"games", "examples"} {
+		gameDir := filepath.Join(buildGameDir, "..", "..", folder, filepath.Base(buildGameDir))
+		if isDir(filepath.Join(gameDir, assetsDir)) {
+			return gameDir
+		}
 	}
-	return gameDir
+	return workDir
 }
 
 // isDir reports whether path is a folder.

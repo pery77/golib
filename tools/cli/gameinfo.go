@@ -162,7 +162,7 @@ func checkFileName(name string) error {
 // a mistake it returns the folder's name, and the build, which reads the
 // file again, reports the mistake.
 func (c *cli) fileName(game string) string {
-	info, _, err := readGameInfo(c.path("games", game))
+	info, _, err := readGameInfo(c.gameDir(game))
 	if err != nil {
 		return game
 	}

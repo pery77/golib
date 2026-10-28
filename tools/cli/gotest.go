@@ -41,7 +41,7 @@ func (c *cli) test(options []string) int {
 		if game == "" {
 			return exitCode
 		}
-		modules = []string{"games/" + game}
+		modules = []string{c.gameModule(game)}
 	}
 	if len(modules) == 0 {
 		c.check("warn", "no Go modules to test")
@@ -58,7 +58,7 @@ func (c *cli) test(options []string) int {
 		if run != "" {
 			test = append(test, "-v", "-run", run)
 		}
-		if strings.HasPrefix(module, "games/") {
+		if isGameModule(module) {
 			// A game's tests see its version in golib.GameVersion, as its
 			// builds do. A game.json with a mistake gives none: build and
 			// dist report it.

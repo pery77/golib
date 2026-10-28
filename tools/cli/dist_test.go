@@ -833,8 +833,8 @@ func TestDistUsage(t *testing.T) {
 		want    string
 	}{
 		{nil, nil, "golib: there are no games in games/ yet (create one: golib new <name>)\n"},
-		{[]string{"rocks", "snake"}, nil, "golib: dist needs a game name (available: rocks, snake)\n"},
-		{[]string{"rocks", "snake"}, []string{"pong"}, `golib: no game named "pong" in games/ (available: rocks, snake)` + "\n"},
+		{[]string{"rocks", "snake"}, nil, "golib: dist needs a game name (games: rocks, snake)\n"},
+		{[]string{"rocks", "snake"}, []string{"pong"}, `golib: no game named "pong" in games/ or examples/ (games: rocks, snake)` + "\n"},
 		{[]string{"rocks"}, []string{"rocks", "snake"}, "golib: dist takes at most one game name (got: rocks snake)\n"},
 	}
 	for _, tt := range tests {

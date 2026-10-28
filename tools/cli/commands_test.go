@@ -313,7 +313,7 @@ func TestRunOptionUsage(t *testing.T) {
 		{[]string{"-v"}, "unknown option for run: -v"},
 		{[]string{"--dist=1"}, "unknown option for run: --dist=1"},
 		{[]string{"rocks", "snake"}, "run takes at most one game name (got: rocks snake)"},
-		{[]string{"--dist"}, "run needs a game name (available: rocks, snake)"},
+		{[]string{"--dist"}, "run needs a game name (games: rocks, snake)"},
 	}
 	for _, tt := range tests {
 		tp := newTestProject(t, "windows", "rocks", "snake")
@@ -421,7 +421,7 @@ func TestShotUsage(t *testing.T) {
 		{[]string{"0"}, "frame numbers go from 1 to 999999 (got: 0)"},
 		{[]string{"1234567"}, "frame numbers go from 1 to 999999 (got: 1234567)"},
 		{[]string{"rocks", "snake"}, "shot takes at most one game name (got: rocks snake)"},
-		{[]string{"60"}, "shot needs a game name (available: rocks, snake)"},
+		{[]string{"60"}, "shot needs a game name (games: rocks, snake)"},
 	}
 	for _, tt := range tests {
 		tp := newTestProject(t, "windows", "rocks", "snake")
@@ -524,7 +524,7 @@ test: 0 failed, 0 warning(s)
 		want    string
 	}{
 		{[]string{"--run"}, "golib: test --run needs the names of the tests to run, as a pattern, such as: golib test --run TestJump\n"},
-		{[]string{"tetris"}, "golib: no game named \"tetris\" in games/ (available: rocks, snake)\n"},
+		{[]string{"tetris"}, "golib: no game named \"tetris\" in games/ or examples/ (games: rocks, snake)\n"},
 		{[]string{"rocks", "snake"}, "golib: test takes at most one game name (got: rocks snake)\n"},
 	} {
 		tp = newTestProject(t, "windows", "rocks", "snake")
@@ -603,6 +603,7 @@ func TestNewGame(t *testing.T) {
 		t.Fatalf("exit code %d, output:\n%s%s", code, tp.stdout.String(), tp.stderr.String())
 	}
 	want := `[ok]   created games/space-rocks_2/ from tools/template/game/
+[info] games/space-rocks_2/ stays out of GoLib's repository, as all of games/ does: to keep its history, give it a git repository of its own (git init in its folder)
 [info] next: golib run space-rocks_2, and describe the game in games/space-rocks_2/DESIGN.md
 
 new: 0 failed, 0 warning(s)
@@ -624,23 +625,22 @@ new: 0 failed, 0 warning(s)
 		t.Errorf("go calls = %+v, want go mod tidy in the new folder", tp.calls)
 	}
 
-	// A private game says so, and is created like any other.
+	// --example makes one of GoLib's examples, in examples/.
 	tp = newTestProject(t, "windows")
 	newTemplates(t, tp)
-	if code := tp.c.newGame([]string{"_secret"}); code != 0 {
-		t.Fatalf("a private game: exit code %d, output:\n%s%s", code, tp.stdout.String(), tp.stderr.String())
+	if code := tp.c.newGame([]string{"--example", "orbits"}); code != 0 {
+		t.Fatalf("an example: exit code %d, output:\n%s%s", code, tp.stdout.String(), tp.stderr.String())
 	}
-	want = `[ok]   created games/_secret/ from tools/template/game/
-[info] games/_secret/ is a private game: .gitignore keeps games/_*/ out of this repository, so it can have a repository of its own
-[info] next: golib run _secret, and describe the game in games/_secret/DESIGN.md
+	want = `[ok]   created examples/orbits/ from tools/template/game/
+[info] next: golib run orbits, and describe the game in examples/orbits/DESIGN.md
 
 new: 0 failed, 0 warning(s)
 `
 	if tp.stdout.String() != want {
-		t.Errorf("a private game, output:\n%s\nwant:\n%s", tp.stdout.String(), want)
+		t.Errorf("an example, output:\n%s\nwant:\n%s", tp.stdout.String(), want)
 	}
-	if !isFile(tp.c.path("games", "_secret", "go.mod")) {
-		t.Error("a private game left no games/_secret/go.mod behind")
+	if !isFile(tp.c.path("examples", "orbits", "go.mod")) {
+		t.Error("an example left no examples/orbits/go.mod behind")
 	}
 
 	tp = newTestProject(t, "windows")
@@ -667,14 +667,14 @@ new: 0 failed, 0 warning(s)
 
 func TestNewGameUsage(t *testing.T) {
 	invalid := func(name string) string {
-		return `invalid game name "` + name + `": use 1 to 32 lowercase letters, digits, - and _, starting with a letter, or with _ for a private game`
+		return `invalid game name "` + name + `": use 1 to 32 lowercase letters, digits, - and _, starting with a letter`
 	}
 	tests := []struct {
 		options []string
 		want    string
 	}{
-		{nil, "new needs one game name, for example: golib new asteroids"},
-		{[]string{"a", "b"}, "new needs one game name, for example: golib new asteroids"},
+		{nil, "new needs one game name, for example: golib new moonshot"},
+		{[]string{"a", "b"}, "new needs one game name, for example: golib new moonshot"},
 		{[]string{"Rocks"}, invalid("Rocks")},
 		{[]string{"1up"}, invalid("1up")},
 		{[]string{"space rocks"}, invalid("space rocks")},
@@ -686,10 +686,14 @@ func TestNewGameUsage(t *testing.T) {
 		{[]string{"golib"}, `the game name "golib" is reserved: pick another one`},
 		{[]string{"com1"}, `the game name "com1" is reserved: pick another one`},
 		{[]string{"rocks"}, "games/rocks already exists: pick another name, or delete that folder first"},
+		{[]string{"--example", "rocks"}, "games/rocks already exists: pick another name, or delete that folder first"},
+		{[]string{"tetris"}, "examples/tetris already exists: pick another name, or delete that folder first"},
+		{[]string{"--private", "pong"}, "unknown option for new: --private"},
 	}
 	for _, tt := range tests {
 		tp := newTestProject(t, "windows", "rocks")
 		newTemplates(t, tp)
+		writeFile(t, tp.c.path("examples", "tetris", "go.mod"), "module tetris\n")
 		if code := tp.c.newGame(tt.options); code != 2 {
 			t.Errorf("new %q: exit code %d, want 2", tt.options, code)
 		}

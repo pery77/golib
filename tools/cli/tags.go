@@ -73,7 +73,7 @@ func (c *cli) distOnlyTag(game string) string {
 	if c.tags == "" {
 		return ""
 	}
-	info, _, err := readGameInfo(c.path("games", game))
+	info, _, err := readGameInfo(c.gameDir(game))
 	if err != nil {
 		return ""
 	}
@@ -92,7 +92,7 @@ func (c *cli) refuseDistOnly(command, game string) bool {
 	if tag == "" {
 		return false
 	}
-	c.check("fail", fmt.Sprintf("games/%s/%s keeps the build tag %s to dist builds, and %s makes a debug build: make it with golib dist %s --tags %s, or play it with golib run %s --dist --tags %s", game, gameInfoFile, tag, command, game, c.tags, game, c.tags))
+	c.check("fail", fmt.Sprintf("%s/%s keeps the build tag %s to dist builds, and %s makes a debug build: make it with golib dist %s --tags %s, or play it with golib run %s --dist --tags %s", c.gameModule(game), gameInfoFile, tag, command, game, c.tags, game, c.tags))
 	return true
 }
 

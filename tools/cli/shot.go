@@ -148,7 +148,7 @@ func (c *cli) shot(options []string) int {
 	}
 	// A game that never finishes is stopped, so whoever waits for shot isn't
 	// stuck.
-	code, timedOut, err := c.runGame(gameRun{exe: exe, dir: c.path("games", game), env: env, timeout: shotTimeout})
+	code, timedOut, err := c.runGame(gameRun{exe: exe, dir: c.gameDir(game), env: env, timeout: shotTimeout})
 	switch {
 	case err != nil:
 		c.check("fail", fmt.Sprintf("cannot start %s: %v", c.shown(exe), err))

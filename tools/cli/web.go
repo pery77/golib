@@ -92,8 +92,8 @@ func (c *cli) buildWeb(game string) string {
 // two JavaScript files next to the .wasm. It returns what game.json says and
 // false after reporting a failure.
 func (c *cli) buildWebInto(game, folder string) (gameInfo, bool) {
-	dir := c.path("games", game)
-	shown := "games/" + game
+	dir := c.gameDir(game)
+	shown := c.gameModule(game)
 	tags := c.withTags(webTags)
 
 	info, _, err := readGameInfo(dir)
@@ -290,9 +290,9 @@ func (c *cli) distWeb(game string) bool {
 
 	// A web build carries Go's runtime and GoLib's framework, and nothing of
 	// raylib: the browser draws and sounds instead.
-	packages, err := c.listWebPackages(c.path("games", game))
+	packages, err := c.listWebPackages(c.gameDir(game))
 	if err != nil {
-		c.check("fail", "could not inspect games/"+game+" (see the Go errors above)")
+		c.check("fail", "could not inspect "+c.gameModule(game)+" (see the Go errors above)")
 		return false
 	}
 	modules := thirdPartyModules(packages)

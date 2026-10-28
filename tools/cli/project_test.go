@@ -108,7 +108,50 @@ func TestResolveGame(t *testing.T) {
 	if game, code := c.resolveGame("build", []string{"pong"}); game != "" || code != 2 {
 		t.Errorf("an unknown game: resolveGame = %q, %d; want \"\", 2", game, code)
 	}
-	if want := "golib: no game named \"pong\" in games/ (available: rocks)\nRun \"golib help\" for usage.\n"; stderr.String() != want {
+	if want := "golib: no game named \"pong\" in games/ or examples/ (games: rocks)\nRun \"golib help\" for usage.\n"; stderr.String() != want {
+		t.Errorf("stderr = %q, want %q", stderr.String(), want)
+	}
+}
+
+func TestResolveExamples(t *testing.T) {
+	var stderr bytes.Buffer
+	c := &cli{project: &project{root: t.TempDir()}, stdout: io.Discard, stderr: &stderr}
+	writeFile(t, c.path("examples", "platformer", "go.mod"), "module platformer\n")
+	writeFile(t, c.path("examples", "tetris", "go.mod"), "module tetris\n")
+
+	// An example is found by its name, and lives in examples/.
+	if game, code := c.resolveGame("run", []string{"Platformer"}); game != "platformer" || code != 0 {
+		t.Errorf("resolveGame(Platformer) = %q, %d; want platformer, 0", game, code)
+	}
+	if module, dir := c.gameModule("platformer"), c.gameDir("platformer", "assets"); module != "examples/platformer" || dir != c.path("examples", "platformer", "assets") {
+		t.Errorf("gameModule, gameDir = %q, %q; want examples/platformer and its assets", module, dir)
+	}
+	if modules := c.modules(); !slices.Equal(modules, []string{"examples/platformer", "examples/tetris"}) {
+		t.Errorf("modules = %q, want the examples", modules)
+	}
+
+	// Without a name, only games/ counts: examples are always named.
+	if game, code := c.resolveGame("run", nil); game != "" || code != 2 {
+		t.Errorf("no games, no name: resolveGame = %q, %d; want \"\", 2", game, code)
+	}
+	if want := "golib: there are no games in games/ yet: create one with golib new <name>, or name an example (examples: platformer, tetris)\nRun \"golib help\" for usage.\n"; stderr.String() != want {
+		t.Errorf("no games, no name: stderr = %q, want %q", stderr.String(), want)
+	}
+	writeFile(t, c.path("games", "rocks", "go.mod"), "module rocks\n")
+	if game, code := c.resolveGame("run", nil); game != "rocks" || code != 0 {
+		t.Errorf("one game and two examples: resolveGame = %q, %d; want rocks, 0", game, code)
+	}
+	if modules := c.modules(); !slices.Equal(modules, []string{"examples/platformer", "examples/tetris", "games/rocks"}) {
+		t.Errorf("modules = %q, want the examples, then the game", modules)
+	}
+
+	// A game can't take an example's name.
+	stderr.Reset()
+	writeFile(t, c.path("games", "tetris", "go.mod"), "module tetris\n")
+	if game, code := c.resolveGame("run", []string{"tetris"}); game != "" || code != 2 {
+		t.Errorf("a game and an example called tetris: resolveGame = %q, %d; want \"\", 2", game, code)
+	}
+	if want := "golib: there are both games/tetris and examples/tetris, one of GoLib's examples: rename your game's folder\nRun \"golib help\" for usage.\n"; stderr.String() != want {
 		t.Errorf("stderr = %q, want %q", stderr.String(), want)
 	}
 }

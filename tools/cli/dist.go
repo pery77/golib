@@ -55,8 +55,8 @@ func (c *cli) dist(options []string) int {
 // path of its executable, inside the app on macOS. It returns "" after
 // reporting a failure.
 func (c *cli) distGame(game string) string {
-	dir := c.path("games", game)
-	shown := "games/" + game // how messages name the game's folder
+	dir := c.gameDir(game)
+	shown := c.gameModule(game) // how messages name the game's folder
 	// Windows and Linux games load raylib and libffi from the executable's
 	// folder, as debug builds do. macOS looks for them in system folders and
 	// the working directory only, so there the executable carries them and
@@ -206,11 +206,11 @@ func (c *cli) copyBeside(game, folder string, info gameInfo) bool {
 	if len(info.BesideExecutable) == 0 {
 		return true
 	}
-	shown := "games/" + game
+	shown := c.gameModule(game)
 	leave := c.leaveOutPatterns(info)
 	var names []string
 	for _, p := range info.BesideExecutable {
-		source := filepath.Join(c.path("games", game), filepath.FromSlash(p))
+		source := filepath.Join(c.gameDir(game), filepath.FromSlash(p))
 		name := path.Base(path.Clean(p))
 		target := filepath.Join(folder, name)
 		if _, err := os.Stat(source); err != nil {
@@ -333,7 +333,7 @@ func copyTree(source, target, name string, leave []*leaveOut) (copied bool, err 
 // the build tags tags, and returns what game.json says. On Windows it adds
 // the game's icon and version information; on macOS it reports what the app will say. It returns false after reporting a failure.
 func (c *cli) buildExecutable(game, name, tags, output string) (gameInfo, bool) {
-	dir := c.path("games", game)
+	dir := c.gameDir(game)
 	// golib.SaveData saves in a folder named as the executable is.
 	ldflags := "-s -w -X golib.saveName=" + name
 	var info gameInfo
@@ -367,7 +367,7 @@ func (c *cli) buildExecutable(game, name, tags, output string) (gameInfo, bool) 
 	// builds embed both libraries unless tags names them again.
 	err := c.goRun(dir, "build", "-trimpath", "-tags="+tags, "-ldflags="+ldflags, "-o", output, ".")
 	if err != nil {
-		c.check("fail", "dist build failed for games/"+game+" (see the Go errors above)")
+		c.check("fail", "dist build failed for "+c.gameModule(game)+" (see the Go errors above)")
 		return info, false
 	}
 	return info, true
@@ -434,7 +434,7 @@ func (c *cli) gameNotices(game, exe string, modules []goModule, libraries []libr
 	}
 	// Games write where the files in their assets folder come from, and under
 	// which license, in assets/ATTRIBUTION.md (see framework/README.md).
-	if attribution := c.path("games", game, "assets", attributionFile); isFile(attribution) {
+	if attribution := c.gameDir(game, "assets", attributionFile); isFile(attribution) {
 		notices = append(notices, notice{
 			title: "assets/" + attributionFile,
 			where: "Built into " + exe + ": files in the game's assets folder that were not made for it",
@@ -457,10 +457,10 @@ func (c *cli) addWindowsResources(game, name string, describe bool) (info gameIn
 	// the build. .gitignore lists the name. Debug and dist builds use the
 	// same name, so a file left by an interrupted build is replaced, not
 	// linked twice.
-	path := filepath.Join(c.path("games", game), "golib_windows_"+c.goarch+".syso")
+	path := filepath.Join(c.gameDir(game), "golib_windows_"+c.goarch+".syso")
 	remove = func() {
 		if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			c.check("warn", fmt.Sprintf("could not delete games/%s/%s after the build: delete it by hand (%v)", game, filepath.Base(path), err))
+			c.check("warn", fmt.Sprintf("could not delete %s/%s after the build: delete it by hand (%v)", c.gameModule(game), filepath.Base(path), err))
 		}
 	}
 	info, icon, _, ok := c.readGameFiles(game, describe)
@@ -472,7 +472,7 @@ func (c *cli) addWindowsResources(game, name string, describe bool) (info gameIn
 		err = os.WriteFile(path, data, 0o644)
 	}
 	if err != nil {
-		c.check("fail", "cannot make the Windows resources of games/"+game+": "+err.Error())
+		c.check("fail", "cannot make the Windows resources of "+c.gameModule(game)+": "+err.Error())
 		return info, remove, false
 	}
 	return info, remove, true
@@ -495,8 +495,8 @@ func (c *cli) checkGameFiles(game string) (gameInfo, bool) {
 // is nil when the game has no icon.png, and found is true when the game has
 // either file. ok is false after reporting a failure.
 func (c *cli) readGameFiles(game string, describe bool) (info gameInfo, icon *image.NRGBA, found, ok bool) {
-	dir := c.path("games", game)
-	shown := "games/" + game
+	dir := c.gameDir(game)
+	shown := c.gameModule(game)
 
 	info, infoFound, err := readGameInfo(dir)
 	if err != nil {
