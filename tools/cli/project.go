@@ -14,8 +14,8 @@ import (
 	"time"
 )
 
-// project is a GoLib project: the folder that holds framework/, games/ and
-// tools/, and the platform that golib builds games for, which is this
+// project is a GoLib project: the folder that holds framework/, examples/,
+// games/ and tools/, and the platform that golib builds games for, which is this
 // machine's.
 type project struct {
 	root         string
@@ -273,15 +273,28 @@ func isToolModule(module string) bool {
 	return slices.Contains(toolModules, module)
 }
 
+// The two folders that hold games, each game a Go module of its own: games/,
+// the user's games, which .gitignore keeps out of the GoLib repository so
+// each can have a git repository of its own, and examples/, GoLib's
+// examples, which are part of it (see docs/architecture.md#your-games).
+const (
+	gamesFolder    = "games"
+	examplesFolder = "examples"
+)
+
 // modules returns the project's Go modules, as paths from the root with
-// forward slashes: the framework, each game, then GoLib's own programs.
+// forward slashes: the framework, each example, each game, then GoLib's own
+// programs.
 func (p *project) modules() []string {
 	var modules []string
 	if isFile(p.path("framework", "go.mod")) {
 		modules = append(modules, "framework")
 	}
+	for _, example := range p.examples() {
+		modules = append(modules, examplesFolder+"/"+example)
+	}
 	for _, game := range p.games() {
-		modules = append(modules, "games/"+game)
+		modules = append(modules, gamesFolder+"/"+game)
 	}
 	for _, tool := range toolModules {
 		if isFile(p.path(filepath.FromSlash(tool), "go.mod")) {
@@ -291,60 +304,111 @@ func (p *project) modules() []string {
 	return modules
 }
 
-// games returns the names of the games: the folders in games/ that hold a
-// go.mod, in alphabetical order.
+// isGameModule reports whether module, a path from the root, is a game or an
+// example.
+func isGameModule(module string) bool {
+	return strings.HasPrefix(module, gamesFolder+"/") || strings.HasPrefix(module, examplesFolder+"/")
+}
+
+// games returns the names of the user's games: the folders in games/ that
+// hold a go.mod, in alphabetical order.
 func (p *project) games() []string {
-	entries, _ := os.ReadDir(p.path("games")) // no games/ folder: no games
+	return p.gamesIn(gamesFolder)
+}
+
+// examples returns the names of GoLib's examples: the folders in examples/
+// that hold a go.mod, in alphabetical order.
+func (p *project) examples() []string {
+	return p.gamesIn(examplesFolder)
+}
+
+// gamesIn returns the names of the folders in folder, games or examples,
+// that hold a go.mod, in alphabetical order.
+func (p *project) gamesIn(folder string) []string {
+	entries, _ := os.ReadDir(p.path(folder)) // no folder: no games
 	var names []string
 	for _, entry := range entries {
-		if entry.IsDir() && isFile(p.path("games", entry.Name(), "go.mod")) {
+		if entry.IsDir() && isFile(p.path(folder, entry.Name(), "go.mod")) {
 			names = append(names, entry.Name())
 		}
 	}
 	return names
 }
 
-// isPrivateGame reports whether a game is private: one whose folder name
-// starts with _, which .gitignore keeps out of the GoLib repository, so it
-// can have a git repository of its own (see docs/architecture.md). Every
-// command treats it like any other game.
-func isPrivateGame(name string) bool {
-	return strings.HasPrefix(name, "_")
+// gameModule returns the folder of game, a name resolveGame returned, as a
+// path from the root with forward slashes: examples/<game> for one of
+// GoLib's examples, games/<game> for any other. Messages name a game's
+// folder this way.
+func (p *project) gameModule(game string) string {
+	if !isFile(p.path(gamesFolder, game, "go.mod")) && isFile(p.path(examplesFolder, game, "go.mod")) {
+		return examplesFolder + "/" + game
+	}
+	return gamesFolder + "/" + game
 }
 
-// resolveGame returns the game that a command's options name, or the only
-// game when they name none. When they don't pick one game, it explains why
-// and returns "" and exit code 2.
+// gameDir returns the full path of game's folder, or of a file or folder in
+// it, given as the names along its path.
+func (p *project) gameDir(game string, names ...string) string {
+	return p.path(append([]string{filepath.FromSlash(p.gameModule(game))}, names...)...)
+}
+
+// resolveGame returns the game or example that a command's options name, or
+// the only game in games/ when they name none: examples are always named.
+// When they don't pick one, it explains why and returns "" and exit code 2.
 func (c *cli) resolveGame(command string, options []string) (game string, exitCode int) {
 	if len(options) > 1 {
 		return "", c.usage(fmt.Sprintf("%s takes at most one game name (got: %s)", command, strings.Join(options, " ")))
 	}
-	games := c.games()
+	games, examples := c.games(), c.examples()
 	if len(options) == 1 {
 		name := options[0]
-		for _, game := range games {
-			if game == name {
-				return game, 0
+		// First the exact name, then whatever the letter case, as Windows
+		// finds folders.
+		for _, same := range []func(a, b string) bool{func(a, b string) bool { return a == b }, strings.EqualFold} {
+			var found []string
+			for _, folder := range [][]string{games, examples} {
+				for _, game := range folder {
+					if same(game, name) {
+						found = append(found, game)
+					}
+				}
+			}
+			switch len(found) {
+			case 1:
+				return found[0], 0
+			case 2:
+				// build/<game>/ and golib.SaveData go by the name alone, so
+				// a game can't share one with an example.
+				return "", c.usage(fmt.Sprintf("there are both games/%s and examples/%s, one of GoLib's examples: rename your game's folder", found[0], found[1]))
 			}
 		}
-		// Then whatever the letter case, as Windows finds folders.
-		for _, game := range games {
-			if strings.EqualFold(game, name) {
-				return game, 0
-			}
-		}
-		if len(games) == 0 {
-			return "", c.usage(fmt.Sprintf("no game named %q: games/ has no games yet (create one: golib new <name>)", name))
-		}
-		return "", c.usage(fmt.Sprintf("no game named %q in games/ (available: %s)", name, strings.Join(games, ", ")))
+		return "", c.usage(fmt.Sprintf("no game named %q in games/ or examples/ (%s)", name, c.available(games, examples)))
 	}
 	switch len(games) {
 	case 0:
-		return "", c.usage("there are no games in games/ yet (create one: golib new <name>)")
+		if len(examples) == 0 {
+			return "", c.usage("there are no games in games/ yet (create one: golib new <name>)")
+		}
+		return "", c.usage(fmt.Sprintf("there are no games in games/ yet: create one with golib new <name>, or name an example (%s)", c.available(games, examples)))
 	case 1:
 		return games[0], 0
 	}
-	return "", c.usage(fmt.Sprintf("%s needs a game name (available: %s)", command, strings.Join(games, ", ")))
+	return "", c.usage(fmt.Sprintf("%s needs a game name (%s)", command, c.available(games, examples)))
+}
+
+// available names the games and the examples there are, for messages.
+func (c *cli) available(games, examples []string) string {
+	var lists []string
+	if len(games) > 0 {
+		lists = append(lists, "games: "+strings.Join(games, ", "))
+	}
+	if len(examples) > 0 {
+		lists = append(lists, "examples: "+strings.Join(examples, ", "))
+	}
+	if len(lists) == 0 {
+		return "there are none yet: create one with golib new <name>"
+	}
+	return strings.Join(lists, "; ")
 }
 
 func isFile(path string) bool {

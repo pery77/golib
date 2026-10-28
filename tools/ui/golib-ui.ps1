@@ -14,30 +14,33 @@ Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
 
 $Root = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 $Cli = Join-Path $Root 'tools\bootstrap\golib.ps1'
-$GamesDir = Join-Path $Root 'games'
+$GamesDir = Join-Path $Root 'games'          # the user's games
+$ExamplesDir = Join-Path $Root 'examples'    # GoLib's examples
+$NoneItem = '(none)'                         # the first item of both lists: nothing picked there
 $PowerShellExe = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
 
 # The buttons, one row per group, in this order. Command is golib's arguments: {game} becomes the
-# game picked in the list, {frames} the frame numbers typed in the box, {input} the input
-# typed in the other box, as --input, {tags} the build tags ticked, as --tags, and {name} the
-# answer to Prompt, asked in a small dialog. Folder opens a folder in Explorer instead. Confirm
-# asks before running. Debug marks a debug build, which a tag game.json keeps to dist builds
-# turns off while it is ticked, as golib refuses it.
+# game or example picked in the lists, {frames} the frame numbers typed in the box, {input} the
+# input typed in the other box, as --input, {tags} the build tags ticked, as --tags, and {name}
+# the answer to Prompt, asked in a small dialog. Folder opens a folder in Explorer instead, where
+# {folder} becomes the folder of the game or example picked. A button with {game} or {folder}
+# is off while nothing is picked. Confirm asks before running. Debug marks a debug build, which a
+# tag game.json keeps to dist builds turns off while it is ticked, as golib refuses it.
 $Actions = @(
     @{ Group = 'Play'; Label = 'Run debug'; Command = 'run {game} {tags}'; Debug = $true; Tip = 'Build the game and play it. A debug build reads assets\ from the game''s folder, so a changed picture, sound, shader or map shows on the next run, and it opens a console window for errors' }
     @{ Group = 'Play'; Label = 'Run dist'; Command = 'run {game} --dist {tags}'; Tip = 'Build the game to share, then play it from build\<game>\dist\<game>\ the way a player would: the assets inside the executable, no console window, nothing of GoLib''s around it. Check the build this way before sharing the zip' }
     @{ Group = 'Play'; Label = 'Screenshots'; Command = 'shot {game} {frames} {input} {tags}'; Tip = 'Run the game in a hidden window, playing the input in the box, and save screenshots of the frames in the box (60 frames are one second)' }
-    @{ Group = 'Build'; Label = 'Debug build'; Command = 'build {game} {tags}'; Debug = $true; Tip = 'Build into build\<game>\, next to the raylib libraries. Started from Explorer, it reads games\<game>\assets\, and shows errors in a message box because its console window closes when the game ends' }
+    @{ Group = 'Build'; Label = 'Debug build'; Command = 'build {game} {tags}'; Debug = $true; Tip = 'Build into build\<game>\, next to the raylib libraries. Started from Explorer, it reads the assets\ in the game''s folder, and shows errors in a message box because its console window closes when the game ends' }
     @{ Group = 'Play'; Label = 'Play in browser'; Command = 'web {game} {tags}'; Tip = 'Build the game for the browser and serve it on this machine, then open it in a tab. No sound, screen effects, font files or saved data that lasts yet; close the window to stop the server' }
     @{ Group = 'Build'; Label = 'Dist build'; Command = 'dist {game} {tags}'; Tip = 'Build the game to share into build\<game>\dist\: a folder with the executable, the libraries it loads and THIRD-PARTY-LICENSES.txt, and a zip of it. It takes its icon from icon.png and its title, version and author from game.json, in the game''s folder' }
     @{ Group = 'Play'; Label = 'Web screenshots'; Command = 'shot {game} {frames} {input} --web {tags}'; Tip = 'Run the game in a browser with no window and save screenshots of the frames in the box into build\<game>\shots-web\, to check the web build against the desktop one' }
     @{ Group = 'Build'; Label = 'Web build'; Command = 'dist {game} --web {tags}'; Tip = 'Build the game for the browser into build\<game>\dist\web\ and zip it, ready to upload to itch.io as a web game' }
-    @{ Group = 'Check'; Label = 'Test'; Command = 'test'; Tip = 'Vet and test the framework, every game and GoLib''s own Go program' }
+    @{ Group = 'Check'; Label = 'Test'; Command = 'test'; Tip = 'Vet and test the framework, every example and game and GoLib''s own Go program' }
     @{ Group = 'Check'; Label = 'Doctor'; Command = 'doctor'; Tip = 'Diagnose the environment without changing anything' }
-    @{ Group = 'Open'; Label = 'Game folder'; Folder = 'games\{game}'; Tip = 'Open the game''s folder: its code, DESIGN.md and assets' }
+    @{ Group = 'Open'; Label = 'Game folder'; Folder = '{folder}'; Tip = 'Open the game''s folder, in games\ or examples\: its code, DESIGN.md and assets' }
     @{ Group = 'Open'; Label = 'Screenshots folder'; Folder = 'build\{game}\shots'; Tip = 'Open the screenshots from the latest Screenshots' }
     @{ Group = 'Open'; Label = 'Dist folder'; Folder = 'build\{game}\dist'; Tip = 'Open the zip to share, and its folder, from the latest Dist build' }
-    @{ Group = 'Tools'; Label = 'New game'; Command = 'new {name}'; Prompt = 'Name of the new game: lowercase letters, digits, - and _, such as asteroids'; Tip = 'Create games\<name>\, a small game ready to run' }
+    @{ Group = 'Tools'; Label = 'New game'; Command = 'new {name}'; Prompt = 'Name of the new game: lowercase letters, digits, - and _, such as moonshot'; Tip = 'Create games\<name>\, a small game ready to run. git ignores games\: give the game a repository of its own to keep its history' }
     @{ Group = 'Tools'; Label = 'Setup'; Command = 'setup'; Tip = 'Install Go, the Go modules and raylib into .tools\ (safe to run again)' }
     @{ Group = 'Tools'; Label = 'Clean'; Command = 'clean'; Tip = 'Delete the build outputs in build\' }
     @{ Group = 'Tools'; Label = 'Clean all'; Command = 'clean --all'; Tip = 'Also delete the downloaded tools in .tools\; run Setup again afterwards'; Confirm = 'Delete build\ and the downloaded tools in .tools\? You will need to press Setup again.' }
@@ -51,9 +54,13 @@ $Actions = @(
   <DockPanel Margin="14">
     <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,12">
       <TextBlock Text="Game" Width="60" VerticalAlignment="Center"/>
-      <ComboBox x:Name="GameList" MinWidth="200" VerticalContentAlignment="Center"/>
+      <ComboBox x:Name="GameList" MinWidth="160" VerticalContentAlignment="Center"
+                ToolTip="Your games, in games\. Picking one clears Example"/>
+      <TextBlock Text="Example" Margin="12,0,8,0" VerticalAlignment="Center"/>
+      <ComboBox x:Name="ExampleList" MinWidth="160" VerticalContentAlignment="Center"
+                ToolTip="GoLib's examples, in examples\. Picking one clears Game"/>
       <Button x:Name="RefreshButton" Content="Refresh" Margin="6,0,0,0" Padding="12,4"
-              ToolTip="Look for games in games\ again"/>
+              ToolTip="Look for games in games\ and examples\ again"/>
       <TextBlock Text="Screenshot frames" Margin="24,0,8,0" VerticalAlignment="Center"/>
       <TextBox x:Name="FramesBox" Text="60" Width="110" VerticalContentAlignment="Center"
                ToolTip="Frame numbers for Screenshots, separated by spaces, such as: 1 60 300"/>
@@ -80,6 +87,7 @@ $Actions = @(
 
 $Window = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $Xaml))
 $GameList = $Window.FindName('GameList')
+$ExampleList = $Window.FindName('ExampleList')
 $RefreshButton = $Window.FindName('RefreshButton')
 $FramesBox = $Window.FindName('FramesBox')
 $InputBox = $Window.FindName('InputBox')
@@ -91,6 +99,7 @@ $StatusText = $Window.FindName('StatusText')
 $OutputBox = $Window.FindName('OutputBox')
 
 $ActionButtons = New-Object System.Collections.Generic.List[System.Windows.Controls.Button]
+$FolderButtons = New-Object System.Collections.Generic.List[System.Windows.Controls.Button]
 $Timer = New-Object System.Windows.Threading.DispatcherTimer
 $Timer.Interval = [TimeSpan]::FromMilliseconds(50)
 
@@ -102,6 +111,8 @@ $script:Stopped = $false
 $script:SelectAfter = $null    # a game to pick in the list once the command succeeds, such as a new one
 $script:Busy = $false
 $script:TickedByGame = @{}    # the tags ticked, by game, kept while the list of games is read again
+$script:Filling = $false      # true while the lists are read again, when their changes mean nothing
+$script:Filled = $false       # false until the lists are read the first time
 
 # Runs a script block from an event handler. Errors show in a message box instead of closing the
 # window.
@@ -153,21 +164,72 @@ function Add-Output([string]$Line) {
     $OutputBox.ScrollToEnd()
 }
 
-# Game names: folders in games\ that contain a go.mod, as golib looks for them.
-function Update-GameList {
-    $selected = $GameList.SelectedItem
-    $GameList.Items.Clear()
-    if (Test-Path -LiteralPath $GamesDir -PathType Container) {
-        Get-ChildItem -LiteralPath $GamesDir -Directory |
+# Fills List with (none), then the folders in Dir that contain a go.mod, as golib looks for games,
+# and picks Selected again if it is still there, or (none).
+function Update-List($List, [string]$Dir, [string]$Selected) {
+    $List.Items.Clear()
+    $null = $List.Items.Add($NoneItem)
+    if (Test-Path -LiteralPath $Dir -PathType Container) {
+        Get-ChildItem -LiteralPath $Dir -Directory |
             Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName 'go.mod') -PathType Leaf } |
             Sort-Object Name |
-            ForEach-Object { $null = $GameList.Items.Add($_.Name) }
+            ForEach-Object { $null = $List.Items.Add($_.Name) }
     }
-    if ($null -ne $selected -and $GameList.Items.Contains($selected)) {
-        $GameList.SelectedItem = $selected
-    } elseif ($GameList.Items.Count -gt 0) {
-        $GameList.SelectedIndex = 0
+    if ($Selected -and $List.Items.Contains($Selected)) {
+        $List.SelectedItem = $Selected
+    } else {
+        $List.SelectedIndex = 0
     }
+}
+
+# Reads both lists again, keeping what was picked. The first time, it picks the first game, if
+# there is one, and no example.
+function Update-GameList {
+    $game = Get-Picked $GameList
+    $example = Get-Picked $ExampleList
+    $script:Filling = $true
+    try {
+        Update-List $GameList $GamesDir $game
+        Update-List $ExampleList $ExamplesDir $example
+        if (-not $script:Filled -and $GameList.Items.Count -gt 1) { $GameList.SelectedIndex = 1 }
+    } finally {
+        $script:Filling = $false
+    }
+    $script:Filled = $true
+    Update-TagBoxes
+}
+
+# The name picked in List, or '' for (none).
+function Get-Picked($List) {
+    $item = [string]$List.SelectedItem
+    if ($item -eq $NoneItem) { return '' }
+    return $item
+}
+
+# The game or example picked, or '': picking in one list clears the other, so at most one is.
+function Get-Game {
+    $game = Get-Picked $GameList
+    if ($game) { return $game }
+    return Get-Picked $ExampleList
+}
+
+# The folder of the game or example picked, from the root, or ''.
+function Get-GameFolder {
+    $game = Get-Picked $GameList
+    if ($game) { return "games\$game" }
+    $example = Get-Picked $ExampleList
+    if ($example) { return "examples\$example" }
+    return ''
+}
+
+# Picking a game or an example clears the other list, so a button never acts on both.
+function Select-InList($List, $Other) {
+    if ($script:Filling) { return }
+    if ((Get-Picked $List) -and $Other.SelectedIndex -ne 0) {
+        $script:Filling = $true
+        try { $Other.SelectedIndex = 0 } finally { $script:Filling = $false }
+    }
+    Update-TagBoxes
 }
 
 # The build tags game.json gives the game picked ("buildTags"), as a checkbox each, ticked as
@@ -175,10 +237,10 @@ function Update-GameList {
 # read gives none; golib says what is wrong with it when it builds.
 function Update-TagBoxes {
     $TagBoxes.Children.Clear()
-    $game = [string]$GameList.SelectedItem
+    $game = Get-Game
     $tags = $null
-    # While the list is read again, no game is picked for a moment.
-    $file = if ($game) { Join-Path (Join-Path $GamesDir $game) 'game.json' } else { '' }
+    $folder = Get-GameFolder
+    $file = if ($folder) { Join-Path (Join-Path $Root $folder) 'game.json' } else { '' }
     if ($file -and (Test-Path -LiteralPath $file -PathType Leaf)) {
         try {
             $info = Get-Content -LiteralPath $file -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -216,7 +278,7 @@ function Get-TickedTags {
 
 # Keeps the tags ticked for the game picked.
 function Save-TickedTags {
-    $script:TickedByGame[[string]$GameList.SelectedItem] = @(Get-TickedTags | ForEach-Object { $_.Name })
+    $script:TickedByGame[(Get-Game)] = @(Get-TickedTags | ForEach-Object { $_.Name })
 }
 
 # Says which buttons a ticked tag kept to dist builds turns off.
@@ -225,16 +287,22 @@ function Show-TagsStatus {
     if ($distOnly.Count -gt 0) {
         Set-Status "$($distOnly -join ', '): for dist builds only, so Run debug and Debug build are off." 'Idle'
     } else {
-        Set-Status 'Pick a game and press a button. Hover over a button to see what it does.' 'Idle'
+        Set-Status 'Pick a game or an example and press a button. Hover over a button to see what it does.' 'Idle'
     }
 }
 
-# A command button works unless a command is running, or it makes a debug build and a tag kept
-# to dist builds is ticked.
+# A command button works unless a command is running, it needs a game and none is picked, or it
+# makes a debug build and a tag kept to dist builds is ticked. A folder button works whenever a
+# game or an example is picked, if it needs one.
 function Update-ActionButtons {
     $distOnly = @(Get-TickedTags | Where-Object { $_.DistOnly }).Count -gt 0
+    $picked = [bool](Get-Game)
     foreach ($button in $ActionButtons) {
-        $button.IsEnabled = -not $script:Busy -and -not ($distOnly -and $button.Tag.ContainsKey('Debug'))
+        $needsGame = $button.Tag.Command -match '\{game\}'
+        $button.IsEnabled = -not $script:Busy -and ($picked -or -not $needsGame) -and -not ($distOnly -and $button.Tag.ContainsKey('Debug'))
+    }
+    foreach ($button in $FolderButtons) {
+        $button.IsEnabled = $picked -or $button.Tag.Folder -notmatch '\{game\}|\{folder\}'
     }
 }
 
@@ -244,6 +312,7 @@ function Set-Busy([bool]$Busy) {
     Update-ActionButtons
     foreach ($box in $TagBoxes.Children) { $box.IsEnabled = -not $Busy }
     $GameList.IsEnabled = -not $Busy
+    $ExampleList.IsEnabled = -not $Busy
     $RefreshButton.IsEnabled = -not $Busy
     $FramesBox.IsEnabled = -not $Busy
     $InputBox.IsEnabled = -not $Busy
@@ -251,15 +320,15 @@ function Set-Busy([bool]$Busy) {
 }
 
 function Invoke-Action($Action) {
-    $game = [string]$GameList.SelectedItem
+    $game = Get-Game
     $template = if ($Action.ContainsKey('Folder')) { $Action.Folder } else { $Action.Command }
-    if ($template -match '\{game\}' -and -not $game) {
-        Set-Status 'There are no games in games\ yet.' 'Failed'
+    if ($template -match '\{game\}|\{folder\}' -and -not $game) {
+        Set-Status 'Pick a game or an example first.' 'Failed'
         return
     }
 
     if ($Action.ContainsKey('Folder')) {
-        $folder = Join-Path $Root ($template -replace '\{game\}', $game)
+        $folder = Join-Path $Root (($template -replace '\{folder\}', (Get-GameFolder)) -replace '\{game\}', $game)
         if (Test-Path -LiteralPath $folder -PathType Container) {
             Start-Process -FilePath 'explorer.exe' -ArgumentList "`"$folder`""
         } else {
@@ -363,7 +432,7 @@ function Update-Command {
     # Commands can add or remove games, so look again.
     Update-GameList
     if ($code -eq 0 -and $script:SelectAfter -and $GameList.Items.Contains($script:SelectAfter)) {
-        $GameList.SelectedItem = $script:SelectAfter
+        $GameList.SelectedItem = $script:SelectAfter    # Select-InList clears Example
     }
 }
 
@@ -393,20 +462,21 @@ foreach ($group in $groups) {
         $button.Padding = '12,4'
         $button.Add_Click({ $action = $this.Tag; Invoke-Safely { Invoke-Action $action } })
         $null = $row.Children.Add($button)
-        if ($action.ContainsKey('Command')) { $ActionButtons.Add($button) }
+        if ($action.ContainsKey('Command')) { $ActionButtons.Add($button) } else { $FolderButtons.Add($button) }
     }
     $null = $ActionRows.Children.Add($row)
 }
 
 $RefreshButton.Add_Click({ Invoke-Safely { Update-GameList } })
-$GameList.Add_SelectionChanged({ Invoke-Safely { Update-TagBoxes } })
+$GameList.Add_SelectionChanged({ Invoke-Safely { Select-InList $GameList $ExampleList } })
+$ExampleList.Add_SelectionChanged({ Invoke-Safely { Select-InList $ExampleList $GameList } })
 $StopButton.Add_Click({ Invoke-Safely { Stop-Command } })
 $Timer.Add_Tick({ Invoke-Safely { Update-Command } })
 $Window.Add_Closing({ Invoke-Safely { Stop-Command } })
 
 Update-GameList
 if (Test-Path -LiteralPath (Join-Path $Root '.tools\go\bin\go.exe') -PathType Leaf) {
-    Set-Status 'Pick a game and press a button. Hover over a button to see what it does.' 'Idle'
+    Set-Status 'Pick a game or an example and press a button. Hover over a button to see what it does.' 'Idle'
 } else {
     Set-Status 'First time here? Press Setup: it installs Go and raylib into .tools\.' 'Idle'
 }

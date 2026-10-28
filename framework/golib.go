@@ -36,7 +36,7 @@
 //		}
 //	}
 //
-// games/platformer in the GoLib template is a complete example, and README.md
+// examples/platformer in the GoLib template is a complete example, and README.md
 // in this package's folder is a guide to the whole package, by task.
 //
 // # Time

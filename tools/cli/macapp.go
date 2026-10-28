@@ -164,7 +164,7 @@ func (c *cli) makeApp(game, folder, exe string, info gameInfo) string {
 	if err := os.Rename(filepath.Join(folder, exe), filepath.Join(contents, "MacOS", exe)); err != nil {
 		return fail(err)
 	}
-	icon, withIcon, err := readIcon(filepath.Join(c.path("games", game), iconFile))
+	icon, withIcon, err := readIcon(filepath.Join(c.gameDir(game), iconFile))
 	if err != nil {
 		return fail(err)
 	}

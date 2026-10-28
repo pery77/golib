@@ -48,7 +48,7 @@ The framework is still small (shapes, text and fonts, sprites, Tiled maps, keybo
 
 ## How games are made
 
-- **Your game and the framework are separate.** The framework lives in `framework/` and each game in its own folder under `games/`. You make a game without touching the framework, and a game moves to a newer GoLib by copying its folder into the newer template (see [Distribution](docs/architecture.md#distribution)).
+- **Your game and the framework are separate.** The framework lives in `framework/` and each game in its own folder under `games/`, which git ignores, so your games never enter GoLib's repository: give each one a repository of its own. GoLib's examples live in `examples/`. You make a game without touching the framework, and a game moves to a newer GoLib by copying its folder into the newer template (see [Distribution](docs/architecture.md#distribution)).
 - **No built-in editors.** Maps are made in [Tiled](https://www.mapeditor.org), sprites in [Aseprite](https://www.aseprite.org), sound effects in [jfxr](https://jfxr.frozenfractal.com), which runs in the browser, and 3D models in [Blender](https://www.blender.org); GoLib loads their files. You only need these tools to edit content: games build and run without them.
 
 GoLib reads Tiled maps, Aseprite files, PNG images, fonts, jfxr sounds and sound files already; 3D models from Blender read already, with their animations, and FBX files from other tools come later in M7, a full 3D engine being built: see the [roadmap](docs/roadmap.md#m7-3d-planned) and the [architecture](docs/architecture.md).
@@ -65,12 +65,12 @@ GoLib reads Tiled maps, Aseprite files, PNG images, fonts, jfxr sounds and sound
 | `golib dist [game]` | Builds a game to share: a folder with everything it needs, zipped, with the licenses that go with it and, on Windows, its icon and version details. |
 | `golib shot [game] [frame...]` | Saves screenshots of a game at the given frames, without opening a visible window. |
 | `golib web [game]` | Builds a game for the browser and serves it on your machine, so you can play it in a tab. `golib dist [game] --web` makes the zip to upload to itch.io. |
-| `golib test` | Checks and tests the framework, every game and GoLib's own Go program. |
+| `golib test` | Checks and tests the framework, every example and game and GoLib's own Go program. |
 | `golib go <args>` | Runs the project's own Go, for example `golib go version`. |
 | `golib clean` | Deletes build outputs. Add `--all` to also delete the downloaded tools. |
 | `golib help` | Lists all commands. |
 
-Type `.\golib` on Windows (PowerShell or cmd) and `./golib` in bash or zsh. `[game]` is a folder name in `games/`; leave it out when there is only one game. `build`, `run`, `shot`, `test`, `dist` and `web` also take `--tags demo`, for a game that builds in more than one way, such as a demo beside the full game (see [docs/tooling.md](docs/tooling.md#build-tags)).
+Type `.\golib` on Windows (PowerShell or cmd) and `./golib` in bash or zsh. `[game]` is a folder name in `games/` or `examples/`, such as `golib run platformer`; leave it out when `games/` holds one game. `build`, `run`, `shot`, `test`, `dist` and `web` also take `--tags demo`, for a game that builds in more than one way, such as a demo beside the full game (see [docs/tooling.md](docs/tooling.md#build-tags)).
 
 ## What's inside
 
@@ -80,7 +80,8 @@ Type `.\golib` on Windows (PowerShell or cmd) and `./golib` in bash or zsh. `[ga
 | `golib-ui.cmd`, `tools/ui/` | The GoLib window: a button for each command (Windows) |
 | `tools/bootstrap/`, `tools/cli/` | The CLI itself: short scripts that install Go and start a Go program, which has most of the commands |
 | `framework/` | The GoLib framework (Go package `golib`), with its API guide, `README.md` |
-| `games/` | Games, one folder each; `platformer` is the example to learn from. A folder starting with `_` is a [private game](docs/architecture.md#private-games), which git ignores here |
+| `games/` | Your games, one folder each. Git ignores them here, so each can have a repository of its own (see [Your games and the examples](docs/architecture.md#your-games-and-the-examples)) |
+| `examples/` | GoLib's examples, one folder each; `platformer` is the one to learn from |
 | `AGENTS.md`, `CLAUDE.md` | Instructions for AI agents |
 | `docs/` | Vision, roadmap, internals and AI playbooks |
 | `.vscode/`, `.claude/` | Editor and Claude Code configuration |
@@ -98,7 +99,7 @@ Type `.\golib` on Windows (PowerShell or cmd) and `./golib` in bash or zsh. `[ga
 
 ## License
 
-GoLib is released under the [zlib license](LICENSE), the same as raylib: use it for anything, commercial games included, with no need to credit GoLib inside your game. It covers the framework, the tools, the docs and the example games, except files with terms of their own, such as the music in `games/asteroids/assets/` (see its `ATTRIBUTION.md`) and `framework/jfxr.go`, a Go version of [jfxr](https://github.com/ttencate/jfxr)'s synthesizer under jfxr's BSD license (`framework/LICENSE-jfxr.txt`). Games carry that notice, and `golib dist` writes it into their `THIRD-PARTY-LICENSES.txt` for you.
+GoLib is released under the [zlib license](LICENSE), the same as raylib: use it for anything, commercial games included, with no need to credit GoLib inside your game. It covers the framework, the tools, the docs and the example games, except files with terms of their own, such as the music in `examples/asteroids/assets/` (see its `ATTRIBUTION.md`) and `framework/jfxr.go`, a Go version of [jfxr](https://github.com/ttencate/jfxr)'s synthesizer under jfxr's BSD license (`framework/LICENSE-jfxr.txt`). Games carry that notice, and `golib dist` writes it into their `THIRD-PARTY-LICENSES.txt` for you.
 
 The games you make in `games/` are yours: license them as you like.
 

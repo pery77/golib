@@ -1,6 +1,6 @@
 # GoLib API guide
 
-For AI agents writing game code with GoLib, and for anyone who wants the whole framework on one page. It covers every exported name in package `golib`, the Go code in this folder, grouped by what a game needs, with the rules the names don't tell you. The doc comments in the `.go` files have the full details, and [games/platformer](../games/platformer) and [games/asteroids](../games/asteroids) show the 2D in real games, and [games/marbles](../games/marbles), [games/hopper](../games/hopper) and [games/sunset](../games/sunset) the 3D: shapes, models and a Blender level, and light, an HDRI and materials of a game's own.
+For AI agents writing game code with GoLib, and for anyone who wants the whole framework on one page. It covers every exported name in package `golib`, the Go code in this folder, grouped by what a game needs, with the rules the names don't tell you. The doc comments in the `.go` files have the full details, and [examples/platformer](../examples/platformer) and [examples/asteroids](../examples/asteroids) show the 2D in real games, and [examples/marbles](../examples/marbles), [examples/hopper](../examples/hopper) and [examples/sunset](../examples/sunset) the 3D: shapes, models and a Blender level, and light, an HDRI and materials of a game's own.
 
 `golib test` checks this page against the code: it fails when an exported name is missing here, or when this page names one that doesn't exist (see `apiguide_test.go`). Change both together.
 
@@ -420,7 +420,7 @@ The named colors are raylib's palette: `LightGray` `Gray` `DarkGray` `Yellow` `G
 
 `WithOpacity`, `WithOpacity(color Color, opacity float32) Color`, returns the color with its opacity set, from 0, invisible, to 1, solid: `golib.WithOpacity(golib.White, flashLeft/flashTime)` fades a flash out. It sets the opacity instead of scaling the color's own, so fading a color that is already see-through means multiplying: `golib.WithOpacity(c, float32(c.A)/255*fade)`.
 
-Keep a game's colors together as named variables, as `games/platformer/main.go` does, so its look changes in one place.
+Keep a game's colors together as named variables, as `examples/platformer/main.go` does, so its look changes in one place.
 
 ## Fonts
 
@@ -548,7 +548,7 @@ var (
 - For painted art already drawn on a large screen, use `DrawOptions.Smooth`. This filters the sprite inside the scene; later panels, fades and post-processing still cover it normally.
 - **A large picture drawn small loses its detail on a small screen; `FullResolution` keeps it.** Everything is drawn into the screen, `Config.Width` by `Config.Height` pixels, which the window then enlarges, so a 1500-pixel logo drawn at `Scale: 0.2` on a 640 by 360 screen keeps one pixel in five and is then enlarged blocky. With `DrawOptions.FullResolution` the frame is drawn after the screen is in the window, smoothed, at the window's pixels: x, y and `Scale` are still in screen pixels and need not be whole, and a camera still moves it. It goes over everything else the frame draws, in the order such frames are drawn, after the post-processing shaders, which don't reach it, and it always blends normally. `golib shot` pictures are the screen's size, so they show it at that size.
 - `Width`, `Height`, `Frames` and `Animation` read the file, so they work in tests and before `Run`.
-- Only use art the user provides, and write where it came from, and its license, in `assets/ATTRIBUTION.md`, as `games/platformer` does.
+- Only use art the user provides, and write where it came from, and its license, in `assets/ATTRIBUTION.md`, as `examples/platformer` does.
 
 ### Pictures made pixel by pixel
 
@@ -740,7 +740,7 @@ width := golib.Clamp(barWidth*s.health/maxHealth, 0, barWidth)
 
 The easings take a share of the way from 0 to 1, which is usually `Timer.Progress`, and clamp anything outside it.
 
-That is all the 2D geometry GoLib has: no physics in 2D (in 3D, see [Collisions and paths](#collisions-and-paths)). Pushing a player out of a wall is game code: `games/platformer/world.go` moves one axis at a time and pushes the player back out of any solid tile of the map it overlaps.
+That is all the 2D geometry GoLib has: no physics in 2D (in 3D, see [Collisions and paths](#collisions-and-paths)). Pushing a player out of a wall is game code: `examples/platformer/world.go` moves one axis at a time and pushes the player back out of any solid tile of the map it overlaps.
 
 ## Camera
 
@@ -891,7 +891,7 @@ screen.DrawMeshWith(s.sphere, golib.Transform{Position: coin}, gold)
 
 ### Models from Blender
 
-A model is a glTF file, `.glb` or `.gltf`, or an FBX file, `.fbx`, in the game's assets folder; a level is one too, made in Blender, or a text file of the game's own read with `ReadAsset` that places a pack's models, as [games/grove](../games/grove) does: Blender's File > Export > glTF 2.0, Mixamo's downloads, and most other 3D tools and asset packs. Both are read the same way, and everything below works with both. GoLib reads its meshes, their materials (color, texture, emission, unlit, see-through or cut out, one or two sides), vertex colors and the empties placed in it, with their custom properties: a level made in Blender carries where things go. Make each model once and keep it.
+A model is a glTF file, `.glb` or `.gltf`, or an FBX file, `.fbx`, in the game's assets folder; a level is one too, made in Blender, or a text file of the game's own read with `ReadAsset` that places a pack's models, as [examples/grove](../examples/grove) does: Blender's File > Export > glTF 2.0, Mixamo's downloads, and most other 3D tools and asset packs. Both are read the same way, and everything below works with both. GoLib reads its meshes, their materials (color, texture, emission, unlit, see-through or cut out, one or two sides), vertex colors and the empties placed in it, with their custom properties: a level made in Blender carries where things go. Make each model once and keep it.
 
 | Name | What it does |
 | --- | --- |
@@ -1397,7 +1397,7 @@ func (s *playScene) Draw(screen *golib.Screen) {
 ```
 
 - **Positions are the rules; the camera is only the view.** Keep the world in `Vector3`s in the rules and in the tests, as in 2D. Many 3D games play on the ground, so their rules can stay in X and Z.
-- **Turns, in short:** a zero `Rotation` faces +Z; a larger `Yaw` turns left; seen through a camera facing +Z, the screen's right is -X. Check which way things move with a test that calls `Camera3D.ToScreen`, as [games/marbles](../games/marbles/world_test.go) does, rather than by reasoning about axes.
+- **Turns, in short:** a zero `Rotation` faces +Z; a larger `Yaw` turns left; seen through a camera facing +Z, the screen's right is -X. Check which way things move with a test that calls `Camera3D.ToScreen`, as [examples/marbles](../examples/marbles/world_test.go) does, rather than by reasoning about axes.
 - **The basic meshes are one meter across, centered.** A box standing on the ground at `p` with height `h` is drawn at `p.Add(golib.Vector3{Y: h / 2})` with `Scale` Y `h`.
 - **Two surfaces at the same height flicker through each other**, such as a plane laid on a box's top. Lift the one on top by a centimeter, or make floors from thin boxes.
 - **Check what the camera sees with `golib shot`.** A camera looking the wrong way shows only the background color. While testing, `screen.DrawAxes(golib.Vector3{}, 1)` and `screen.DrawGrid(20, 1, golib.Gray)` show where the world is and which way is which.
@@ -1439,7 +1439,7 @@ func (s *pauseScene) Draw(screen *golib.Screen) {
 }
 ```
 
-`golib.SwitchScene(newPlayScene())` starts a fresh game. Settings every scene shares, such as whether the music is on, go in a struct that each scene holds a pointer to, like `options` in `games/asteroids/scenes.go`. The whole pattern, with a title menu, is in `games/platformer/scenes.go`.
+`golib.SwitchScene(newPlayScene())` starts a fresh game. Settings every scene shares, such as whether the music is on, go in a struct that each scene holds a pointer to, like `options` in `examples/asteroids/scenes.go`. The whole pattern, with a title menu, is in `examples/platformer/scenes.go`.
 
 ## Random numbers
 
@@ -1653,9 +1653,9 @@ func (s *playScene) Update(input *golib.Input, dt float32) {
 
 - Formats: `.ogg`, `.mp3`, `.wav`, `.qoa`, and the tracker modules `.xm` and `.mod`, which are a few dozen kilobytes. Not `.it`. The first `Play` stops `Run` with an error if the file is missing or in another format. `golib shot` and tests play nothing, so they don't notice: start the game with `golib run` to check.
 - Not every machine plays every format: a browser reads `.ogg`, `.mp3` and `.wav` and nothing else. Where the file's format doesn't play, GoLib plays a file beside it with the same name in one that does, so `music/theme.ogg` next to `music/theme.xm` is what a web build plays, and the game's code says `music/theme.xm` everywhere. With no such file, the game runs without that music and GoLib says so on the console, instead of stopping a game that plays on the desktop. `golib web` and `golib dist --web` say which file the browser will play while they build.
-- A module and the file beside it are **one tune, not two**, and the module is the one to name: it is a few dozen kilobytes against a few megabytes, and every machine but a browser plays it. A game that picks its music by listing the folder, rather than naming a file, sees both and has to say so: skip a playable file when a module of the same name sits beside it, as `games/skyraid/music.go` does.
+- A module and the file beside it are **one tune, not two**, and the module is the one to name: it is a few dozen kilobytes against a few megabytes, and every machine but a browser plays it. A game that picks its music by listing the folder, rather than naming a file, sees both and has to say so: skip a playable file when a module of the same name sits beside it, as `examples/skyraid/music.go` does.
 - A game with music has an `assets/` folder, so it needs `assets.go` (see [Files](#files-the-assets-folder)).
-- Only use music the user provides, and write where it came from, and its license, in `assets/ATTRIBUTION.md`, as `games/asteroids` does. `golib dist` copies that file into the `THIRD-PARTY-LICENSES.txt` it puts next to the game.
+- Only use music the user provides, and write where it came from, and its license, in `assets/ATTRIBUTION.md`, as `examples/asteroids` does. `golib dist` copies that file into the `THIRD-PARTY-LICENSES.txt` it puts next to the game.
 - There are no crossfades or playlists: `Stop` one `Music` and `Play` another.
 
 Music can also be made from notes, with no file at all, for a game whose user has no music to give:
@@ -1836,7 +1836,7 @@ func main() {
 }
 ```
 
-Let the player turn effects off, with `golib.SetPostProcess()`. `games/asteroids` has a glow and a CRT shader, switched with F2.
+Let the player turn effects off, with `golib.SetPostProcess()`. `examples/asteroids` has a glow and a CRT shader, switched with F2.
 
 ## The player's language
 
@@ -1969,7 +1969,7 @@ Games read their own data files this way, such as levels in text or JSON; `NewSp
 
 ## Testing a game
 
-Keep the rules in plain Go types, with no `Input` and no drawing, and test them by calling them directly, as `games/platformer/world_test.go` does:
+Keep the rules in plain Go types, with no `Input` and no drawing, and test them by calling them directly, as `examples/platformer/world_test.go` does:
 
 ```go
 const dt = 1.0 / 60 // the step golib.Run passes to Update
@@ -1989,7 +1989,7 @@ func TestJumpOnlyFromTheGround(t *testing.T) {
 
 - `Rectangle`, the random numbers, `ReadAsset`, `Animation`, a sprite's `Width`, `Height`, `Frames` and `Animation`, and everything a `Map` has but drawing work in tests; `golib test` runs them in the game's folder, so a test can check that a level has a start and the player can reach the exit. `golib test <game> --run <TestName>` runs only that test and shows what it logs with `t.Log`.
 - `Sound.Play` and `Music.Play` play nothing in tests; `Sound.Play` still reads a sound file, so a test that plays it checks the file.
-- In 3D, `Vector3`, `Rotation`, `Transform`, `Camera3D` (`ToScreen`, `Ray`, `Orbit`, `Look`, `Follow`, `AvoidWalls`, `Direction`, `Update`), a model's `Err`, `Bounds`, `Markers`, `Animations`, `AnimationLength` and `Bones`, an `Animator` (`Play`, `Update`, `Playing`, `Time`, `Bone`, `Moved`), and a `PhysicsWorld` with its `CharacterController`s, `NavMesh` and rigid bodies (with the native library `golib setup` downloads, which `golib test` finds) work in tests: check which way a key moves a character on the screen, that a level's markers are where they should be, as `games/hopper/level_test.go` does, that a jump plays the jump, that a wall stops the player, and that every key can be reached, as `games/crypt`'s tests do.
+- In 3D, `Vector3`, `Rotation`, `Transform`, `Camera3D` (`ToScreen`, `Ray`, `Orbit`, `Look`, `Follow`, `AvoidWalls`, `Direction`, `Update`), a model's `Err`, `Bounds`, `Markers`, `Animations`, `AnimationLength` and `Bones`, an `Animator` (`Play`, `Update`, `Playing`, `Time`, `Bone`, `Moved`), and a `PhysicsWorld` with its `CharacterController`s, `NavMesh` and rigid bodies (with the native library `golib setup` downloads, which `golib test` finds) work in tests: check which way a key moves a character on the screen, that a level's markers are where they should be, as `examples/hopper/level_test.go` does, that a jump plays the jump, that a wall stops the player, and that every key can be reached, as `examples/crypt`'s tests do.
 - `Run` and `Screen` need a window: check drawing with `golib shot` instead.
 
 ## Using raylib directly
@@ -2046,7 +2046,7 @@ A web build is what a phone plays, so a game meant for one is a game meant for t
 | Joints between rigid bodies (hinges, chains, ragdolls), cars, rigid bodies that push characters, and collision events | Not on the roadmap yet | A swinging door is a `Moved` body turned by the game; a falling crate the game checks against the player; a hit is a sudden change in `Velocity` |
 | Trigger pressure, vibration | Not on the roadmap yet | Triggers read as buttons |
 | Inverse kinematics, and reading one part of a model, such as where its mesh is | Not on the roadmap yet | `Model.Hide` and `Show` hide parts; markers say where things are |
-| Hiding or dimming part of an HDRI | Not on the roadmap yet | Paint the HDRI over in a copy made offline, as [games/sunset](../games/sunset)'s `sources/skies/lakesky.go` does |
+| Hiding or dimming part of an HDRI | Not on the roadmap yet | Paint the HDRI over in a copy made offline, as [examples/sunset](../examples/sunset)'s `sources/skies/lakesky.go` does |
 | Smooth surfaces reflecting each other and what is off the screen; particles in reflections | Not on the roadmap yet | Reflection probes baked in Blender show the level off the screen; a small solid glowing shape under a flame is reflected where its particles aren't |
 | Keeping one thing out of the haze, a thing that casts no shadow, a color for each burst of one `Particles`, and taking one object of a model out of a `PhysicsWorld` | Not on the roadmap yet | A second `Begin3D` pass without haze over the first; a `Particles` for each color; what the game removes added on its own with `AddMesh` or `AddModel` |
 | `.qoa`, `.xm` and `.mod` in a browser | Not planned: browsers cannot decode them | Save the sound as `.wav`, `.ogg` or `.mp3`. For music, put that file next to the `.xm` under the same name: a web build plays it, and the desktop keeps playing the module |

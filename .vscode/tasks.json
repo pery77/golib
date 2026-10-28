@@ -121,7 +121,7 @@
     {
       "id": "gameName",
       "type": "promptString",
-      "description": "Name of the new game: lowercase letters, digits, - and _, such as asteroids"
+      "description": "Name of the new game: lowercase letters, digits, - and _, such as moonshot"
     }
   ]
 }

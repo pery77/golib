@@ -36,7 +36,8 @@ $GoRoot = Join-Path $ToolsDir 'go'
 $GoExe = Join-Path $GoRoot 'bin\go.exe'
 $RaylibDir = Join-Path $ToolsDir 'raylib'
 $FrameworkDir = Join-Path $Root 'framework'
-$GamesDir = Join-Path $Root 'games'
+$GamesDir = Join-Path $Root 'games'       # the user's games, which git ignores
+$ExamplesDir = Join-Path $Root 'examples' # GoLib's examples
 # The Go side of golib, and where Invoke-Cli builds it. build/golib/ can't clash with a game's
 # build folder: new refuses golib as a game name.
 $CliDir = Join-Path $Root 'tools\cli'
@@ -59,7 +60,8 @@ Usage: golib <command> [options]
 Commands:
   setup                   Check the environment, then install Go, Go modules and raylib into .tools/
   doctor                  Diagnose the environment without changing anything
-  new <name>              Create games/<name>/, a small game ready to run, from tools/template/game/
+  new <name>              Create games/<name>/, a small game ready to run, from tools/template/game/.
+                          --example creates examples/<name>/, one of GoLib's examples, instead
   build [game]            Debug build of games/<game> into build/<game>/
   dist [game] [--web]     Build games/<game> to share: a folder and its zip in build/<game>/dist/.
                           --web builds it for the browser instead, zipped for itch.io
@@ -74,7 +76,7 @@ Commands:
                           finished level; --scale <1-8> enlarges the pictures (see docs/tooling.md)
                           --web takes the same shots of the web build, in a browser with no
                           window, into build/<game>/shots-web/
-  test [game]             Vet and test the framework, every game and GoLib's Go tools,
+  test [game]             Vet and test the framework, every example and game and GoLib's Go tools,
                           or only games/<game>. --run <pattern> runs only the tests whose
                           names match, and shows what they log
   web [game] [--port n]   Build games/<game> for the browser into build/<game>/web/ and serve it
@@ -85,9 +87,9 @@ Commands:
   clean --all             Also delete downloaded tools (.tools/); run setup again afterwards
   help                    Show this help
 
-[game] is a folder name in games/. Leave it out when there is only one game.
-A game whose folder starts with _ is private: git ignores it, so it stays out
-of the GoLib repository and can have a repository of its own.
+[game] is a folder name in games/ or examples/. Leave it out when games/ holds one game.
+games/ holds your games, and git ignores it: give each one a repository of its own.
+examples/ holds GoLib's examples, such as platformer: golib run platformer.
 
 build, run, shot, test, dist and web also take --tags <tags>: Go build tags,
 separated by commas, for the game's files that say //go:build <tag>, such as
@@ -284,18 +286,20 @@ function Assert-Toolchain([string]$Command) {
 
 # --- Modules, games and raylib --------------------------------------------------------------
 
-# Game names: folders in games/ that contain a go.mod.
-function Get-Games {
-    if (-not (Test-Path -LiteralPath $GamesDir -PathType Container)) { return @() }
-    return @(Get-ChildItem -LiteralPath $GamesDir -Directory |
+# Game names: folders in $Dir, games/ unless it says examples/, that contain a go.mod.
+function Get-Games([string]$Dir = $GamesDir) {
+    if (-not (Test-Path -LiteralPath $Dir -PathType Container)) { return @() }
+    return @(Get-ChildItem -LiteralPath $Dir -Directory |
         Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName 'go.mod') -PathType Leaf } |
         ForEach-Object { $_.Name } | Sort-Object)
 }
 
-# Go modules in the project, as paths relative to the root: framework first, then each game.
+# Go modules in the project, as paths relative to the root: framework first, then each example
+# and each game.
 function Get-Modules {
     $modules = @()
     if (Test-Path -LiteralPath (Join-Path $FrameworkDir 'go.mod') -PathType Leaf) { $modules += 'framework' }
+    foreach ($example in Get-Games $ExamplesDir) { $modules += "examples/$example" }
     foreach ($game in Get-Games) { $modules += "games/$game" }
     return $modules
 }
@@ -402,6 +406,10 @@ function Invoke-Doctor([string[]]$Options) {
         Write-Check info "games in games/: $($games -join ', ')"
     } else {
         Write-Check info 'no games in games/ yet'
+    }
+    $examples = @(Get-Games $ExamplesDir)
+    if ($examples.Count -gt 0) {
+        Write-Check info "examples in examples/: $($examples -join ', ')"
     }
 
     # Read go.mod as text instead of asking Go, so doctor starts nothing and changes nothing.

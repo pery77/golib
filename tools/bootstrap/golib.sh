@@ -33,7 +33,8 @@ go_root="$tools_dir/go"
 go_exe="$go_root/bin/go"
 raylib_dir="$tools_dir/raylib"
 framework_dir="$root/framework"
-games_dir="$root/games"
+games_dir="$root/games"       # the user's games, which git ignores
+examples_dir="$root/examples" # GoLib's examples
 # The Go side of golib, and where run_cli builds it. build/golib/ can't clash with a game's build
 # folder: new refuses golib as a game name.
 cli_dir="$root/tools/cli"
@@ -51,7 +52,8 @@ Usage: golib <command> [options]
 Commands:
   setup                   Check the environment, then install Go, Go modules and raylib into .tools/
   doctor                  Diagnose the environment without changing anything
-  new <name>              Create games/<name>/, a small game ready to run, from tools/template/game/
+  new <name>              Create games/<name>/, a small game ready to run, from tools/template/game/.
+                          --example creates examples/<name>/, one of GoLib's examples, instead
   build [game]            Debug build of games/<game> into build/<game>/
   dist [game] [--web]     Build games/<game> to share: a folder and its zip in build/<game>/dist/.
                           --web builds it for the browser instead, zipped for itch.io
@@ -66,7 +68,7 @@ Commands:
                           finished level; --scale <1-8> enlarges the pictures (see docs/tooling.md)
                           --web takes the same shots of the web build, in a browser with no
                           window, into build/<game>/shots-web/
-  test [game]             Vet and test the framework, every game and GoLib's Go tools,
+  test [game]             Vet and test the framework, every example and game and GoLib's Go tools,
                           or only games/<game>. --run <pattern> runs only the tests whose
                           names match, and shows what they log
   web [game] [--port n]   Build games/<game> for the browser into build/<game>/web/ and serve it
@@ -77,9 +79,9 @@ Commands:
   clean --all             Also delete downloaded tools (.tools/); run setup again afterwards
   help                    Show this help
 
-[game] is a folder name in games/. Leave it out when there is only one game.
-A game whose folder starts with _ is private: git ignores it, so it stays out
-of the GoLib repository and can have a repository of its own.
+[game] is a folder name in games/ or examples/. Leave it out when games/ holds one game.
+games/ holds your games, and git ignores it: give each one a repository of its own.
+examples/ holds GoLib's examples, such as platformer: golib run platformer.
 
 build, run, shot, test, dist and web also take --tags <tags>: Go build tags,
 separated by commas, for the game's files that say //go:build <tag>, such as
@@ -352,11 +354,13 @@ run_cli() {
 
 # --- Modules, games and raylib --------------------------------------------------------------
 
-# Sets games to the space-separated game names: folders in games/ that contain a go.mod.
+# Sets games to the space-separated game names: folders in $1, games/ unless it says examples/,
+# that contain a go.mod.
 list_games() {
   games=''
-  if [ -d "$games_dir" ]; then
-    for lg_dir in "$games_dir"/*/; do
+  lg_root="${1:-$games_dir}"
+  if [ -d "$lg_root" ]; then
+    for lg_dir in "$lg_root"/*/; do
       if [ -f "${lg_dir}go.mod" ]; then
         games="${games:+$games }$(basename "$lg_dir")"
       fi
@@ -364,10 +368,16 @@ list_games() {
   fi
 }
 
-# Sets modules to the project's Go modules, relative to the root: framework first, then each game.
+# Sets modules to the project's Go modules, relative to the root: framework first, then each
+# example and each game. Leaves examples and games set to their names.
 list_modules() {
   modules=''
   if [ -f "$framework_dir/go.mod" ]; then modules=framework; fi
+  list_games "$examples_dir"
+  examples="$games"
+  for lm_example in $examples; do
+    modules="${modules:+$modules }examples/$lm_example"
+  done
   list_games
   for lm_game in $games; do
     modules="${modules:+$modules }games/$lm_game"
@@ -432,6 +442,9 @@ cmd_doctor() {
     check info "games in games/: $(comma_list "$games")"
   else
     check info "no games in games/ yet"
+  fi
+  if [ -n "$examples" ]; then
+    check info "examples in examples/: $(comma_list "$examples")"
   fi
 
   # Read go.mod as text instead of asking Go, so doctor starts nothing and changes nothing.

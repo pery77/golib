@@ -4,7 +4,7 @@ How GoLib keeps the framework apart from the games made with it, and where game 
 
 Desktop games may opt into the display's physical framebuffer with `Config.HighDPI`. With `WindowScale`, render textures and resize callbacks follow physical pixels; the backend's logical window coordinates still define presentation and are mapped into screen pixels for input. The default retains existing desktop behavior, and a browser's canvas already follows device density. Screenshot windows only provide a small hidden graphics context: capture textures retain the requested `Config.Width` and `Config.Height`, even above the monitor's resolution. `DrawOptions.Smooth` filters sprite textures in scene order; `FullResolution` remains a separate overlay after post-processing.
 
-> **Status:** the framework and game split exists since M1, with `framework/` and the example game, `games/platformer`. Tiled maps, Aseprite files, PNG images, fonts, sound files and jfxr sounds load since M4, and 3D is being built in M7: glTF models, with their textures and materials, since stage 2; FBX, lights, shadows and animation are still ahead (see [roadmap.md](roadmap.md#m7-3d-planned)).
+> **Status:** the framework and game split exists since M1, with `framework/` and the example game, `examples/platformer`. Tiled maps, Aseprite files, PNG images, fonts, sound files and jfxr sounds load since M4, and 3D is being built in M7: glTF models, with their textures and materials, since stage 2; FBX, lights, shadows and animation are still ahead (see [roadmap.md](roadmap.md#m7-3d-planned)).
 
 ## Framework and games
 
@@ -13,7 +13,7 @@ GoLib has two sides, and they don't mix.
 | | Framework | Game |
 | --- | --- | --- |
 | What it is | A Go library on top of raylib | An ordinary Go program that uses the framework |
-| Lives in | `framework/` | `games/<name>/`, one folder per game |
+| Lives in | `framework/` | `games/<name>/`, one folder per game; GoLib's own examples in `examples/<name>/` |
 | Who changes it | GoLib contributors, following [contributing.md](contributing.md) | Whoever makes the game, following [ai/making-a-game.md](ai/making-a-game.md) |
 | Depends on | raylib | The framework, and raylib directly for anything the framework doesn't cover |
 
@@ -33,9 +33,9 @@ framework/          The framework: Go module "golib"
   README.md         The API guide: every exported name by task; apiguide_test.go keeps it in step
   internal/device/  The line to the machine: the contract, and one backend per platform
   internal/startup/ Checks, before raylib starts, that its libraries load (Windows); games can't import it
-games/
+examples/           GoLib's examples, part of this repository; laid out as a game is
+games/              Your games: git ignores everything here but README.md (see "Your games and the examples" below)
   <name>/           One game; the folder name is the game's short name
-  _<name>/          A private game: git ignores it here (see "Private games" below)
     go.mod          Go module <name>, which uses the framework through a replace directive
     main.go         Entry point (package main)
     DESIGN.md       Design brief: the game's memory across sessions
@@ -49,24 +49,26 @@ games/
 
 The framework folder can't be called `golib/`: that name is taken by the CLI entry point in the project root.
 
-### Private games
+### Your games and the examples
 
-A game whose folder name starts with `_`, such as `games/_moonshot/`, is **private**: `.gitignore` has `/games/_*/`, so it never enters the GoLib repository. Everything else about it is normal. It is a game like any other for the tooling, the framework and these rules; only git looks away.
+GoLib keeps two kinds of game apart, in two folders. Both are laid out the same way, follow the same rules and work the same with every command; only git and the naming differ.
+
+- **`games/` holds your games, and git ignores it.** `.gitignore` has `/games/*`, with `games/README.md` the only exception, so nothing you make there ever enters the GoLib repository: a commercial project, a client's game, a jam entry, content you can't redistribute. `golib new <name>` creates games here.
+- **`examples/` holds GoLib's examples, which are part of it.** `examples/platformer` is the one to learn from; the others show what each part of the framework does, and each milestone's test game lives here. They are public, and changing them is changing GoLib (see [contributing.md](contributing.md)). `golib new <name> --example` creates one.
 
 ```text
-golib new _moonshot     # says the folder is private
-golib run _moonshot     # build, run, shot, test, dist and web: the same as any game
+golib new moonshot      # games/moonshot/, which git ignores
+golib run moonshot      # build, run, shot, test, dist and web: by name, wherever the game is
+golib run platformer    # an example, the same way
 ```
 
-Use it for a game that isn't meant to be published with the framework: a commercial project, a client's game, a jam entry you want to keep to yourself, or anything with content you can't redistribute.
+- **Your games have their own git repositories.** Put one inside the game's folder: `cd games/moonshot && git init`. GoLib's repository ignores the folder, nested `.git` and all, so the two never see each other. Without one, the game is simply untracked, and nothing but your disk holds it — back it up.
+- **The framework stays public.** A game of yours may not change the framework, the CLI or the docs, exactly like the examples: what it needs from GoLib becomes a GoLib change, which is public. Keep your code inside your game's folder.
+- **Names are unique across both folders.** `build/<name>/` and the commands go by the name alone, so `golib new` refuses an example's name, and a command named a game that is in both folders says so instead of guessing.
+- **A command without a name picks your game.** `golib run`, with no name, runs the only game in `games/`; examples are always named, so however many there are, they never stand in the way.
+- **Everything joins the checks.** `golib test`, run with no game name, tests the framework, every example and every game of yours, which is how a framework change shows that it broke your game. `golib test <name>` narrows it to one, and `golib doctor` lists your games and the examples: that output is local, not committed.
 
-- **Its own git repository.** Put one inside the folder: `cd games/_moonshot && git init`. GoLib's repository ignores the folder, nested `.git` and all, so the two never see each other. Without one, the game is simply untracked, and nothing but your disk holds it — back it up.
-- **The framework stays public.** A private game may not change the framework, the CLI or the docs, exactly like the games in this repository: what it needs from GoLib becomes a GoLib change, which is public. Keep private code inside the game's folder.
-- **It joins the checks.** `golib test`, run with no game name, tests every game, private ones included, which is how a framework change shows that it broke your game. `golib test <name>` narrows it to one, and `golib doctor` lists private games with the rest: that output is local, not committed.
-- **Only the top folder counts.** The mark is the game folder's name. A folder inside a public game, such as `games/platformer/_notes/`, is committed as usual.
-- **Renaming makes it public or private.** Rename `games/_moonshot/` to `games/moonshot/` and git sees it, with no other change needed; `golib new` also writes the name as the module path in `go.mod`, which is only a name, so change that line as well to keep the two in step.
-
-Why `_`: it is already a valid character in game names, it works as a folder name on Windows, Linux and macOS, and `#` would be worse in every place the name appears, starting with `.gitignore`, where `#` opens a comment.
+Until 2026-10-28 every game lived in `games/`, and a folder name starting with `_` kept a game out of the repository. The `_` means nothing now: a game named `_moonshot` still works, as any name does, but `golib new` no longer makes such names.
 
 ### Framework and machine
 
@@ -123,7 +125,7 @@ Because a game depends only on `../../framework`, it moves to a newer GoLib as a
 
 ### Developing the framework with a test game
 
-The framework is built together with a real game that tries out each feature as it lands; today that is `games/platformer`. It follows the same rules as any other game: it is the framework's first user, not part of it. When it needs something the framework lacks:
+The framework is built together with a real game that tries out each feature as it lands; today that is `examples/platformer`. It follows the same rules as any other game: it is the framework's first user, not part of it. When it needs something the framework lacks:
 
 1. Add the general capability to the framework, with its docs and tests, as its own change.
 2. Use it from the game in a separate change.

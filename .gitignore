@@ -8,10 +8,11 @@
 *.out
 __debug_bin*
 
-# Private games: a game folder whose name starts with "_" never enters this
-# repository, so it can be kept elsewhere, in a git repository of its own.
-# See docs/architecture.md#private-games.
-/games/_*/
+# Your games: nothing in games/ enters this repository but its README, so each
+# game can have a git repository of its own. GoLib's examples live in
+# examples/. See docs/architecture.md#your-games.
+/games/*
+!/games/README.md
 
 # Personal Claude Code settings
 .claude/settings.local.json

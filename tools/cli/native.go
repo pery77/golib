@@ -191,7 +191,7 @@ func usesRigidBodies(path string) (bool, error) {
 // errNoNative says that a game needs golibnative and .tools/native/ hasn't
 // got it.
 func (c *cli) errNoNative(game string) error {
-	return fmt.Errorf("games/%s uses rigid bodies, which need GoLib's native library, and .tools/native/ has no %s: run golib setup (see native/README.md)", game, c.nativeName())
+	return fmt.Errorf("%s uses rigid bodies, which need GoLib's native library, and .tools/native/ has no %s: run golib setup (see native/README.md)", c.gameModule(game), c.nativeName())
 }
 
 // copyNative copies golibnative into dir when the game built at exe uses
@@ -220,7 +220,7 @@ func (c *cli) copyJoltJS(game, wasm string) (bool, error) {
 	for _, f := range c.joltJS {
 		source := c.path(".tools", "jolt", f.name)
 		if !isFile(source) {
-			return false, fmt.Errorf("games/%s uses rigid bodies, which need JoltPhysics.js in a browser, and .tools/jolt/ has no %s: run golib setup", game, f.name)
+			return false, fmt.Errorf("%s uses rigid bodies, which need JoltPhysics.js in a browser, and .tools/jolt/ has no %s: run golib setup", c.gameModule(game), f.name)
 		}
 		if err := syncFile(source, filepath.Join(filepath.Dir(wasm), f.name)); err != nil {
 			return false, err

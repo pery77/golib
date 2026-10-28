@@ -11,48 +11,65 @@ import (
 
 var (
 	// gameNamePattern is what game names look like: they are folder names,
-	// module paths and executable names. A leading _ marks a private game,
-	// which .gitignore keeps out of this repository (see isPrivateGame).
-	gameNamePattern = regexp.MustCompile(`^_?[a-z][a-z0-9_-]{0,31}$`)
+	// module paths and executable names.
+	gameNamePattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}$`)
 	// reservedGameName matches golib, which would clash with the
 	// framework's import path and build/golib/, and the names Windows keeps
 	// for devices.
 	reservedGameName = regexp.MustCompile(`^(golib|con|prn|aux|nul|com[1-9]|lpt[1-9])$`)
 )
 
-// newGame creates games/<name>/ from the templates in tools/template/game/
-// (see docs/tooling.md#new-games).
+// newGame creates games/<name>/ from the templates in tools/template/game/,
+// or examples/<name>/ with --example, for GoLib's own examples (see
+// docs/tooling.md#new-games).
 func (c *cli) newGame(options []string) int {
-	if len(options) != 1 {
-		return c.usage("new needs one game name, for example: golib new asteroids")
+	folder := gamesFolder
+	var names []string
+	for _, option := range options {
+		switch {
+		case option == "--example":
+			folder = examplesFolder
+		case strings.HasPrefix(option, "-"):
+			return c.usage("unknown option for new: " + option)
+		default:
+			names = append(names, option)
+		}
 	}
-	name := options[0]
+	if len(names) != 1 {
+		return c.usage("new needs one game name, for example: golib new moonshot")
+	}
+	name := names[0]
 	if !gameNamePattern.MatchString(name) {
-		return c.usage(fmt.Sprintf("invalid game name %q: use 1 to 32 lowercase letters, digits, - and _, starting with a letter, or with _ for a private game", name))
+		return c.usage(fmt.Sprintf("invalid game name %q: use 1 to 32 lowercase letters, digits, - and _, starting with a letter", name))
 	}
 	if reservedGameName.MatchString(name) {
 		return c.usage(fmt.Sprintf("the game name %q is reserved: pick another one", name))
 	}
-	dir := c.path("games", name)
-	if _, err := os.Lstat(dir); err == nil {
-		return c.usage(fmt.Sprintf("games/%s already exists: pick another name, or delete that folder first", name))
+	// A game and an example can't share a name: build/<name>/ and the
+	// commands go by the name alone.
+	for _, taken := range []string{gamesFolder, examplesFolder} {
+		if _, err := os.Lstat(c.path(taken, name)); err == nil {
+			return c.usage(fmt.Sprintf("%s/%s already exists: pick another name, or delete that folder first", taken, name))
+		}
 	}
+	shown := folder + "/" + name
+	dir := c.path(folder, name)
 
 	if err := c.writeTemplates(name, dir); err != nil {
 		os.RemoveAll(dir)
-		c.check("fail", fmt.Sprintf("cannot create games/%s/: %v", name, err))
+		c.check("fail", fmt.Sprintf("cannot create %s/: %v", shown, err))
 		return c.summary("new")
 	}
 	if err := c.goRun(dir, "mod", "tidy"); err != nil {
 		os.RemoveAll(dir)
-		c.check("fail", fmt.Sprintf("go mod tidy failed for games/%s (see the Go errors above); the folder was deleted, so new can run again", name))
+		c.check("fail", fmt.Sprintf("go mod tidy failed for %s (see the Go errors above); the folder was deleted, so new can run again", shown))
 		return c.summary("new")
 	}
-	c.check("ok", fmt.Sprintf("created games/%s/ from tools/template/game/", name))
-	if isPrivateGame(name) {
-		c.check("info", fmt.Sprintf("games/%s/ is a private game: .gitignore keeps games/_*/ out of this repository, so it can have a repository of its own", name))
+	c.check("ok", fmt.Sprintf("created %s/ from tools/template/game/", shown))
+	if folder == gamesFolder {
+		c.check("info", fmt.Sprintf("%s/ stays out of GoLib's repository, as all of games/ does: to keep its history, give it a git repository of its own (git init in its folder)", shown))
 	}
-	c.check("info", fmt.Sprintf("next: golib run %s, and describe the game in games/%s/DESIGN.md", name, name))
+	c.check("info", fmt.Sprintf("next: golib run %s, and describe the game in %s/DESIGN.md", name, shown))
 	return c.summary("new")
 }
 

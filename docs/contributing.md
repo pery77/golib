@@ -7,7 +7,7 @@ Rules for changing GoLib itself: the CLI, the framework, the template and its do
 A change is done when all of these hold:
 
 1. It works on Windows, Linux and macOS, or the gap is written down in [roadmap.md](roadmap.md).
-2. On a clean checkout, `golib setup`, `golib doctor` and `golib test` succeed, and every game in `games/` builds with `golib build <game>`. Go code is formatted: `golib go -C <module folder> fmt ./...` lists no files.
+2. On a clean checkout, `golib setup`, `golib doctor` and `golib test` succeed, and every example in `examples/` builds with `golib build <example>`. Go code is formatted: `golib go -C <module folder> fmt ./...` lists no files.
 3. Every doc that describes the changed behavior is updated in the same change: the status table, commands and layout in `AGENTS.md`, `README.md`, the relevant files in `docs/`, and, for any change to the framework's exported API, the API guide in `framework/README.md`. `golib test` fails while the guide misses an exported name or names one that no longer exists, but only a careful read keeps its explanations true.
 4. A fresh agent session that only reads `AGENTS.md` and follows its links would use the change correctly.
 5. Anything that draws has been checked with `golib shot`, by looking at the screenshots, not just by building.

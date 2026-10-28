@@ -71,8 +71,11 @@ func TestDebugGameDir(t *testing.T) {
 	gameDir := filepath.Join(root, "games", "rocks")
 	buildDir := filepath.Join(root, "build", "rocks")
 	exe := filepath.Join(buildDir, "rocks.exe")
+	exampleDir := filepath.Join(root, "examples", "platformer")
+	exampleBuild := filepath.Join(root, "build", "platformer")
 	folders := map[string]bool{
-		filepath.Join(gameDir, "assets"): true,
+		filepath.Join(gameDir, "assets"):    true,
+		filepath.Join(exampleDir, "assets"): true,
 	}
 	isDir := func(path string) bool { return folders[path] }
 
@@ -84,6 +87,7 @@ func TestDebugGameDir(t *testing.T) {
 	}{
 		{name: "started in the game's folder", workDir: gameDir, exe: exe, want: gameDir},
 		{name: "started from Explorer", workDir: buildDir, exe: exe, want: gameDir},
+		{name: "an example started from Explorer", workDir: exampleBuild, exe: filepath.Join(exampleBuild, "platformer.exe"), want: exampleDir},
 		{name: "started from another folder", workDir: root, exe: exe, want: gameDir},
 		{name: "F5 output name", workDir: buildDir, exe: filepath.Join(buildDir, "debug"), want: gameDir},
 		{name: "executable unknown", workDir: buildDir, exe: "", want: buildDir},

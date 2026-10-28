@@ -60,8 +60,8 @@ func (c *cli) run(options []string) int {
 		return c.summary("run")
 	}
 	shownExe := c.shown(exe)
-	c.check("info", fmt.Sprintf("running %s with games/%s/ as the working directory", shownExe, game))
-	code, _, err := c.runGame(gameRun{exe: exe, dir: c.path("games", game), env: c.gameEnv(game)})
+	c.check("info", fmt.Sprintf("running %s with %s/ as the working directory", shownExe, c.gameModule(game)))
+	code, _, err := c.runGame(gameRun{exe: exe, dir: c.gameDir(game), env: c.gameEnv(game)})
 	if err != nil {
 		c.check("fail", fmt.Sprintf("cannot start %s: %v", shownExe, err))
 		return c.summary("run")
@@ -106,7 +106,7 @@ func (c *cli) runDist(game string) int {
 // uses rigid bodies. On Windows they carry the game's icon and details, as
 // dist builds do, without reporting them.
 func (c *cli) buildGame(game string) string {
-	dir := c.path("games", game)
+	dir := c.gameDir(game)
 	outDir := c.path("build", game)
 	exe := filepath.Join(outDir, c.executable(game))
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
@@ -144,12 +144,12 @@ func (c *cli) buildGame(game string) string {
 		if c.goos != "windows" {
 			os.Remove(target)
 		}
-		c.check("fail", fmt.Sprintf("build failed for games/%s (see the Go errors above)", game))
+		c.check("fail", fmt.Sprintf("build failed for %s (see the Go errors above)", c.gameModule(game)))
 		return ""
 	}
 	if target != exe {
 		if err := os.Rename(target, exe); err != nil {
-			c.check("fail", fmt.Sprintf("cannot put the new build of games/%s in place: %v", game, err))
+			c.check("fail", fmt.Sprintf("cannot put the new build of %s in place: %v", c.gameModule(game), err))
 			return ""
 		}
 	}
@@ -168,6 +168,6 @@ func (c *cli) buildGame(game string) string {
 		c.check("fail", fmt.Sprintf("cannot copy %s into build/%s/: %v", c.nativeName(), game, err))
 		return ""
 	}
-	c.check("ok", fmt.Sprintf("built games/%s into %s", game, c.shown(exe)))
+	c.check("ok", fmt.Sprintf("built %s into %s", c.gameModule(game), c.shown(exe)))
 	return exe
 }
