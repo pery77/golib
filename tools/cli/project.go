@@ -33,6 +33,9 @@ type project struct {
 	// their checksums: nativeChecksums and joltJSFiles, which tests replace.
 	natives map[string]string
 	joltJS  []namedSum
+	// llms holds the checksums of golibllm's zips: llmChecksums, which tests
+	// replace.
+	llms map[string]string
 }
 
 // goCall is one run of the project's go command.
@@ -60,7 +63,7 @@ func newProject(exe string, stdout, stderr io.Writer) (*project, error) {
 	if !isFile(filepath.Join(root, "tools", "cli", "go.mod")) {
 		return nil, fmt.Errorf("%s is not in the build/golib/ folder of a GoLib project: start it with golib, which builds it there", exe)
 	}
-	p := &project{root: root, goos: runtime.GOOS, goarch: runtime.GOARCH, download: download, natives: nativeChecksums, joltJS: joltJSFiles}
+	p := &project{root: root, goos: runtime.GOOS, goarch: runtime.GOARCH, download: download, natives: nativeChecksums, joltJS: joltJSFiles, llms: llmChecksums}
 	p.runGo = func(call goCall) ([]byte, error) {
 		cmd := p.goCommand(call.dir, call.args)
 		cmd.Env = append(cmd.Env, call.env...)

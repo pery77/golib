@@ -168,6 +168,19 @@ func (c *cli) buildGame(game string) string {
 		c.check("fail", fmt.Sprintf("cannot copy %s into build/%s/: %v", c.nativeName(), game, err))
 		return ""
 	}
+	if copied, err := c.copyLLM(game, exe, outDir); err != nil {
+		c.check("fail", fmt.Sprintf("cannot copy %s into build/%s/: %v", c.llmName(), game, err))
+		return ""
+	} else if copied != nil {
+		info, _, err := readGameInfo(c.gameDir(game))
+		if err != nil {
+			c.check("fail", fmt.Sprintf("%s: %v", c.shown(c.gameDir(game, gameInfoFile)), err))
+			return ""
+		}
+		if !c.syncModels(game, info) {
+			return ""
+		}
+	}
 	c.check("ok", fmt.Sprintf("built %s into %s", c.gameModule(game), c.shown(exe)))
 	return exe
 }

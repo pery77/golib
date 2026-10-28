@@ -164,3 +164,22 @@ func TestGameVersionFlag(t *testing.T) {
 		}
 	}
 }
+
+func TestGameInfoModels(t *testing.T) {
+	sum := strings.Repeat("ab", 32)
+	good := map[string]modelSource{"model.gguf": {URL: "https://example.com/model.gguf", SHA256: sum}}
+	if err := checkModels(good); err != nil {
+		t.Errorf("a good model: %v", err)
+	}
+	for name, models := range map[string]map[string]modelSource{
+		"a path":        {"sub/model.gguf": {URL: "https://example.com/m", SHA256: sum}},
+		"not GGUF":      {"model.bin": {URL: "https://example.com/m", SHA256: sum}},
+		"plain http":    {"model.gguf": {URL: "http://example.com/m", SHA256: sum}},
+		"short sha256":  {"model.gguf": {URL: "https://example.com/m", SHA256: "abc"}},
+		"no hex sha256": {"model.gguf": {URL: "https://example.com/m", SHA256: strings.Repeat("zz", 32)}},
+	} {
+		if err := checkModels(models); err == nil {
+			t.Errorf("%s: no error", name)
+		}
+	}
+}
