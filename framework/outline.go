@@ -159,7 +159,8 @@ func (r *state3D) drawOutlines(groups []shadowGroup, viewProjection *[16]float32
 		device.UseProgram(p.program)
 		device.SetUniformMatrix(p.viewProjection, viewProjection)
 		device.SetUniform(p.viewSize, 2, [4]float32{float32(width), float32(height)})
-		device.SetUniform(p.width, 1, [4]float32{m.outlineWidth})
+		// Measured in the screen's pixels, fewer in a pass drawn smaller.
+		device.SetUniform(p.width, 1, [4]float32{m.outlineWidth * r.resolution})
 		device.SetUniform(p.color, 4, m.outline)
 		device.SetUniform(p.eye, 3, vec3(eye))
 		device.SetUniform(p.fog, 4, fog)

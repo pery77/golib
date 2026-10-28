@@ -53,6 +53,46 @@ void surface(inout Surface s) {
 		t.Fatal(err)
 	}
 
+	// Turned half round, the box shows the camera its mesh's +Z face, which
+	// faces -Z in the world: red, green and blue say the shader knows both.
+	inMesh := &Material{Unlit: true, Shader: `
+void surface(inout Surface s) {
+    float front = step(0.4, s.meshPosition.z);
+    float facing = step(0.9, s.meshNormal.z);
+    float world = step(0.9, -meshToWorld(s.meshNormal).z);
+    s.color = vec4(front, facing, world, 1.0) * 0.5;
+}`}
+	turned := capture(func() {
+		screen.Begin3D(camera)
+		screen.SetEnvironment(dark)
+		screen.DrawMeshWith(box, Transform{Rotation: Rotation{Yaw: 180}, Scale: Vector3{X: 2, Y: 2, Z: 2}}, inMesh)
+		screen.End3D()
+	}).NRGBAAt(32, 32)
+	if turned.R < 170 || turned.G < 170 || turned.B < 170 {
+		t.Errorf("a box turned half round, painted by where it is in its mesh, is %v: want its mesh's +Z face, facing the camera, white", turned)
+	}
+	if c := middle(dark, inMesh); c.R > 4 || c.G > 4 || c.B < 180 {
+		t.Errorf("the same box unturned is %v: want its mesh's -Z face, facing the camera, blue", c)
+	}
+	// A shader reads the material's texture its own way, and the mesh's
+	// color, tinted, apart from it.
+	ownWay := &Material{Texture: NewTexture("textures/green.png"), Unlit: true, Shader: `
+void surface(inout Surface s) {
+    s.color = vec4(texture(materialTexture, vec2(0.5)).g * 0.5, s.vertexColor.r * 0.5, 0.0, 1.0);
+}`}
+	tinted := capture(func() {
+		screen.Begin3D(camera)
+		screen.SetEnvironment(dark)
+		screen.DrawMeshWithTint(box, Transform{Scale: Vector3{X: 2, Y: 2, Z: 2}}, ownWay, Red)
+		screen.End3D()
+	}).NRGBAAt(32, 32)
+	if tinted.R < 100 || tinted.G < 160 || tinted.B > 4 {
+		t.Errorf("a box whose shader reads its green texture into red and its red tint into green is %v", tinted)
+	}
+	if err := takeError(); err != nil {
+		t.Fatal(err)
+	}
+
 	middle(dark, &Material{Shader: "void surface(inout Surface s) { s.color = nothing; }"})
 	if err := takeError(); err == nil || !strings.Contains(err.Error(), "Material's Shader doesn't compile") {
 		t.Errorf("a shader that doesn't compile reported %v", err)
