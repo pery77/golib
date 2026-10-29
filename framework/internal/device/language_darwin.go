@@ -3,6 +3,7 @@
 package device
 
 import (
+	"runtime"
 	"unsafe"
 
 	"github.com/ebitengine/purego/objc"
@@ -24,7 +25,11 @@ var (
 // can ask before golib.Run.
 func SystemLanguages() []string {
 	// What NSLocale returns is autoreleased: a pool of its own frees it, since
-	// the game may ask before AppKit has one.
+	// the game may ask before AppKit has one. A pool must be drained on the
+	// thread that made it, and Go may move a goroutine to another thread
+	// between two calls, so the goroutine stays on its thread until then.
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
 	pool := objc.ID(objc.GetClass("NSAutoreleasePool")).Send(selAlloc).Send(selInit)
 	defer pool.Send(selDrain)
 	list := objc.ID(objc.GetClass("NSLocale")).Send(selPreferredLanguages)
