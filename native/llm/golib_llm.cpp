@@ -30,7 +30,7 @@ static const int golib_llm_interface = 1;
 
 namespace {
 
-struct model {
+struct session {
 	llama_model *model = nullptr;
 	llama_context *ctx = nullptr;
 	const llama_vocab *vocab = nullptr;
@@ -60,7 +60,7 @@ void quiet(ggml_log_level level, const char *text, void *) {
 bool backend_ready = false;
 
 // decode feeds tokens to the context, in batches it can take.
-bool decode(model *m, const llama_token *tokens, int n) {
+bool decode(session *m, const llama_token *tokens, int n) {
 	int batch = int(llama_n_batch(m->ctx));
 	for (int i = 0; i < n; i += batch) {
 		int count = std::min(batch, n - i);
@@ -134,7 +134,7 @@ GOLIB_EXPORT void *golib_llm_load(const char *path, const int32_t *settings, cha
 		copy_text("llama.cpp could not make a context for the model: too little memory for its context size?", err, errlen);
 		return nullptr;
 	}
-	model *m = new model;
+	session *m = new session;
 	m->model = lm;
 	m->ctx = ctx;
 	m->vocab = llama_model_get_vocab(lm);
@@ -142,7 +142,7 @@ GOLIB_EXPORT void *golib_llm_load(const char *path, const int32_t *settings, cha
 }
 
 GOLIB_EXPORT void golib_llm_free(void *p) {
-	model *m = static_cast<model *>(p);
+	session *m = static_cast<session *>(p);
 	if (m == nullptr) {
 		return;
 	}
@@ -160,7 +160,7 @@ GOLIB_EXPORT void golib_llm_free(void *p) {
 // outlen, or -1 when the model's format is one llama.cpp doesn't know and
 // ChatML doesn't do either.
 GOLIB_EXPORT int32_t golib_llm_template(void *p, const char *const *roles, const char *const *texts, int32_t n, char *out, int32_t outlen) {
-	model *m = static_cast<model *>(p);
+	session *m = static_cast<session *>(p);
 	std::vector<llama_chat_message> chat(size_t(std::max(n, 0)));
 	for (int32_t i = 0; i < n; i++) {
 		chat[size_t(i)] = {roles[i], texts[i]};
@@ -178,7 +178,7 @@ GOLIB_EXPORT int32_t golib_llm_template(void *p, const char *const *roles, const
 // repeat penalty, the seed and the most tokens to write. It returns 0, or
 // -1 with the reason in err.
 GOLIB_EXPORT int32_t golib_llm_start(void *p, const char *prompt, const float *sampling, char *err, int32_t errlen) {
-	model *m = static_cast<model *>(p);
+	session *m = static_cast<session *>(p);
 	int len = int(strlen(prompt));
 	int n = -llama_tokenize(m->vocab, prompt, len, nullptr, 0, true, true);
 	std::vector<llama_token> tokens(size_t(std::max(n, 1)));
@@ -234,7 +234,7 @@ GOLIB_EXPORT int32_t golib_llm_start(void *p, const char *prompt, const float *s
 // its length: 0 at the end of the reply, -1 on an error. A piece is whole
 // characters; it can be empty while a character is split between tokens.
 GOLIB_EXPORT int32_t golib_llm_next(void *p, char *out, int32_t outlen) {
-	model *m = static_cast<model *>(p);
+	session *m = static_cast<session *>(p);
 	while (!m->done) {
 		if (m->generated >= m->max_tokens) {
 			m->done = true;
@@ -280,5 +280,5 @@ GOLIB_EXPORT int32_t golib_llm_next(void *p, char *out, int32_t outlen) {
 
 // golib_llm_stop ends the reply being written.
 GOLIB_EXPORT void golib_llm_stop(void *p) {
-	static_cast<model *>(p)->done = true;
+	static_cast<session *>(p)->done = true;
 }
