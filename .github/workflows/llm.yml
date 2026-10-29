@@ -4,10 +4,11 @@
 # them from that release, checking each against the checksum in
 # tools/cli/llm.go. See native/README.md for making a release.
 #
-# Windows and Linux keep llama.cpp's backends as libraries beside golibllm:
-# a CPU backend for each processor generation, which the game picks for the
-# computer it runs on, and on Windows Vulkan for graphics cards, skipped on a
-# computer without Vulkan. macOS has them inside: Metal on Apple silicon.
+# Windows and x86 Linux keep llama.cpp's backends as libraries beside
+# golibllm: a CPU backend for each processor generation, which the game picks
+# for the computer it runs on, and on Windows Vulkan for graphics cards,
+# skipped on a computer without Vulkan. macOS and ARM Linux have them inside:
+# Metal on Apple silicon.
 name: Language model library
 
 on:
@@ -32,10 +33,12 @@ jobs:
             platform: linux-amd64
             flags: -DGOLIB_LLM_BACKENDS_APART=ON
             files: build/llm/golibllm.so build/llm/bin/*.so*
+          # GCC 11 on Ubuntu 22.04 doesn't know the ARMv9 variants, so ARM
+          # Linux gets one CPU backend, inside golibllm.
           - runner: ubuntu-22.04-arm
             platform: linux-arm64
-            flags: -DGOLIB_LLM_BACKENDS_APART=ON
-            files: build/llm/golibllm.so build/llm/bin/*.so*
+            flags: ""
+            files: build/llm/golibllm.so
           - runner: macos-15-intel
             platform: darwin-amd64
             flags: ""
@@ -47,17 +50,23 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
+      # The Vulkan SDK, installed as llama.cpp's own CI installs it.
       - name: Vulkan SDK
         if: matrix.platform == 'windows-amd64'
-        uses: humbletim/install-vulkan-sdk@v1.2
-        with:
-          version: 1.4.313.0
-          cache: true
+        shell: pwsh
+        env:
+          VULKAN_VERSION: 1.4.357.0
+        run: |
+          curl.exe -o $env:RUNNER_TEMP/VulkanSDK-Installer.exe -L "https://sdk.lunarg.com/sdk/download/${env:VULKAN_VERSION}/windows/vulkansdk-windows-X64-${env:VULKAN_VERSION}.exe"
+          & "$env:RUNNER_TEMP\VulkanSDK-Installer.exe" --accept-licenses --default-answer --confirm-command install
+          Add-Content $env:GITHUB_ENV "VULKAN_SDK=C:\VulkanSDK\${env:VULKAN_VERSION}"
+          Add-Content $env:GITHUB_PATH "C:\VulkanSDK\${env:VULKAN_VERSION}\bin"
       - name: Build
         shell: bash
         run: |
           cmake -S native/llm -B build/llm -DCMAKE_BUILD_TYPE=Release ${{ matrix.flags }}
-          cmake --build build/llm --config Release --parallel
+          # Every CPU variant at once runs a Linux runner out of memory.
+          cmake --build build/llm --config Release --parallel 2
           mkdir -p out/files
           if [ "${{ matrix.platform }}" = windows-amd64 ]; then
             cp build/llm/Release/golibllm.dll out/files/
