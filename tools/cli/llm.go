@@ -33,7 +33,7 @@ const llmMarker = "golib-uses-language-models:llama.cpp"
 
 // llmRelease names the GitHub release, in nativeRepository, that setup
 // downloads golibllm from: golibllm-<os>-<arch>.zip.
-const llmRelease = "llm-1"
+const llmRelease = "llm-2"
 
 // llmChecksums holds the SHA-256 of each zip of llmRelease, written here when
 // the release is made (see native/README.md). A platform without one has no
