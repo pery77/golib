@@ -39,7 +39,13 @@ const llmRelease = "llm-2"
 // the release is made (see native/README.md). A platform without one has no
 // release yet: setup leaves a library built by hand with native/llm/build.sh
 // in place, and says so.
-var llmChecksums = map[string]string{}
+var llmChecksums = map[string]string{
+	"darwin/amd64":  "b1679811073385842c02f07e8129de8397aaae8d2d899349ebbf88884cf1b6b7",
+	"darwin/arm64":  "1b5236dc0afa8950e86cb90ed2c7caaad738e02ebda41e8b76e07b687b43d493",
+	"linux/amd64":   "df63a930217cc2a8fe35ded5a0e77b6ea2e14dca09a57a01e19aabce91fd1f79",
+	"linux/arm64":   "520dcbe96821e4e59cc5f7eeeab15db31a202c69ac8b5f38f00798912bd46c48",
+	"windows/amd64": "d0115ada50757fe27860018fa8558d74ce72fe84a816dffa6fe990bb284f8c8f",
+}
 
 // llamaLicense holds llama.cpp's license, for THIRD-PARTY-LICENSES.txt.
 //
