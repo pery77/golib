@@ -28,6 +28,7 @@ For AI agents writing game code with GoLib, and for anyone who wants the whole f
 | Remember high scores, settings and progress | `golib.SaveData`, `golib.LoadData` | [Saving data](#saving-data) |
 | Start in the player's language | `golib.ChooseLanguage`, `golib.SystemLanguages` | [The player's language](#the-players-language) |
 | Show which build the player has | `golib.GameVersion` | [The game's version](#the-games-version) |
+| Talk with a character that answers in its own words, with no connection | `golib.NewLanguageModel`, `model.Reply`, `golib.ChatMessage` | [Language models](#language-models) |
 | Read a data file | `golib.ReadAsset` | [Files: the assets folder](#files-the-assets-folder) |
 | End the game | `golib.Quit` | [Quitting](#quitting) |
 
@@ -1876,6 +1877,64 @@ if version := golib.GameVersion(); version != "" {
 
 - It is the same in a demo and in the full game, since both come from one `game.json`: a game that tells them apart shows its own word next to it, from a constant in a file with `//go:build demo` (see [docs/tooling.md](../docs/tooling.md#build-tags)).
 - Raise `version` in `game.json` each time a build is shared; `golib dist` puts it in the zip's name too.
+
+## Language models
+
+A language model runs inside the game, on the player's computer: no connection, no account, nothing to install. It is [llama.cpp](https://github.com/ggml-org/llama.cpp), in GoLib's library golibllm, which `golib setup` downloads and the builds of a game that loads a model carry, reading a GGUF file from the game's `models/` folder. For a character who answers what the player types, such as an AI living in a computer. Desktop only: in a browser, `Err` says so.
+
+| Name | What it does |
+| --- | --- |
+| `LanguageModel` | A model. Make it once and keep it, as sounds are; it loads the first time it is asked for a reply, or when `Load` is called. |
+| `NewLanguageModel` | `NewLanguageModel(name string, options ...LanguageModelOptions) *LanguageModel`: the GGUF file `name` in the game's `models/` folder, `games/<game>/models/`. Making one reads nothing. |
+| `LanguageModelOptions` | How it loads: pass at most one. |
+| `LanguageModelOptions.Context` | Tokens the conversation can hold, the system prompt, the messages and the reply together, about three quarters of a word each. Default: 4096. More takes more memory. |
+| `LanguageModelOptions.CPUOnly` | Keeps it off the graphics card, which it uses where llama.cpp can: Metal on Apple silicon, Vulkan on Windows and Linux. |
+| `LanguageModelOptions.Threads` | Processor threads. Default: llama.cpp's choice, about one per core. |
+| `LanguageModel.Load` | `Load()`: starts loading in the background, if it hasn't, so the first reply doesn't wait: call it when the game starts. Loading takes seconds and some GB of memory. |
+| `LanguageModel.Ready` | `Ready() bool`: it has loaded. |
+| `LanguageModel.Err` | `Err() error`: why it couldn't load, such as a missing file or no golibllm; nil while it loads and once it has. |
+| `LanguageModel.Reply` | `Reply(messages []ChatMessage, options ...ReplyOptions) *Reply`: starts the answer to a conversation and returns at once. Replies come one at a time, in the order asked. |
+| `ChatMessage` | One message: `ChatMessage.Role`, `RoleSystem`, `RoleUser` or `RoleAssistant`, and `ChatMessage.Text`. |
+| `RoleSystem`, `RoleUser`, `RoleAssistant` | Who says a message: the game telling the model who it is and what is happening, the player, and the model's own earlier replies. |
+| `ReplyOptions` | How a reply is written; fields at zero get their default. `ReplyOptions.MaxTokens` (256), `ReplyOptions.Temperature` (0.7: lower is steadier, higher more varied), `ReplyOptions.Greedy` (always the likeliest word: the same conversation gets the same reply), `ReplyOptions.TopP` (0.8) and `ReplyOptions.MinP` (0.05), which leave unlikely words out, `ReplyOptions.RepeatPenalty` (1.1) and `ReplyOptions.Seed` (a new one each reply, from `RandomInt`). |
+| `Reply` | The answer, written in the background, a piece at a time. |
+| `Reply.Text` | `Text() string`: what it says so far: read it in `Update` to show it as it comes, as a typewriter does. |
+| `Reply.Done` | `Done() bool`: it is finished, stopped or failed. |
+| `Reply.Err` | `Err() error`: why it failed, or nil. |
+| `Reply.Stop` | `Stop()`: ends it where it is; `Text` keeps what it has. A reply still waiting for its turn never starts. |
+
+```go
+var cassandra = golib.NewLanguageModel("qwen3-4b-instruct-q4.gguf") // games/<game>/models/
+
+func newPlayScene() *playScene {
+	cassandra.Load() // seconds, in the background
+	return &playScene{history: []golib.ChatMessage{
+		{Role: golib.RoleSystem, Text: "You are Dr. Cassandra Valerius, a scientist in 1993. Answer in under 25 words."},
+	}}
+}
+
+// When the player presses Enter:
+s.history = append(s.history, golib.ChatMessage{Role: golib.RoleUser, Text: typed})
+s.reply = cassandra.Reply(s.history)
+
+// In every Update, while it comes:
+if s.reply != nil {
+	s.shown = s.reply.Text()
+	if s.reply.Done() {
+		if err := s.reply.Err(); err != nil {
+			s.shown = "..." // the model couldn't answer: say something scripted
+		}
+		s.history = append(s.history, golib.ChatMessage{Role: golib.RoleAssistant, Text: s.reply.Text()})
+		s.reply = nil
+	}
+}
+```
+
+- **The model is a file of the game, too big for git and for the executable.** Put the GGUF file in `games/<game>/models/`, and list it in `game.json`'s `"models"` with where to download it and its SHA-256, `{"qwen3-4b-instruct-q4.gguf": {"url": "https://huggingface.co/...", "sha256": "..."}}`: `golib build`, `run` and `dist` download a listed model the folder hasn't got, once, so a game's repository can leave it out (add `models/*.gguf` to its `.gitignore`). A dist build copies the folder next to the executable, or into the app's `Contents/Resources/` on macOS. Small instruct models, 1 to 4 billion parameters at 4 bits (Q4_K_M), are 1 to 3 GB and answer a short reply in a second or two on a recent computer; check each model's license before shipping it, and write it in `assets/ATTRIBUTION.md`.
+- **Each reply reads the whole conversation**, but what the model read last time, from the start, isn't read again: keep the system message first and the messages in order, adding to the end, and a long system prompt is read once. When the conversation outgrows `Context`, the reply fails: drop the oldest messages after the system one.
+- **The model writes in its own chat format**, which llama.cpp knows for most models: Qwen, Llama, Gemma, Mistral, Phi and others. A model whose format it doesn't know gets ChatML.
+- **Replies take real time,** whatever the game's updates: under `golib shot` and in tests a model loads and answers as it does when played, so shots of a reply don't repeat. Show a sign while the player waits, such as a spinner, and keep the game going: `Reply` never blocks.
+- Thinking models, which write `<think>...</think>` before their answer, show it in `Text`: choose an instruct model that doesn't, such as Qwen3's Instruct-2507 versions.
 
 ## Saving data
 

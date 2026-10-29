@@ -1,0 +1,101 @@
+# Builds GoLib's library for language models, golibllm (native/llm/), for
+# every platform GoLib's games run on, and publishes a zip per platform as a
+# GitHub release when a tag named llm-<n> is pushed. golib setup downloads
+# them from that release, checking each against the checksum in
+# tools/cli/llm.go. See native/README.md for making a release.
+#
+# Windows and x86 Linux keep llama.cpp's backends as libraries beside
+# golibllm: a CPU backend for each processor generation, which the game picks
+# for the computer it runs on, and on Windows Vulkan for graphics cards,
+# skipped on a computer without Vulkan. macOS and ARM Linux have them inside:
+# Metal on Apple silicon.
+name: Language model library
+
+on:
+  push:
+    tags: ["llm-*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-2022
+            platform: windows-amd64
+            flags: -DGOLIB_LLM_BACKENDS_APART=ON -DGOLIB_LLM_VULKAN=ON
+            files: build/llm/bin/Release/*.dll
+          - runner: ubuntu-22.04
+            platform: linux-amd64
+            flags: -DGOLIB_LLM_BACKENDS_APART=ON
+            files: build/llm/golibllm.so build/llm/bin/*.so*
+          # GCC 11 on Ubuntu 22.04 doesn't know the ARMv9 variants, so ARM
+          # Linux gets one CPU backend, inside golibllm.
+          - runner: ubuntu-22.04-arm
+            platform: linux-arm64
+            flags: ""
+            files: build/llm/golibllm.so
+          - runner: macos-15-intel
+            platform: darwin-amd64
+            flags: ""
+            files: build/llm/golibllm.dylib
+          - runner: macos-15
+            platform: darwin-arm64
+            flags: ""
+            files: build/llm/golibllm.dylib
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      # The Vulkan SDK, installed as llama.cpp's own CI installs it.
+      - name: Vulkan SDK
+        if: matrix.platform == 'windows-amd64'
+        shell: pwsh
+        env:
+          VULKAN_VERSION: 1.4.357.0
+        run: |
+          curl.exe -o $env:RUNNER_TEMP/VulkanSDK-Installer.exe -L "https://sdk.lunarg.com/sdk/download/${env:VULKAN_VERSION}/windows/vulkansdk-windows-X64-${env:VULKAN_VERSION}.exe"
+          & "$env:RUNNER_TEMP\VulkanSDK-Installer.exe" --accept-licenses --default-answer --confirm-command install
+          Add-Content $env:GITHUB_ENV "VULKAN_SDK=C:\VulkanSDK\${env:VULKAN_VERSION}"
+          Add-Content $env:GITHUB_PATH "C:\VulkanSDK\${env:VULKAN_VERSION}\bin"
+      - name: Build
+        shell: bash
+        run: |
+          cmake -S native/llm -B build/llm -DCMAKE_BUILD_TYPE=Release ${{ matrix.flags }}
+          # Every CPU variant at once runs a Linux runner out of memory.
+          cmake --build build/llm --config Release --parallel 2
+          mkdir -p out/files
+          if [ "${{ matrix.platform }}" = windows-amd64 ]; then
+            cp build/llm/Release/golibllm.dll out/files/
+          fi
+          cp ${{ matrix.files }} out/files/
+          ls -la out/files
+          cd out/files && 7z a -tzip "../golibllm-${{ matrix.platform }}.zip" ./*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: golibllm-${{ matrix.platform }}
+          path: out/*.zip
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/llm-')
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd out
+          sha256sum golibllm-* > SHA256SUMS
+          cat SHA256SUMS
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+            --title "GoLib language model library $GITHUB_REF_NAME" \
+            --notes "GoLib's library for language models, with llama.cpp b11972. golib setup downloads it: see native/README.md. Checksums are in SHA256SUMS." \
+            golibllm-* SHA256SUMS

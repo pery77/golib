@@ -158,6 +158,28 @@ Run `golib doctor` first: it says whether `.tools/native/` and `.tools/jolt/` ho
 
 On Windows the library carries the C++ runtime inside it and imports only `KERNEL32.dll`, so it needs nothing installed; Linux's carries libstdc++ and needs only the system's C library, glibc 2.34 or later (Ubuntu 22.04 and newer, Debian 12, Fedora 35). These two builds come from the workflow and have been built, not yet run in a game: a message other than those above on Windows or Linux is new, and worth writing into this table once it is understood.
 
+## GoLib's library for language models
+
+Language models (`golib.NewLanguageModel`) run on [llama.cpp](https://github.com/ggml-org/llama.cpp) b11972, in `golibllm`, a native library of GoLib's own apart from `golibnative`, built from `native/llm/` (see [native/README.md](../native/README.md)). `golib setup` downloads it, in `tools/cli/llm.go`:
+
+| What | From | Into | Checked against |
+| --- | --- | --- | --- |
+| `golibllm-<os>-<arch>.zip`, unpacked: `golibllm` and, on Windows and Linux, llama.cpp's libraries and its backends (`ggml-cpu-*` for each processor generation, `ggml-vulkan` on Windows) | The GitHub release `llmRelease` of `nativeRepository`, made by `.github/workflows/llm.yml` | `.tools/llm/`, with `release.sha256` saying which zip it holds | `llmChecksums`, one SHA-256 per platform |
+
+A platform with no checksum in `llmChecksums` has no release yet: setup prints an `[info]` line and keeps a library built by hand with `native/llm/build.sh`. The game finds `golibllm` next to its executable, then in `../Frameworks/`, then on the library search path, checks `golib_llm_version()` against `llmVersion` (`framework/internal/device/raylib_llm.go`), and has it load its backends from its own folder.
+
+`framework/internal/device` keeps the text `LanguageModelMarker` in a variable when a game loads a model, and golib looks for it in the executable (`usesLanguageModels`):
+
+| Command | With the marker |
+| --- | --- |
+| `build`, `run`, `shot` | Every library in `.tools/llm/` copied next to the executable; the models `game.json`'s `models` lists and `models/` hasn't got downloaded into the game's `models/` folder, which debug builds read; `[fail]` without `golibllm` in `.tools/llm/` |
+| `dist` | The libraries next to the executable and the game's `models/*.gguf` in `models/` beside it, or, on macOS, the libraries in the app's `Contents/Frameworks/`, signed, and the models in `Contents/Resources/models/`; llama.cpp's license in `THIRD-PARTY-LICENSES.txt` |
+| `test` | `.tools/llm/` on the library search path after `.tools/native/`; the framework's `TestLanguageModel` runs only with `GOLIB_TEST_MODEL` naming a GGUF file |
+
+`game.json`'s `models` maps a GGUF file's name to its `url` (https) and `sha256`: `{"model.gguf": {"url": "https://huggingface.co/...", "sha256": "..."}}`. A build downloads a model only when the game's folder hasn't got it, a piece at a time, and keeps it only when the checksum matches. A mistake in the field stops the build with a `[fail]` line, as the other fields do.
+
+When something fails: a game that says `language models need GoLib's library for them, golibllm..., which isn't next to the game` was started from somewhere golib didn't put it (use `golib run` or `golib dist`); `golibllm... is version N` means an old library in `.tools/llm/`: run `golib setup`; `there is no .../models/<name>` means the model isn't in the game's `models/` folder and `game.json` doesn't list it; `llama.cpp could not make a context` means too little memory for `LanguageModelOptions.Context`.
+
 ## Screenshots
 
 `golib shot [game] [frame...] [--input "<script>"] [--save <file>] [--scale <n>]` builds a game and runs it with these environment variables set:

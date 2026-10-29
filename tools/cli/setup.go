@@ -46,6 +46,7 @@ func (c *cli) setup(options []string) int {
 		c.check("ok", fmt.Sprintf("%s: modules downloaded, raylib library for raylib-go %s in .tools/raylib/", module, synced.version))
 	}
 	c.syncNative()
+	c.syncLLM()
 
 	exitCode := c.summary("setup")
 	if exitCode != 0 {

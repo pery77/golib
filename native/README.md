@@ -42,3 +42,16 @@ then copy `build/native/Release/golibnative.dll` into `.tools/native/`.
 2. Push a tag of that name to the repository named by `nativeRepository`: `git tag native-2 && git push <remote> native-2`. The workflow builds Windows (x86-64), Linux (x86-64 and ARM64) and macOS (Intel and Apple silicon) and publishes a release with the five files and `SHA256SUMS`.
 3. Copy the checksums from `SHA256SUMS` into `nativeChecksums` in `tools/cli/native.go`, one per platform, such as `"windows/amd64": "…"`, and commit that.
 4. Run `golib setup` on each platform you can, then `golib test`: the framework's rigid body tests skip without the library and run with it.
+
+## golibllm, for language models
+
+`native/llm/` builds `golibllm`, the second piece of GoLib in C++: [llama.cpp](https://github.com/ggml-org/llama.cpp) b11972 (MIT), behind a small C interface, `golib_llm.cpp`, for `golib.LanguageModel`. It is a library apart from `golibnative`, so games with rigid bodies don't carry it.
+
+| File | What it is |
+| --- | --- |
+| `llm/CMakeLists.txt` | Fetches llama.cpp at a pinned commit and builds `golibllm`. With `-DGOLIB_LLM_BACKENDS_APART=ON`, as Windows and Linux are built, llama.cpp and its backends are libraries beside it: a CPU backend for each x86 processor generation, which llama.cpp picks at run time, and with `-DGOLIB_LLM_VULKAN=ON` the Vulkan one, skipped on computers without Vulkan. Without it, as on macOS, everything is inside `golibllm`: Metal on Apple silicon, AVX2 on Intel |
+| `llm/golib_llm.cpp` | `golib_llm_load`, `golib_llm_template`, `golib_llm_start`, `golib_llm_next` and the rest, pointers and integers only. A model keeps one conversation's context and reads only what is new in each prompt |
+| `llm/build.sh` | Builds it on this machine into `.tools/llm/` |
+| `../.github/workflows/llm.yml` | Builds a zip per platform and publishes a release when an `llm-<n>` tag is pushed |
+
+Its version is `golib_llm_version()`, checked against `llmVersion` in `framework/internal/device/raylib_llm.go`. To make a release: change `llmRelease` in `tools/cli/llm.go`, push a tag of that name to `nativeRepository`, copy the checksums from the release's `SHA256SUMS` into `llmChecksums`, and run `golib setup`. To try a model with the library: `GOLIB_TEST_MODEL=/path/model.gguf golib test --run TestLanguageModel` (the framework's test, which runs only with the variable).

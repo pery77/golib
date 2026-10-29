@@ -49,6 +49,12 @@ type gameInfo struct {
 	// "assets/locale/*-full.txt", that path.Match matches against each
 	// file's and folder's path; default: none.
 	LeaveOut map[string][]string `json:"leaveOut"`
+	// The language models the game loads, GGUF files of its models/ folder,
+	// by file name, each with where golib downloads it from and its
+	// SHA-256, such as {"qwen.gguf": {"url": "https://...", "sha256":
+	// "..."}}: builds download a model missing from the folder, so it can
+	// stay out of git; default: none.
+	Models map[string]modelSource `json:"models"`
 
 	version      version // Version, parsed
 	versionGiven bool    // game.json has "version"
@@ -121,6 +127,9 @@ func readGameInfo(dir string) (info gameInfo, found bool, err error) {
 		return info, true, err
 	}
 	if err := checkLeaveOut(info.LeaveOut); err != nil {
+		return info, true, err
+	}
+	if err := checkModels(info.Models); err != nil {
 		return info, true, err
 	}
 	info.version, err = parseVersion(info.Version)
@@ -311,4 +320,20 @@ func parseVersion(text string) (version, error) {
 
 func (v version) String() string {
 	return fmt.Sprintf("%d.%d.%d%s", v.major, v.minor, v.patch, v.label)
+}
+
+// checkModels reports whether each of "models" is a GGUF file's name, with
+// an https address and a SHA-256.
+func checkModels(models map[string]modelSource) error {
+	for name, src := range models {
+		switch {
+		case name != filepath.Base(name) || strings.ContainsAny(name, `/\`) || !strings.EqualFold(filepath.Ext(name), ".gguf"):
+			return fmt.Errorf(`"models": %q isn't the name of a GGUF file in the game's models folder, such as "model.gguf"`, name)
+		case !strings.HasPrefix(src.URL, "https://"):
+			return fmt.Errorf(`"models": %q has no "url" starting with https:// to download it from`, name)
+		case len(src.SHA256) != 64 || strings.Trim(strings.ToLower(src.SHA256), "0123456789abcdef") != "":
+			return fmt.Errorf(`"models": %q has no "sha256", the 64 hexadecimal digits of its SHA-256`, name)
+		}
+	}
+	return nil
 }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"archive/tar"
+	"archive/zip"
 	"bytes"
 	"compress/gzip"
 	"encoding/json"
@@ -103,6 +104,19 @@ func newTestProject(t *testing.T, goos string, games ...string) *testProject {
 		content := "golibnative for " + platform
 		tp.served["https://github.com/"+nativeRepository+"/releases/download/"+nativeRelease+"/golibnative-"+system+"-"+arch+ext] = content
 		p.natives[platform] = sha256Hex([]byte(content))
+	}
+	// golibllm's zips too: the library and, on Windows, a backend beside it.
+	p.llms = map[string]string{}
+	for _, platform := range []string{"windows/amd64", "linux/amd64", "darwin/amd64"} {
+		system, arch, _ := strings.Cut(platform, "/")
+		ext := map[string]string{"windows": ".dll", "linux": ".so", "darwin": ".dylib"}[system]
+		files := map[string]string{"golibllm" + ext: "golibllm for " + platform}
+		if system == "windows" {
+			files["ggml-cpu-haswell.dll"] = "a backend"
+		}
+		content := zipOf(t, files)
+		tp.served["https://github.com/"+nativeRepository+"/releases/download/"+llmRelease+"/golibllm-"+system+"-"+arch+".zip"] = content
+		p.llms[platform] = sha256Hex([]byte(content))
 	}
 	for _, f := range joltJSFiles {
 		content := "JoltPhysics.js's " + f.name
@@ -277,4 +291,22 @@ func writeArchive(t *testing.T, path, name, content string) {
 		t.Fatal(err)
 	}
 	writeFile(t, path, data.String())
+}
+
+// zipOf returns a zip holding files, by name.
+func zipOf(t *testing.T, files map[string]string) string {
+	t.Helper()
+	var b bytes.Buffer
+	w := zip.NewWriter(&b)
+	for name, content := range files {
+		f, err := w.Create(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		f.Write([]byte(content))
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return b.String()
 }

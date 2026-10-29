@@ -455,7 +455,7 @@ test: 0 failed, 0 warning(s)
 	if tp.stdout.String() != want {
 		t.Errorf("output:\n%s\nwant:\n%s", tp.stdout.String(), want)
 	}
-	libraryPath := "PATH=" + tp.c.path(".tools", "raylib") + string(os.PathListSeparator) + tp.c.path(".tools", "native") + string(os.PathListSeparator) + tp.c.path(".tools", "go", "bin") + string(os.PathListSeparator) + "user-path"
+	libraryPath := "PATH=" + tp.c.path(".tools", "raylib") + string(os.PathListSeparator) + tp.c.path(".tools", "native") + string(os.PathListSeparator) + tp.c.path(".tools", "llm") + string(os.PathListSeparator) + tp.c.path(".tools", "go", "bin") + string(os.PathListSeparator) + "user-path"
 	var tests []goCall
 	for _, call := range tp.calls {
 		if call.args[0] == "test" {
@@ -546,7 +546,7 @@ func TestTestOnMacOSGivesTestBinariesTheLibraries(t *testing.T) {
 	if code := tp.c.test([]string{"--tags", "demo"}); code != 0 {
 		t.Fatalf("exit code %d, output:\n%s%s", code, tp.stdout.String(), tp.stderr.String())
 	}
-	libraryPath := "DYLD_LIBRARY_PATH=" + tp.c.path(".tools", "raylib") + string(os.PathListSeparator) + tp.c.path(".tools", "native") + string(os.PathListSeparator) + "/opt/lib"
+	libraryPath := "DYLD_LIBRARY_PATH=" + tp.c.path(".tools", "raylib") + string(os.PathListSeparator) + tp.c.path(".tools", "native") + string(os.PathListSeparator) + tp.c.path(".tools", "llm") + string(os.PathListSeparator) + "/opt/lib"
 	want := map[string][]string{
 		"framework":   {"test", "-tags=raylib_no_embed,ffi_no_embed,demo", "-exec", "/usr/bin/env " + libraryPath, "./..."},
 		"games/rocks": {"test", "-tags=raylib_no_embed,ffi_no_embed,demo", "-exec", "/usr/bin/env " + libraryPath, "./..."},
@@ -783,6 +783,7 @@ func TestSetup(t *testing.T) {
 [ok]   games/rocks: modules downloaded, raylib library for raylib-go v0.60.1 in .tools/raylib/
 [ok]   GoLib's native library native-2, for rigid bodies, downloaded into .tools/native/
 [ok]   JoltPhysics.js 1.1.0, for rigid bodies in web builds, downloaded into .tools/jolt/
+[ok]   GoLib's library for language models llm-2 downloaded into .tools/llm/
 
 setup: 0 failed, 2 warning(s)
 Setup complete.
@@ -805,6 +806,9 @@ Setup complete.
 	if native := readFolder(t, tp.c.path(".tools", "native")); native["golibnative.dll"] != "golibnative for windows/amd64" || len(native) != 1 {
 		t.Errorf(".tools/native/ holds %q", native)
 	}
+	if llm := readFolder(t, tp.c.path(".tools", "llm")); llm["golibllm.dll"] != "golibllm for windows/amd64" || llm["ggml-cpu-haswell.dll"] != "a backend" {
+		t.Errorf(".tools/llm/ holds %q", llm)
+	}
 	if jolt := readFolder(t, tp.c.path(".tools", "jolt")); len(jolt) != 2 || jolt["jolt-physics.wasm.js"] != "JoltPhysics.js's jolt-physics.wasm.js" {
 		t.Errorf(".tools/jolt/ holds %q", jolt)
 	}
@@ -825,6 +829,7 @@ Setup complete.
 [fail] could not download the Go modules for games/snake (see the errors above)
 [ok]   GoLib's native library native-2, for rigid bodies, downloaded into .tools/native/
 [ok]   JoltPhysics.js 1.1.0, for rigid bodies in web builds, downloaded into .tools/jolt/
+[ok]   GoLib's library for language models llm-2 downloaded into .tools/llm/
 
 setup: 2 failed, 0 warning(s)
 Setup incomplete. Fix the [fail] items above, then run setup again.

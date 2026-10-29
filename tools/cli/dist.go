@@ -153,6 +153,40 @@ func (c *cli) distGame(game string) string {
 		c.check("ok", fmt.Sprintf("put GoLib's native library in the game, %s, for its rigid bodies", nativeWhere))
 		notices = append(notices, joltNotice(nativeWhere+": GoLib's native library, for the rigid bodies", false))
 	}
+
+	// A game with a language model loads golibllm and its backends, next to
+	// the executable or in the app's Frameworks folder, and its models from
+	// models/ there or in the app's Resources. makeApp has put them in the
+	// app.
+	usesLLM, err := usesLanguageModels(exePath)
+	if err != nil {
+		c.check("fail", err.Error())
+		return ""
+	}
+	if usesLLM {
+		llmWhere, modelsWhere := c.llmName()+", next to "+exe, "models/, next to "+exe
+		if c.goos == "darwin" {
+			llmWhere, modelsWhere = built+"/Contents/Frameworks/"+c.llmName(), built+"/Contents/Resources/models/"
+		} else {
+			if _, err := c.copyLLM(game, exePath, folder); err != nil {
+				c.check("fail", fmt.Sprintf("cannot copy %s into the game: %v", c.llmName(), err))
+				return ""
+			}
+			if !c.syncModels(game, info) {
+				return ""
+			}
+			names, err := c.copyModels(game, filepath.Join(folder, modelsFolder))
+			if err != nil {
+				c.check("fail", fmt.Sprintf("cannot copy the game's language models: %v", err))
+				return ""
+			}
+			if len(names) == 0 {
+				c.check("warn", fmt.Sprintf("%s loads a language model, and its %s folder has none to copy", c.gameModule(game), modelsFolder))
+			}
+		}
+		c.check("ok", fmt.Sprintf("put GoLib's library for language models in the game, %s, and its models in %s", llmWhere, modelsWhere))
+		notices = append(notices, llamaNotice(llmWhere+": GoLib's library for language models"))
+	}
 	text, err := thirdPartyNotices(info.Title, notices)
 	if err == nil {
 		err = os.WriteFile(filepath.Join(folder, noticesFile), text, 0o644)

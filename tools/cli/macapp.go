@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"image"
 	"os"
@@ -188,6 +189,23 @@ func (c *cli) makeApp(game, folder, exe string, info gameInfo) string {
 	} else if copied {
 		if err := c.signApp(filepath.Join(frameworks, c.nativeName())); err != nil {
 			c.check("warn", fmt.Sprintf("could not sign %s, so macOS may call the app damaged once players download it: %v", c.nativeName(), err))
+		}
+	}
+	// A game with a language model loads golibllm from Frameworks too, and
+	// its models from Resources/models.
+	if copied, err := c.copyLLM(game, filepath.Join(contents, "MacOS", exe), frameworks); err != nil {
+		return fail(err)
+	} else if copied != nil {
+		for _, f := range copied {
+			if err := c.signApp(f); err != nil {
+				c.check("warn", fmt.Sprintf("could not sign %s, so macOS may call the app damaged once players download it: %v", filepath.Base(f), err))
+			}
+		}
+		if !c.syncModels(game, info) {
+			return fail(errors.New("a language model is missing"))
+		}
+		if _, err := c.copyModels(game, filepath.Join(contents, "Resources", modelsFolder)); err != nil {
+			return fail(err)
 		}
 	}
 	// A downloaded app whose files don't match its signature is one macOS
