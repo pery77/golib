@@ -60,9 +60,16 @@ else()
 		set(GGML_F16C ON CACHE BOOL "" FORCE)
 	endif()
 endif()
-# The C++ runtime inside the libraries on Windows, so players need nothing
-# installed.
-set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+# On Windows, with the backends apart, every library shares one C++ runtime,
+# the DLLs that the workflow puts beside them, so players need nothing
+# installed: llama.dll reads files that ggml-base.dll opens, and a FILE* from
+# a runtime inside one library is an invalid parameter to the runtime inside
+# another, which ends the game. A single golibllm keeps the runtime inside.
+if(GOLIB_LLM_BACKENDS_APART)
+	set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+else()
+	set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
 FetchContent_MakeAvailable(llama)
 
 add_library(golibllm SHARED golib_llm.cpp)

@@ -49,7 +49,7 @@ then copy `build/native/Release/golibnative.dll` into `.tools/native/`.
 
 | File | What it is |
 | --- | --- |
-| `llm/CMakeLists.txt` | Fetches llama.cpp at a pinned commit and builds `golibllm`. With `-DGOLIB_LLM_BACKENDS_APART=ON`, as Windows and Linux are built, llama.cpp and its backends are libraries beside it: a CPU backend for each x86 processor generation, which llama.cpp picks at run time, and with `-DGOLIB_LLM_VULKAN=ON` the Vulkan one, skipped on computers without Vulkan. Without it, as on macOS, everything is inside `golibllm`: Metal on Apple silicon, AVX2 on Intel |
+| `llm/CMakeLists.txt` | Fetches llama.cpp at a pinned commit and builds `golibllm`. With `-DGOLIB_LLM_BACKENDS_APART=ON`, as Windows and Linux are built, llama.cpp and its backends are libraries beside it: a CPU backend for each x86 processor generation, which llama.cpp picks at run time, and with `-DGOLIB_LLM_VULKAN=ON` the Vulkan one, skipped on computers without Vulkan. On Windows those libraries share Visual Studio's C++ runtime DLLs, which the workflow puts in the zip beside them: one runtime inside each, as `golibnative` has it, makes a `FILE*` that `ggml-base.dll` opens an invalid parameter in `llama.dll`, and the game ends as its model loads. Without it, as on macOS, everything is inside `golibllm`: Metal on Apple silicon, AVX2 on Intel |
 | `llm/golib_llm.cpp` | `golib_llm_load`, `golib_llm_template`, `golib_llm_start`, `golib_llm_next` and the rest, pointers and integers only. A model keeps one conversation's context and reads only what is new in each prompt |
 | `llm/build.sh` | Builds it on this machine into `.tools/llm/` |
 | `../.github/workflows/llm.yml` | Builds a zip per platform and publishes a release when an `llm-<n>` tag is pushed |

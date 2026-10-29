@@ -164,7 +164,7 @@ Language models (`golib.NewLanguageModel`) run on [llama.cpp](https://github.com
 
 | What | From | Into | Checked against |
 | --- | --- | --- | --- |
-| `golibllm-<os>-<arch>.zip`, unpacked: `golibllm` and, on Windows and Linux, llama.cpp's libraries and its backends (`ggml-cpu-*` for each processor generation, `ggml-vulkan` on Windows) | The GitHub release `llmRelease` of `nativeRepository`, made by `.github/workflows/llm.yml` | `.tools/llm/`, with `release.sha256` saying which zip it holds | `llmChecksums`, one SHA-256 per platform |
+| `golibllm-<os>-<arch>.zip`, unpacked: `golibllm` and, on Windows and Linux, llama.cpp's libraries and its backends (`ggml-cpu-*` for each processor generation, `ggml-vulkan` on Windows), and on Windows the C++ runtime they all share (`msvcp140*.dll`, `vcruntime140*.dll`, Visual Studio's redistributable files) | The GitHub release `llmRelease` of `nativeRepository`, made by `.github/workflows/llm.yml` | `.tools/llm/`, with `release.sha256` saying which zip it holds | `llmChecksums`, one SHA-256 per platform |
 
 A platform with no checksum in `llmChecksums` has no release yet: setup prints an `[info]` line and keeps a library built by hand with `native/llm/build.sh`. The game finds `golibllm` next to its executable, then in `../Frameworks/`, then on the library search path, checks `golib_llm_version()` against `llmVersion` (`framework/internal/device/raylib_llm.go`), and has it load its backends from its own folder.
 
@@ -178,7 +178,7 @@ A platform with no checksum in `llmChecksums` has no release yet: setup prints a
 
 `game.json`'s `models` maps a GGUF file's name to its `url` (https) and `sha256`: `{"model.gguf": {"url": "https://huggingface.co/...", "sha256": "..."}}`. A build downloads a model only when the game's folder hasn't got it, a piece at a time, and keeps it only when the checksum matches. A mistake in the field stops the build with a `[fail]` line, as the other fields do.
 
-When something fails: a game that says `language models need GoLib's library for them, golibllm..., which isn't next to the game` was started from somewhere golib didn't put it (use `golib run` or `golib dist`); `golibllm... is version N` means an old library in `.tools/llm/`: run `golib setup`; `there is no .../models/<name>` means the model isn't in the game's `models/` folder and `game.json` doesn't list it; `llama.cpp could not make a context` means too little memory for `LanguageModelOptions.Context`.
+When something fails: a game that says `language models need GoLib's library for them, golibllm..., which isn't next to the game` was started from somewhere golib didn't put it (use `golib run` or `golib dist`); `golibllm... is version N` means an old library in `.tools/llm/`: run `golib setup`; `there is no .../models/<name>` means the model isn't in the game's `models/` folder and `game.json` doesn't list it; `llama.cpp could not make a context` means too little memory for `LanguageModelOptions.Context`. On Windows, a game that ends without a word with exit code `-1073740791` (`0xC0000409`) as its model loads, with `llama.dll` as the faulting module in the Event Viewer, has the libraries of release llm-2, each with a C++ runtime of its own inside, so `llama.dll` can't read the file `ggml-base.dll` opened for it: run `golib setup` for a later release, whose libraries share one runtime.
 
 ## Screenshots
 
