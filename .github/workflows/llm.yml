@@ -70,6 +70,11 @@ jobs:
           mkdir -p out/files
           if [ "${{ matrix.platform }}" = windows-amd64 ]; then
             cp build/llm/Release/golibllm.dll out/files/
+            # The C++ runtime the libraries share, from Visual Studio's
+            # redistributable files, so players need nothing installed.
+            vs=$(cygpath "$("/c/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe" -latest -property installationPath)")
+            crt=$(ls -d "$vs"/VC/Redist/MSVC/*/x64/Microsoft.VC*.CRT | sort | tail -n 1)
+            cp "$crt"/msvcp140*.dll "$crt"/vcruntime140*.dll out/files/
           fi
           cp ${{ matrix.files }} out/files/
           ls -la out/files

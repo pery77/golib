@@ -33,18 +33,18 @@ const llmMarker = "golib-uses-language-models:llama.cpp"
 
 // llmRelease names the GitHub release, in nativeRepository, that setup
 // downloads golibllm from: golibllm-<os>-<arch>.zip.
-const llmRelease = "llm-2"
+const llmRelease = "llm-3"
 
 // llmChecksums holds the SHA-256 of each zip of llmRelease, written here when
 // the release is made (see native/README.md). A platform without one has no
 // release yet: setup leaves a library built by hand with native/llm/build.sh
 // in place, and says so.
 var llmChecksums = map[string]string{
-	"darwin/amd64":  "b1679811073385842c02f07e8129de8397aaae8d2d899349ebbf88884cf1b6b7",
-	"darwin/arm64":  "1b5236dc0afa8950e86cb90ed2c7caaad738e02ebda41e8b76e07b687b43d493",
-	"linux/amd64":   "df63a930217cc2a8fe35ded5a0e77b6ea2e14dca09a57a01e19aabce91fd1f79",
-	"linux/arm64":   "520dcbe96821e4e59cc5f7eeeab15db31a202c69ac8b5f38f00798912bd46c48",
-	"windows/amd64": "d0115ada50757fe27860018fa8558d74ce72fe84a816dffa6fe990bb284f8c8f",
+	"darwin/amd64":  "332a48ac0d214e351d4d7cd4cb68b32dca5b4df0d086d37cbee899996e6bdce9",
+	"darwin/arm64":  "97f1dfb370ddb1004d26cfe24a23004934b34523c413ce04bdb110f2c1232d26",
+	"linux/amd64":   "ba1817ed7a628bbf82e6c488aec59db42480120bed0792b3de214e030789cfab",
+	"linux/arm64":   "1bac68d52eaed47bc393be5d13754f396ac54a5df77e1085fc64868678a3de72",
+	"windows/amd64": "2934c083c0e0ffe85a841004a2d6e5bab6078a98283b1f9ee189ff91a58a5a8f",
 }
 
 // llamaLicense holds llama.cpp's license, for THIRD-PARTY-LICENSES.txt.
