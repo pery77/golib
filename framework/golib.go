@@ -369,6 +369,8 @@ func runWindow(game Game, config Config) error {
 		mouseDown, mousePressed := mouseWithTouch(touches, deviceMouseDown, deviceMousePressed)
 		wheel := device.MouseWheel()
 		queue.readMouse(mouseX, mouseY, wheel, mouseDown, mousePressed)
+		moveX, moveY := device.MouseMovement()
+		queue.readMovement(moveX, moveY)
 		queue.readTouches(touches)
 		queue.readGamepads(deviceGamepadFrame)
 		// Whether the game shows on-screen controls follows what the player
@@ -401,7 +403,7 @@ func runWindow(game Game, config Config) error {
 		if err := render.drawScene(scene, screen); err != nil {
 			return err
 		}
-		render.pointer = pointerAt(spriteX, spriteY, device.MouseInWindow())
+		render.pointer = pointerAt(spriteX, spriteY, device.MouseInWindow() && !display.mouseLocked)
 		if err := render.present(nil, fit, float32(updates)*updateStep); err != nil {
 			return err
 		}

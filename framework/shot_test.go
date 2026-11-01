@@ -265,6 +265,22 @@ func TestInputScriptMouse(t *testing.T) {
 			t.Errorf("update %d: MouseMoved() = %v, want %v", update, !want, want)
 		}
 	}
+
+	// MouseMovement is how far each move took the pointer, for a camera
+	// turned by the mouse.
+	script, err = parseInputScript("Mouse@1:100,100 Mouse@2:140,90 Mouse@4:100,90")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for update, want := range [][2]float32{1: {0, 0}, 2: {40, -10}, 3: {0, 0}, 4: {-40, 0}} {
+		if update == 0 {
+			continue
+		}
+		in := script.at(update)
+		if x, y := in.MouseMovement(); x != want[0] || y != want[1] {
+			t.Errorf("update %d: MouseMovement() = %v, %v, want %v, %v", update, x, y, want[0], want[1])
+		}
+	}
 }
 
 // A script puts fingers on the screen, so that shots can check a game's

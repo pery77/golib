@@ -117,6 +117,30 @@ func IsMouseVisible() bool {
 	return !mouseHiddenWanted.Load()
 }
 
+// mouseLockedWanted is whether SetMouseLocked asks to lock the mouse pointer.
+// Run applies it at the start of every frame.
+var mouseLockedWanted atomic.Bool
+
+// SetMouseLocked hides the mouse pointer and holds it in the window, from the
+// next frame, so the mouse can go on moving any way without the pointer ever
+// reaching an edge: the first-person camera's way, turned by
+// [Input.MouseMovement]. false gives the pointer back, where it was.
+//
+// In a browser the page can only take the pointer on a click, so it is locked
+// at the player's next click on the game, and the browser gives it back when
+// they press Esc; a game that still wants it locked gets it at the next
+// click. Lock it while the player plays, and give it back in menus, where the
+// pointer picks things.
+func SetMouseLocked(locked bool) {
+	mouseLockedWanted.Store(locked)
+}
+
+// IsMouseLocked reports whether SetMouseLocked asked to lock the mouse
+// pointer.
+func IsMouseLocked() bool {
+	return mouseLockedWanted.Load()
+}
+
 // windowUnfocused is whether the game's window has lost the player's
 // attention. Run keeps it in step at the start of every frame. It stays false
 // where there is no window to focus, under golib shot and in tests, so game
@@ -149,15 +173,23 @@ type window struct {
 	fullscreen          bool // what is applied now
 	x, y, width, height int  // the window before it went fullscreen
 	mouseHidden         bool // the mouse pointer is hidden now
+	mouseLocked         bool // the mouse pointer is locked now
 	moveTo              int  // the monitor SetMonitor asked for, plus one, still to move to; 0 for none
 }
 
-// apply switches the window to match fullscreenWanted, and shows or hides the
-// mouse pointer to match mouseHiddenWanted. held is whether a key or a mouse
-// button was down when the input was last read.
+// apply switches the window to match fullscreenWanted, locks the mouse
+// pointer to match mouseLockedWanted, and shows or hides it to match
+// mouseHiddenWanted. held is whether a key or a mouse button was down when
+// the input was last read.
 func (w *window) apply(held bool) {
 	w.placeWindow(held)
-	if hide := mouseHiddenWanted.Load() || mouseSpriteSet(); hide != w.mouseHidden {
+	// A locked pointer is hidden, and showing or hiding it would let it go:
+	// its visibility waits until it is given back, shown.
+	if lock := mouseLockedWanted.Load(); lock != w.mouseLocked {
+		device.SetCursorLocked(lock)
+		w.mouseLocked, w.mouseHidden = lock, false
+	}
+	if hide := mouseHiddenWanted.Load() || mouseSpriteSet(); !w.mouseLocked && hide != w.mouseHidden {
 		device.SetCursorVisible(!hide)
 		w.mouseHidden = hide
 	}

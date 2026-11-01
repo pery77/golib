@@ -236,7 +236,22 @@ Only these keys are read. There is no numeric keypad, and a raylib key code conv
 | `SetMouseVisible` | `SetMouseVisible(visible bool)`: shows or hides the pointer over the window, from the next frame, such as to draw a crosshair in its place: the system's pointer or the game's sprite. `MousePosition` still works. |
 | `SetMouseSprite` | `SetMouseSprite(sprite *Sprite, frame int, x, y float32)`: a frame of a sprite in place of the system's pointer, from the next frame, with its pixel x, y, from the frame's top-left corner, where the pointer points: 0, 0 for an arrow whose tip is that corner. `nil` brings the system's pointer back; call it again with another frame for another pointer, such as a hand over a button. Call it once, in `main` or in `Update`, not in `Draw`. |
 | `IsMouseVisible` | `IsMouseVisible() bool`: whether the pointer shows, or will from the next frame. |
+| `Input.MouseMovement` | `MouseMovement() (x, y float32)`: how far the mouse moved since the previous update, right and towards the player positive, in the window's units as the system moves its pointer, so the same move of the hand counts the same in any window; 0, 0 when it didn't move. It goes on while the pointer is locked: the way to turn a first-person camera. Under `golib shot`, how far the script's `Mouse` items moved the pointer. |
+| `SetMouseLocked` | `SetMouseLocked(locked bool)`: hides the pointer and holds it in the window, from the next frame, so the mouse can go on turning a camera through `MouseMovement` without the pointer reaching an edge; `false` gives it back. In a browser the page can take it only on a click: it is locked at the player's next click on the game, Esc gives it back, and the next click locks it again while the game still wants it. Lock it while the player plays, and give it back in menus and pauses. |
+| `IsMouseLocked` | `IsMouseLocked() bool`: whether `SetMouseLocked` asked to lock the pointer. |
 | `MouseButton` | `MouseLeft`, `MouseRight` or `MouseMiddle`. |
+
+- **A first-person camera turns with the mouse through `MouseMovement`, not `MousePosition`**, whose pointer stops at the window's edge. Lock the pointer while playing and turn by the movement, a larger yaw turning left:
+
+```go
+func (s *playScene) Update(input *golib.Input, dt float32) {
+	golib.SetMouseLocked(true) // false in the pause scene, whose menu the pointer works
+	moveX, moveY := input.MouseMovement()
+	s.yaw -= moveX * 0.12 // degrees per unit of movement
+	s.pitch = golib.Clamp(s.pitch-moveY*0.12, -85, 85)
+	s.camera.Look(s.eyes, s.yaw, s.pitch)
+}
+```
 
 - **A pointer of the game's own is a sprite, not a drawing in `Draw`.** `SetMouseSprite` draws it over everything, post-processing included, where the system's pointer would be, at the window's resolution, so it moves as smoothly as the system's, and as many whole times larger as the screen is, so a pixel art pointer stays sharp. It hides by itself while the pointer is outside the window and while the player plays with a gamepad or with fingers, and comes back when the mouse moves. `golib shot` draws it once `--input` has moved the mouse.
 
