@@ -1592,11 +1592,10 @@ void main() {
 		const target = targets.get(id);
 		if (!target) return;
 		flush();
+		const previous = gl.getParameter(gl.FRAMEBUFFER_BINDING);
 		gl.bindFramebuffer(gl.FRAMEBUFFER, target.framebuffer);
 		gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
-		gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-		boundTarget = -1;
-		bindCanvas();
+		gl.bindFramebuffer(gl.FRAMEBUFFER, previous);
 	}
 
 	// ----------------------------------------------------------------- input
