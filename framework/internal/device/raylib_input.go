@@ -40,6 +40,13 @@ func MousePosition() (x, y float32) {
 	return position.X, position.Y
 }
 
+// MouseMovement returns how far the mouse moved since the last frame, in the
+// window's units, before any scaling: locked or not, at an edge or not.
+func MouseMovement() (x, y float32) {
+	delta := rl.GetMouseDelta()
+	return delta.X, delta.Y
+}
+
 // MouseInWindow reports whether the mouse pointer is over the window.
 func MouseInWindow() bool {
 	return rl.IsCursorOnScreen()

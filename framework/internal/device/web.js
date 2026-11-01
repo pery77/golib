@@ -1628,12 +1628,19 @@ void main() {
 	const IN_MOUSE_X = 0, IN_MOUSE_Y = 1, IN_WHEEL = 2, IN_STICKS = 3;
 	const IN_TOUCH_COUNT = IN_STICKS + 4 * MAX_PADS;
 	const IN_TOUCHES = IN_TOUCH_COUNT + 1; // MAX_TOUCHES fingers of id, x, y
-	const IN_FLOATS = IN_TOUCHES + 3 * MAX_TOUCHES;
+	const IN_MOVE_X = IN_TOUCHES + 3 * MAX_TOUCHES, IN_MOVE_Y = IN_MOVE_X + 1;
+	const IN_FLOATS = IN_MOVE_Y + 1;
 	const KEYS_AT = IN_FLOATS * 4;
 
 	const keysDown = new Uint8Array(349), keysPressed = new Uint8Array(349);
 	const mouseDown = new Uint8Array(3), mousePressed = new Uint8Array(3);
 	let mouseX = 0, mouseY = 0, wheel = 0;
+	// How far the mouse moved since the last frame, in CSS pixels, which goes
+	// on while the pointer is locked to the canvas and stands still.
+	let moveX = 0, moveY = 0;
+	// Whether the game wants the pointer locked: the browser grants it only on
+	// a click, and takes it back on Esc, so every click asks again.
+	let lockWanted = false;
 	// Whether the mouse pointer is over the canvas: from its first move there
 	// until it leaves.
 	let mouseOver = false;
@@ -1739,6 +1746,8 @@ void main() {
 			const scale = canvas.width / Math.max(1, box.width);
 			mouseX = (e.clientX - box.left) * scale;
 			mouseY = (e.clientY - box.top) * (canvas.height / Math.max(1, box.height));
+			moveX += e.movementX || 0;
+			moveY += e.movementY || 0;
 			mouseOver = true;
 		});
 		canvas.addEventListener('mouseleave', function () { mouseOver = false; });
@@ -1749,6 +1758,7 @@ void main() {
 				mouseDown[button] = 1;
 			}
 			takeFullscreen();
+			takePointerLock();
 			wakeAudio();
 			e.preventDefault();
 		});
@@ -1860,6 +1870,10 @@ void main() {
 		inputFloats[IN_MOUSE_Y] = mouseY;
 		inputFloats[IN_WHEEL] = wheel;
 		wheel = 0;
+		inputFloats[IN_MOVE_X] = moveX;
+		inputFloats[IN_MOVE_Y] = moveY;
+		moveX = 0;
+		moveY = 0;
 
 		const keysAt = KEYS_AT;
 		inputBytes.set(keysDown, keysAt);
@@ -2481,6 +2495,27 @@ void main() {
 
 	function cursorVisible() { return cursorShown; }
 
+	// setCursorLocked locks the mouse pointer to the canvas, at once when the
+	// player has just clicked or pressed a key and at their next click
+	// otherwise, or gives it back.
+	function setCursorLocked(locked) {
+		lockWanted = !!locked;
+		if (lockWanted) {
+			if (justActed()) takePointerLock();
+		} else if (document.pointerLockElement === canvas && document.exitPointerLock) {
+			document.exitPointerLock();
+		}
+	}
+
+	// takePointerLock asks for the pointer when the game wants it and doesn't
+	// have it. A browser refuses outside a click, and says so through a promise
+	// nothing needs to hear.
+	function takePointerLock() {
+		if (!lockWanted || !canvas || !canvas.requestPointerLock || document.pointerLockElement === canvas) return;
+		const asked = canvas.requestPointerLock();
+		if (asked && asked.catch) asked.catch(function () {});
+	}
+
 	function mouseInside() { return mouseOver; }
 
 	function close() { closed = true; }
@@ -2514,7 +2549,7 @@ void main() {
 		touchScreen: touchScreen,
 		onFrame: onFrame, askForFrame: askForFrame, setFrameRate: setFrameRate,
 		setFullscreen: setFullscreen, fullscreenLost: fullscreenLost,
-		setCursorVisible: setCursorVisible, cursorVisible: cursorVisible, mouseInside: mouseInside,
+		setCursorVisible: setCursorVisible, setCursorLocked: setCursorLocked, cursorVisible: cursorVisible, mouseInside: mouseInside,
 		showError: showError,
 		postPicture: postPicture,
 		newShader: newShader, unloadShader: unloadShader, shaderLocation: shaderLocation,
