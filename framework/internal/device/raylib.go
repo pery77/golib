@@ -249,9 +249,11 @@ func ReadTarget(target Target) *image.NRGBA {
 	rl.ImageFlipVertical(picture) // render textures are stored bottom row first
 	width, height := int(picture.Width), int(picture.Height)
 	result := image.NewNRGBA(image.Rect(0, 0, width, height))
+	colors := rl.LoadImageColors(picture)
+	defer rl.UnloadImageColors(colors)
 	for y := range height {
 		for x := range width {
-			c := rl.GetImageColor(*picture, int32(x), int32(y))
+			c := colors[y*width+x]
 			result.SetNRGBA(x, y, color.NRGBA{R: c.R, G: c.G, B: c.B, A: c.A})
 		}
 	}

@@ -387,6 +387,7 @@ func buildPrompt(input *golib.Input) string {
 | `Screen.SetBlendMode` | `SetBlendMode(mode BlendMode)`: how the drawing that follows mixes with what is under it. Every `Draw` starts with `BlendNormal`. |
 | `BlendMode` | `BlendNormal` covers what is underneath, by the color's opacity; `BlendAdd` adds to it, so overlapping glows grow brighter and nothing darkens: explosions, flames, sparks, lasers. |
 | `Screen.Width`, `Screen.Height` | `Width() float32`, `Height() float32`: the screen's current size, from `Config` or its `WindowScale` or `FillWindow`. |
+| `Screen.Capture` | `Capture(picture *Image)`: during `Draw`, copy the drawing so far into a reusable `NewImage`, resized to that image's size with nearest-pixel sampling. Later drawing does not change it. Call after `End3D` for 3D. The copy is before post-processing and excludes `FullResolution` overlays and the mouse sprite. Capture only when needed: reading the graphics card costs time. Draw the frozen picture with `DrawImage`; nothing is saved to disk. |
 
 - Positions and sizes are `float32`. Untyped constants convert by themselves; other numbers need `float32(n)`.
 - For a shape that turns, keep its corners around 0, 0, and turn and move them before drawing: `corner.Rotate(angle).Add(position)` (see [Vectors, rectangles and collisions](#vectors-rectangles-and-collisions)). Pictures are sprites: see [Sprites and animations](#sprites-and-animations).
