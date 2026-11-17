@@ -92,7 +92,7 @@ func TestReadGameInfoMistakes(t *testing.T) {
 	tests := []struct {
 		name, content, want string
 	}{
-		{"unknown field", `{"verison": "1.0.0"}`, `unknown field "verison": game.json takes "title", "version", "author", "copyright", "fileName", "besideExecutable", "buildTags" and "leaveOut"`},
+		{"unknown field", `{"verison": "1.0.0"}`, `unknown field "verison": game.json takes "title", "version", "author", "copyright", "fileName", "besideExecutable", "buildTags", "leaveOut", "models" and "steamAppID"`},
 		{"syntax error", "{\n  \"title\": \"Rocks\",\n}", "line 3: "},
 		{"number instead of text", "{\n  \"version\": 1.0\n}", `line 2: "version" must be text`},
 		{"empty file", " ", "the file is empty or cut short"},

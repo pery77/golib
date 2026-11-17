@@ -8,7 +8,7 @@
 # tools/bootstrap/golib.sh is the Linux/macOS twin of this file. Both must expose the same
 # commands, options, output format and exit codes: change one, change the other.
 # Most commands live in tools/cli, a Go program that both scripts build and start (Invoke-Cli
-# here): new, build, run, shot, test, dist and the end of setup. This file keeps what has to
+# here): new, build, run, shot, test, dist, web, steam-sdk and the end of setup. This file keeps what has to
 # work before that program can be built: help, setup up to installing Go, doctor, go and clean.
 # Keep this file ASCII-only: Windows PowerShell 5.1 reads files without a BOM as ANSI.
 #
@@ -82,6 +82,9 @@ Commands:
   web [game] [--port n]   Build games/<game> for the browser into build/<game>/web/ and serve it
                           on this machine. --no-open keeps the browser closed; --lan also
                           serves it to this network, to play on a phone or a tablet
+  steam-sdk <path>        Copy the Steamworks API's libraries from the Steamworks SDK, its zip or
+                          its sdk folder, into .tools/steamworks/, for games built with
+                          --tags steam. Run it again with a newer SDK to update it
   go <args>               Run the project's Go toolchain, with GoLib's settings
   clean                   Delete build outputs (build/)
   clean --all             Also delete downloaded tools (.tools/); run setup again afterwards
@@ -94,6 +97,8 @@ examples/ holds GoLib's examples, such as platformer: golib run platformer.
 build, run, shot, test, dist and web also take --tags <tags>: Go build tags,
 separated by commas, for the game's files that say //go:build <tag>, such as
 a demo's. A zip made with them carries them in its name (see docs/tooling.md).
+The tag steam puts Steam in a game: it needs "steamAppID" in game.json and
+golib steam-sdk first (see docs/tooling.md#steamworks).
 
 Invoke from the project root:
   Windows (PowerShell, cmd)    .\golib <command>
@@ -442,6 +447,22 @@ function Invoke-Doctor([string[]]$Options) {
         Write-Check info 'JoltPhysics.js, for rigid bodies in web builds, not in .tools/jolt/ (run: golib setup; only games with rigid bodies need it)'
     }
 
+    # Steam: the Steamworks API, which golib steam-sdk copies from the SDK, which stays out of the
+    # project. Only games built with --tags steam need it, so a missing one is information.
+    if ((Get-GoArch) -ne 'amd64') {
+        Write-Check info "Steam has no Steamworks API library for windows/$(Get-GoArch), so games can't be built with --tags steam here"
+    } elseif (Test-Path -LiteralPath (Join-Path $ToolsDir 'steamworks\win64\steam_api64.dll') -PathType Leaf) {
+        $steamVersion = 'of unknown version'
+        $steamVersionFile = Join-Path $ToolsDir 'steamworks\VERSION'
+        if (Test-Path -LiteralPath $steamVersionFile -PathType Leaf) {
+            $line = @(Get-Content -LiteralPath $steamVersionFile -TotalCount 1)
+            if ($line.Count -gt 0 -and $line[0].Trim()) { $steamVersion = $line[0].Trim() }
+        }
+        Write-Check ok "Steamworks API $steamVersion, for games built with --tags steam, in .tools/steamworks/"
+    } else {
+        Write-Check info 'Steamworks API, for games built with --tags steam, not in .tools/steamworks/ (only they need it: download the Steamworks SDK from partner.steamgames.com, then run: golib steam-sdk <path to steamworks_sdk_XXX.zip>)'
+    }
+
     Write-Summary 'doctor'
     if ($script:Failures -gt 0) { exit 1 }
     exit 0
@@ -499,6 +520,7 @@ switch -CaseSensitive ($command) {
     'shot'   { Invoke-Cli 'shot' $options }
     'test'   { Invoke-Cli 'test' $options }
     'web'    { Invoke-Cli 'web' $options }
+    'steam-sdk' { Invoke-Cli 'steam-sdk' $options }
     'go'     { Invoke-GoCommand $options }
     'clean'  { Invoke-Clean $options }
     'help'   { Show-Help; exit 0 }

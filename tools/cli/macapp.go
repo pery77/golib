@@ -150,7 +150,8 @@ func appInfo(info gameInfo, exe string, withIcon bool) []byte {
 
 // makeApp turns the executable folder/exe into the app players open,
 // folder/<title>.app, with game.json's details and icon.png as its icon, and
-// GoLib's native library when the game uses rigid bodies, and signs it. It returns the app's name, or "" after reporting a failure.
+// GoLib's native library when the game uses rigid bodies, and the
+// Steamworks API with the build tag steam, and signs it. It returns the app's name, or "" after reporting a failure.
 func (c *cli) makeApp(game, folder, exe string, info gameInfo) string {
 	name := appName(info.Title, game)
 	shown := "build/" + game + "/dist/" + filepath.Base(folder) + "/" + name
@@ -189,6 +190,15 @@ func (c *cli) makeApp(game, folder, exe string, info gameInfo) string {
 	} else if copied {
 		if err := c.signApp(filepath.Join(frameworks, c.nativeName())); err != nil {
 			c.check("warn", fmt.Sprintf("could not sign %s, so macOS may call the app damaged once players download it: %v", c.nativeName(), err))
+		}
+	}
+	// A game built with the build tag steam loads the Steamworks API from
+	// Frameworks too.
+	if copied, err := c.copySteam(frameworks); err != nil {
+		return fail(err)
+	} else if copied {
+		if err := c.signApp(filepath.Join(frameworks, c.steamFileName())); err != nil {
+			c.check("warn", fmt.Sprintf("could not sign %s, so macOS may call the app damaged once players download it: %v", c.steamFileName(), err))
 		}
 	}
 	// A game with a language model loads golibllm from Frameworks too, and

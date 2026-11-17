@@ -63,7 +63,7 @@ func (c *cli) test(options []string) int {
 			// builds do. A game.json with a mistake gives none: build and
 			// dist report it.
 			if info, _, err := readGameInfo(dir); err == nil {
-				test = append(test, versionArgs(info)...)
+				test = append(test, linkArgs(info)...)
 			}
 		}
 		var env []string
@@ -76,7 +76,12 @@ func (c *cli) test(options []string) int {
 				c.check("fail", module+": "+err.Error())
 				continue
 			}
-			libraryPath := c.libraryPath(c.path(".tools", "raylib")+string(os.PathListSeparator)+c.path(".tools", "native")+string(os.PathListSeparator)+c.llmDir(), c.goEnv())
+			dirs := c.path(".tools", "raylib") + string(os.PathListSeparator) + c.path(".tools", "native") + string(os.PathListSeparator) + c.llmDir()
+			if c.withSteam() {
+				// With the build tag steam, the Steamworks API too.
+				dirs += string(os.PathListSeparator) + filepath.Dir(c.steamFile())
+			}
+			libraryPath := c.libraryPath(dirs, c.goEnv())
 			env = append(env, libraryPath)
 			if c.goos == "darwin" {
 				exec, err := testExec(libraryPath)
