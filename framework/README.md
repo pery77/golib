@@ -29,6 +29,7 @@ For AI agents writing game code with GoLib, and for anyone who wants the whole f
 | Start in the player's language | `golib.ChooseLanguage`, `golib.SystemLanguages` | [The player's language](#the-players-language) |
 | Show which build the player has | `golib.GameVersion` | [The game's version](#the-games-version) |
 | Talk with a character that answers in its own words, with no connection | `golib.NewLanguageModel`, `model.Reply`, `golib.ChatMessage` | [Language models](#language-models) |
+| Unlock Steam's achievements, start in the language chosen in Steam | `golib.SteamUnlockAchievement`, `golib.SteamLanguage`, built with `--tags steam` | [Steam](#steam) |
 | Read a data file | `golib.ReadAsset` | [Files: the assets folder](#files-the-assets-folder) |
 | End the game | `golib.Quit` | [Quitting](#quitting) |
 
@@ -1975,6 +1976,45 @@ if err := golib.SaveData("progress", s.progress); err != nil {
 - Names are lowercase letters, digits, `-` and `_`. Keep the data small: settings, scores and how far the player got, not whole worlds.
 - A failed save or load returns an error: tell the player, and carry on playing.
 
+## Steam
+
+A game sold on Steam unlocks Steam's achievements and starts in the language the player chose there, through Valve's Steamworks API. It is in a game built with the build tag `steam`, and nowhere else: without the tag, and in a browser, every name below does nothing, and the game neither carries nor needs Steam's library.
+
+To build a game with Steam:
+
+1. Download the Steamworks SDK from [partner.steamgames.com](https://partner.steamgames.com) (Valve's license keeps it out of GoLib's repository) and copy its libraries into the project once: `golib steam-sdk ~/Downloads/steamworks_sdk_164.zip`.
+2. Give the game's app ID on Steam in `game.json`: `"steamAppID": 480`. 480 is Spacewar, Valve's app for trying the API, until the game has its own.
+3. Build with the tag: `golib run --tags steam`, `golib dist --tags steam`. Debug builds carry the library and `steam_appid.txt`, so Steam knows the game it didn't start; dist builds carry the library, next to the executable or inside the app on macOS, and never `steam_appid.txt` (see [docs/tooling.md](../docs/tooling.md#steamworks)).
+
+| Name | What it does |
+| --- | --- |
+| `SteamRunning` | `SteamRunning() bool`: the game is connected to Steam. False without the tag, before `Run` starts, under `golib shot`, and when Steam isn't running or isn't logged in: the game plays on without it. |
+| `SteamError` | `SteamError() error`: why `SteamRunning` is false, such as a build without the tag, a missing library, or Steam's own answer, `Steam didn't start: Steam isn't running, or isn't logged in`. Nil while Steam runs. `Run` prints it once, too. |
+| `SteamUnlockAchievement` | `SteamUnlockAchievement(id string)`: unlocks the achievement whose API name in the game's Steamworks settings is `id`, such as `"ACH_WIN_ONE_GAME"`, and Steam shows it. Call it as often as you like: Steam is told once. It reaches Steam in the next frame, and is stored there; one Steam can't take yet is tried again each second, and one unlocked before `Run` is sent once Steam starts. |
+| `SteamAchievement` | `SteamAchievement(id string) (unlocked, ok bool)`: whether the player has the achievement. `ok` is false without Steam, and for an API name Steam doesn't know. |
+| `SteamClearAchievement` | `SteamClearAchievement(id string)`: locks the achievement again, to try it while making the game. Players never lose one: don't call it in a dist build. |
+| `SteamAchievementProgress` | `SteamAchievementProgress(id string, current, max int)`: shows Steam's notice of progress toward the achievement, such as 50 of 100 coins. It unlocks nothing: call `SteamUnlockAchievement` when `current` reaches `max`. |
+| `SteamLanguage` | `SteamLanguage() string`: the language the player chose for the game in Steam, by Steam's name for it: `"english"`, `"spanish"`, `"latam"` (Latin American Spanish), `"schinese"` (Simplified Chinese) and so on. `""` without Steam: then follow `SystemLanguages`. |
+| `SteamOnDeck` | `SteamOnDeck() bool`: the game runs on a Steam Deck, for a game that sizes its text or controls for one. |
+
+```go
+// When the player wins, wherever the game is sold:
+golib.SteamUnlockAchievement("ACH_WIN_ONE_GAME")
+
+// When the game starts, the language the player chose in Steam, or the system's:
+language := map[string]string{"english": "en", "spanish": "es", "latam": "es"}[golib.SteamLanguage()]
+if language == "" {
+	language = golib.ChooseLanguage([]string{"en", "es"}, "en")
+}
+```
+
+- **Call them in every build.** The same game code builds with and without the tag: an itch.io build or a demo without it never reaches Steam, and the calls cost nothing there.
+- **The achievements are made in Steamworks**, on the game's page at partner.steamgames.com, with their API names, pictures and texts: the game only names them. Spacewar, app 480, has `ACH_WIN_ONE_GAME`, `ACH_WIN_100_GAMES`, `ACH_TRAVEL_FAR_ACCUM` and `ACH_TRAVEL_FAR_SINGLE`.
+- **`Run` starts Steam before the window opens**, as Steam's overlay needs, and stops it when it returns. A dist build that Steam didn't start asks Steam to start it and ends at once, as Valve asks of games sold there: players start it from Steam, and so does `golib run --dist --tags steam`, which ends at once on a machine without Steam.
+- **`golib shot` leaves Steam off**, so its shots repeat and unlock nothing on the developer's account; `SteamError` says so.
+- **Steam Cloud needs no code.** Turn on Steam Auto-Cloud in Steamworks for the folder `SaveData` writes in: `GoLib games/<fileName>` under `WinAppDataRoaming` on Windows, `MacAppSupport` on macOS and `LinuxXdgConfigHome` on Linux, with the pattern `*`.
+- Leaderboards and Steam's stats aren't in GoLib yet.
+
 ## Files: the assets folder
 
 | Name | What it does |
@@ -2108,6 +2148,7 @@ A web build is what a phone plays, so a game meant for one is a game meant for t
 | Hiding or dimming part of an HDRI | Not on the roadmap yet | Paint the HDRI over in a copy made offline, as [examples/sunset](../examples/sunset)'s `sources/skies/lakesky.go` does |
 | Smooth surfaces reflecting each other and what is off the screen; particles in reflections | Not on the roadmap yet | Reflection probes baked in Blender show the level off the screen; a small solid glowing shape under a flame is reflected where its particles aren't |
 | Keeping one thing out of the haze, a thing that casts no shadow, a color for each burst of one `Particles`, and taking one object of a model out of a `PhysicsWorld` | Not on the roadmap yet | A second `Begin3D` pass without haze over the first; a `Particles` for each color; what the game removes added on its own with `AddMesh` or `AddModel` |
+| Steam's leaderboards and stats, and the rest of Steamworks but achievements, the player's language and the Steam Deck | Not built yet: Steamworks is approved (see [docs/roadmap.md](../docs/roadmap.md#decisions)) | Save the best scores with `SaveData` and show them in the game |
 | `.qoa`, `.xm` and `.mod` in a browser | Not planned: browsers cannot decode them | Save the sound as `.wav`, `.ogg` or `.mp3`. For music, put that file next to the `.xm` under the same name: a web build plays it, and the desktop keeps playing the module |
 
 When a game needs one of these, say so to the user and point to [docs/roadmap.md](../docs/roadmap.md), as [AGENTS.md](../AGENTS.md) asks, instead of building an engine to fill the gap.
