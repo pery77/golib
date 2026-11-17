@@ -149,20 +149,15 @@ func SteamStart(appID uint32, restartThroughSteam bool) (relaunched bool, err er
 	result := steam.initFlat(&message[0])
 	text := goString(message[:])
 	if result != steamInitOK {
-		var why string
+		why := "check that Steam is running and logged in"
 		switch result {
 		case steamInitNoSteamClient:
 			why = "Steam isn't running, or isn't logged in"
 		case steamInitVersionMismatch:
 			why = "the Steam client is older than the Steamworks API: update Steam"
 		}
-		switch {
-		case why != "" && text != "":
-			why += " (" + text + ")"
-		case text != "":
-			why = text
-		case why == "":
-			why = fmt.Sprintf("SteamAPI_InitFlat gave %d", result)
+		if text != "" {
+			why += " (Steam says: " + text + ")"
 		}
 		return false, fmt.Errorf("Steam didn't start: %s", why)
 	}
