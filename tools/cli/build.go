@@ -102,8 +102,10 @@ func (c *cli) runDist(game string) int {
 // or "" after reporting a failure. Debug builds keep their debug symbols,
 // open a console window on Windows, read the game's assets from disk, and
 // load raylib and libffi from their own folder, where buildGame copies them
-// from .tools/raylib/, and golibnative from .tools/native/ when the game
-// uses rigid bodies. On Windows they carry the game's icon and details, as
+// from .tools/raylib/, golibnative from .tools/native/ when the game uses
+// rigid bodies, and with the build tag steam the Steamworks API from
+// .tools/steamworks/, with steam_appid.txt, which tells Steam the game when
+// Steam didn't start it. On Windows they carry the game's icon and details, as
 // dist builds do, without reporting them.
 func (c *cli) buildGame(game string) string {
 	dir := c.gameDir(game)
@@ -111,6 +113,9 @@ func (c *cli) buildGame(game string) string {
 	exe := filepath.Join(outDir, c.executable(game))
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		c.check("fail", fmt.Sprintf("cannot create build/%s/: %v", game, err))
+		return ""
+	}
+	if !c.checkSteam(game) {
 		return ""
 	}
 	removeResources := func() {}
@@ -137,7 +142,7 @@ func (c *cli) buildGame(game string) string {
 		target = filepath.Join(outDir, "."+filepath.Base(exe)+".new")
 	}
 	args := append([]string{"build"}, c.tagsArgs()...)
-	args = append(args, versionArgs(info)...)
+	args = append(args, linkArgs(info)...)
 	err := c.goRun(dir, append(args, "-o", target, ".")...)
 	removeResources()
 	if err != nil {
@@ -167,6 +172,15 @@ func (c *cli) buildGame(game string) string {
 	if _, err := c.copyNative(game, exe, outDir); err != nil {
 		c.check("fail", fmt.Sprintf("cannot copy %s into build/%s/: %v", c.nativeName(), game, err))
 		return ""
+	}
+	if copied, err := c.copySteam(outDir); err != nil {
+		c.check("fail", fmt.Sprintf("cannot copy %s into build/%s/: %v", c.steamFileName(), game, err))
+		return ""
+	} else if copied {
+		if err := c.writeSteamAppID(game, outDir); err != nil {
+			c.check("fail", fmt.Sprintf("cannot write build/%s/%s: %v", game, steamAppIDFile, err))
+			return ""
+		}
 	}
 	if copied, err := c.copyLLM(game, exe, outDir); err != nil {
 		c.check("fail", fmt.Sprintf("cannot copy %s into build/%s/: %v", c.llmName(), game, err))

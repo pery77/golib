@@ -55,6 +55,11 @@ type gameInfo struct {
 	// "..."}}: builds download a model missing from the folder, so it can
 	// stay out of git; default: none.
 	Models map[string]modelSource `json:"models"`
+	// The game's app ID on Steam, such as 480, which builds give
+	// golib.SteamRunning and the rest of the framework's Steam with -X
+	// golib.steamAppID, and which the build tag steam needs (see
+	// docs/tooling.md#steamworks); default: none.
+	SteamAppID uint32 `json:"steamAppID"`
 
 	version      version // Version, parsed
 	versionGiven bool    // game.json has "version"
@@ -96,8 +101,9 @@ func readGameInfo(dir string) (info gameInfo, found bool, err error) {
 	// "version" left out gives 0.0.0 to the executable's details and the
 	// zip's name, and nothing to golib.GameVersion.
 	var given struct {
-		Version  *string `json:"version"`
-		FileName *string `json:"fileName"`
+		Version    *string `json:"version"`
+		FileName   *string `json:"fileName"`
+		SteamAppID *uint32 `json:"steamAppID"`
 	}
 	if json.Unmarshal(data, &given) == nil {
 		info.versionGiven = given.Version != nil
@@ -106,6 +112,9 @@ func readGameInfo(dir string) (info gameInfo, found bool, err error) {
 		if err := checkFileName(info.FileName); err != nil {
 			return info, true, err
 		}
+	}
+	if given.SteamAppID != nil && *given.SteamAppID == 0 {
+		return info, true, errors.New(`"steamAppID" is 0: write the game's app ID on Steam, such as 480, or leave "steamAppID" out`)
 	}
 
 	for _, field := range []struct{ name, value string }{
@@ -252,11 +261,33 @@ func (info gameInfo) versionFlag() string {
 	return "-X golib.gameVersion=" + info.Version
 }
 
-// versionArgs returns the -ldflags argument that gives golib.GameVersion the
-// version info has, for a debug or web build, or none when it has none.
-func versionArgs(info gameInfo) []string {
-	if flag := info.versionFlag(); flag != "" {
-		return []string{"-ldflags=" + flag}
+// steamAppIDFlag returns the linker flag that gives the framework's Steam
+// the game's "steamAppID", or "" when game.json gives none.
+func (info gameInfo) steamAppIDFlag() string {
+	if info.SteamAppID == 0 {
+		return ""
+	}
+	return fmt.Sprintf("-X golib.steamAppID=%d", info.SteamAppID)
+}
+
+// linkFlags returns the linker flags that every build of the game gets from
+// game.json: versionFlag and steamAppIDFlag, separated by a space, or "".
+func (info gameInfo) linkFlags() string {
+	var flags []string
+	for _, flag := range []string{info.versionFlag(), info.steamAppIDFlag()} {
+		if flag != "" {
+			flags = append(flags, flag)
+		}
+	}
+	return strings.Join(flags, " ")
+}
+
+// linkArgs returns the -ldflags argument that gives golib.GameVersion the
+// version info has, and Steam its app ID, for a debug, test or web build,
+// or none when it has neither.
+func linkArgs(info gameInfo) []string {
+	if flags := info.linkFlags(); flags != "" {
+		return []string{"-ldflags=" + flags}
 	}
 	return nil
 }
@@ -273,6 +304,8 @@ func explainJSONError(data []byte, err error) error {
 		return fmt.Errorf(`line %d: "buildTags" must give each build tag "dist" or "any", such as {"demo": "dist"}`, lineAt(data, typeErr.Offset))
 	case errors.As(err, &typeErr) && strings.HasPrefix(typeErr.Field, "leaveOut"):
 		return fmt.Errorf(`line %d: "leaveOut" must give each build tag a list of paths, such as {"demo": ["assets/locale/en-full.txt"]}`, lineAt(data, typeErr.Offset))
+	case errors.As(err, &typeErr) && typeErr.Field == "steamAppID":
+		return fmt.Errorf(`line %d: "steamAppID" must be the game's app ID on Steam, a whole number without quotes, such as 480`, lineAt(data, typeErr.Offset))
 	case errors.As(err, &typeErr) && typeErr.Field == "besideExecutable":
 		return fmt.Errorf(`line %d: "besideExecutable" must be a list of paths, such as ["assets/locale"]`, lineAt(data, typeErr.Offset))
 	case errors.As(err, &typeErr):
@@ -281,7 +314,7 @@ func explainJSONError(data []byte, err error) error {
 		return errors.New(`the file is empty or cut short: game.json must be valid JSON, such as {"title": "Rocks", "version": "1.0.0"}`)
 	case strings.HasPrefix(err.Error(), "json: unknown field "):
 		field := strings.TrimPrefix(err.Error(), "json: unknown field ")
-		return fmt.Errorf(`unknown field %s: game.json takes "title", "version", "author", "copyright", "fileName", "besideExecutable", "buildTags" and "leaveOut"`, field)
+		return fmt.Errorf(`unknown field %s: game.json takes "title", "version", "author", "copyright", "fileName", "besideExecutable", "buildTags", "leaveOut", "models" and "steamAppID"`, field)
 	}
 	return err
 }

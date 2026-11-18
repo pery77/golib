@@ -82,6 +82,10 @@ func (c *cli) distGame(game string) string {
 		return ""
 	}
 
+	if !c.checkSteam(game) {
+		return ""
+	}
+
 	// Players get files named after game.json's "fileName", or the folder.
 	name := c.fileName(game)
 	distDir := c.path("build", game, "dist")
@@ -152,6 +156,22 @@ func (c *cli) distGame(game string) string {
 	if usesNative {
 		c.check("ok", fmt.Sprintf("put GoLib's native library in the game, %s, for its rigid bodies", nativeWhere))
 		notices = append(notices, joltNotice(nativeWhere+": GoLib's native library, for the rigid bodies", false))
+	}
+
+	// A game built with the build tag steam loads the Steamworks API, next
+	// to the executable, or in the app's Frameworks folder on macOS, where
+	// makeApp has put it. It never carries steam_appid.txt: a player's copy
+	// starts through Steam.
+	if c.withSteam() {
+		steamWhere := c.steamFileName() + ", next to " + exe
+		if c.goos == "darwin" {
+			steamWhere = built + "/Contents/Frameworks/" + c.steamFileName()
+		} else if _, err := c.copySteam(folder); err != nil {
+			c.check("fail", fmt.Sprintf("cannot copy %s into the game: %v", c.steamFileName(), err))
+			return ""
+		}
+		c.check("ok", fmt.Sprintf("put the Steamworks API in the game, %s, for Steam", steamWhere))
+		notices = append(notices, c.steamNotice(steamWhere+": Valve's Steamworks API, for Steam"))
 	}
 
 	// A game with a language model loads golibllm and its backends, next to
@@ -393,8 +413,8 @@ func (c *cli) buildExecutable(game, name, tags, output string) (gameInfo, bool) 
 	if !ok {
 		return info, false
 	}
-	if flag := info.versionFlag(); flag != "" {
-		ldflags += " " + flag
+	if flags := info.linkFlags(); flags != "" {
+		ldflags += " " + flags
 	}
 
 	// -tags replaces raylib_no_embed and ffi_no_embed from GOFLAGS, so dist

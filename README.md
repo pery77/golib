@@ -66,6 +66,7 @@ GoLib reads Tiled maps, Aseprite files, PNG images, fonts, jfxr sounds and sound
 | `golib shot [game] [frame...]` | Saves screenshots of a game at the given frames, without opening a visible window. |
 | `golib web [game]` | Builds a game for the browser and serves it on your machine, so you can play it in a tab. `golib dist [game] --web` makes the zip to upload to itch.io. |
 | `golib test` | Checks and tests the framework, every example and game and GoLib's own Go program. |
+| `golib steam-sdk <path>` | Copies the Steamworks API's libraries from Valve's Steamworks SDK, its zip or folder, for games built for Steam with `--tags steam` (see [docs/tooling.md](docs/tooling.md#steamworks)). |
 | `golib go <args>` | Runs the project's own Go, for example `golib go version`. |
 | `golib clean` | Deletes build outputs. Add `--all` to also delete the downloaded tools. |
 | `golib help` | Lists all commands. |

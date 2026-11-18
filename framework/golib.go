@@ -239,6 +239,11 @@ type Game interface {
 // When golib shot starts the game, Run instead renders the requested frames in
 // a hidden window, saves them as PNG files and returns.
 //
+// In a game built with the build tag steam, Run starts Steam before the
+// window opens and stops it when it returns; a dist build that Steam didn't
+// start ends at once, and Steam starts it again (see [SteamRunning]). Steam
+// stays off under golib shot.
+//
 // Run returns an error if game is nil, config is invalid, the window can't be
 // opened, a file can't be read or a screenshot can't be saved. When the
 // console can't show that error, Run also shows it, or a panic in the game, in
@@ -277,8 +282,16 @@ func Run(game Game, config Config) (err error) {
 		return err
 	}
 	if plan != nil {
+		steamOff("under golib shot, so that shots repeat and unlock nothing")
 		return runShots(game, config, plan)
 	}
+	// Steam, in a build with the tag steam, starts before the window opens,
+	// for its overlay. A dist build Steam didn't start ends here, and Steam
+	// starts it again.
+	if startSteam() {
+		os.Exit(0)
+	}
+	defer stopSteam()
 	return runWindow(game, config)
 }
 
@@ -402,6 +415,7 @@ func runWindow(game Game, config Config) error {
 		if err := audio.updateMusic(); err != nil {
 			return err
 		}
+		steamFrame()
 		screen.time = float32(updates) * updateStep
 		if err := render.drawScene(scene, screen); err != nil {
 			return err

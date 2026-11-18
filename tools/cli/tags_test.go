@@ -11,7 +11,7 @@ import (
 // after GoLib's own: a debug build names them again, since -tags replaces
 // the ones GOFLAGS gives.
 func TestTagsReachEveryBuild(t *testing.T) {
-	const debug = "-tags=raylib_no_embed,ffi_no_embed,demo,steam"
+	const debug = "-tags=raylib_no_embed,ffi_no_embed,demo,itch"
 	tests := []struct {
 		name    string
 		goos    string
@@ -19,13 +19,13 @@ func TestTagsReachEveryBuild(t *testing.T) {
 		options []string
 		want    []string // the first go call with the tags, without "./..." or "."
 	}{
-		{"build", "windows", (*cli).build, []string{"--tags", "demo,steam"}, []string{"build", debug}},
-		{"run", "windows", (*cli).run, []string{"--tags=demo,steam", "rocks"}, []string{"build", debug}},
-		{"shot", "windows", (*cli).shot, []string{"30", "--tags", "demo,steam,demo"}, []string{"build", debug}},
-		{"test", "windows", (*cli).test, []string{"rocks", "--tags", "demo,steam"}, []string{"vet", debug}},
-		{"dist", "windows", (*cli).dist, []string{"--tags", "demo,steam"}, []string{"list", "-deps", "-tags=golib_dist,raylib_no_embed,ffi_no_embed,demo,steam"}},
-		{"dist on macOS", "darwin", (*cli).dist, []string{"--tags", "demo,steam"}, []string{"list", "-deps", "-tags=golib_dist,demo,steam"}},
-		{"run --dist", "linux", (*cli).run, []string{"--dist", "--tags", "demo,steam"}, []string{"list", "-deps", "-tags=golib_dist,raylib_no_embed,ffi_no_embed,demo,steam"}},
+		{"build", "windows", (*cli).build, []string{"--tags", "demo,itch"}, []string{"build", debug}},
+		{"run", "windows", (*cli).run, []string{"--tags=demo,itch", "rocks"}, []string{"build", debug}},
+		{"shot", "windows", (*cli).shot, []string{"30", "--tags", "demo,itch,demo"}, []string{"build", debug}},
+		{"test", "windows", (*cli).test, []string{"rocks", "--tags", "demo,itch"}, []string{"vet", debug}},
+		{"dist", "windows", (*cli).dist, []string{"--tags", "demo,itch"}, []string{"list", "-deps", "-tags=golib_dist,raylib_no_embed,ffi_no_embed,demo,itch"}},
+		{"dist on macOS", "darwin", (*cli).dist, []string{"--tags", "demo,itch"}, []string{"list", "-deps", "-tags=golib_dist,demo,itch"}},
+		{"run --dist", "linux", (*cli).run, []string{"--dist", "--tags", "demo,itch"}, []string{"list", "-deps", "-tags=golib_dist,raylib_no_embed,ffi_no_embed,demo,itch"}},
 	}
 	for _, tt := range tests {
 		tp := newTestProject(t, tt.goos, "rocks")
@@ -36,7 +36,7 @@ func TestTagsReachEveryBuild(t *testing.T) {
 			t.Errorf("%s: exit code %d, output:\n%s%s", tt.name, code, tp.stdout.String(), tp.stderr.String())
 			continue
 		}
-		if !strings.HasPrefix(tp.stdout.String(), "[info] building with the build tags demo,steam, from --tags\n") {
+		if !strings.HasPrefix(tp.stdout.String(), "[info] building with the build tags demo,itch, from --tags\n") {
 			t.Errorf("%s: output:\n%s\nwant it to start by naming the tags", tt.name, tp.stdout.String())
 		}
 		var tagged [][]string
@@ -50,7 +50,7 @@ func TestTagsReachEveryBuild(t *testing.T) {
 		}
 		// Every build and test is made with the tags, not only the first.
 		for _, call := range tp.calls {
-			if (call.args[0] == "build" || call.args[0] == "test" || call.args[0] == "vet") && !slices.ContainsFunc(call.args, func(arg string) bool { return strings.HasSuffix(arg, ",demo,steam") }) {
+			if (call.args[0] == "build" || call.args[0] == "test" || call.args[0] == "vet") && !slices.ContainsFunc(call.args, func(arg string) bool { return strings.HasSuffix(arg, ",demo,itch") }) {
 				t.Errorf("%s: go %q left out the tags", tt.name, call.args)
 			}
 		}
@@ -101,12 +101,12 @@ func TestTagsUsage(t *testing.T) {
 	}{
 		{"build", []string{"--tags"}, "build --tags needs a list of build tags, such as: golib build --tags demo"},
 		{"dist", []string{"--tags="}, `dist --tags takes build tags separated by commas, each made of letters, digits, _ and . (got: "")`},
-		{"run", []string{"--tags", "demo,,steam"}, `run --tags takes build tags separated by commas, each made of letters, digits, _ and . (got: "demo,,steam")`},
-		{"shot", []string{"--tags", "demo steam"}, `shot --tags takes build tags separated by commas, each made of letters, digits, _ and . (got: "demo steam")`},
+		{"run", []string{"--tags", "demo,,itch"}, `run --tags takes build tags separated by commas, each made of letters, digits, _ and . (got: "demo,,itch")`},
+		{"shot", []string{"--tags", "demo itch"}, `shot --tags takes build tags separated by commas, each made of letters, digits, _ and . (got: "demo itch")`},
 		{"web", []string{"--tags", "!demo"}, `web --tags takes build tags separated by commas, each made of letters, digits, _ and . (got: "!demo")`},
 		{"test", []string{"--tags", "demo,golib_dist"}, "test --tags can't name golib_dist: GoLib sets it itself (see docs/tooling.md#build-tags)"},
 		{"build", []string{"--tags", "raylib_no_embed"}, "build --tags can't name raylib_no_embed: GoLib sets it itself (see docs/tooling.md#build-tags)"},
-		{"dist", []string{"--tags", "demo", "--tags=steam"}, "dist takes --tags once: list every tag in it, separated by commas, such as --tags demo,steam"},
+		{"dist", []string{"--tags", "demo", "--tags=itch"}, "dist takes --tags once: list every tag in it, separated by commas, such as --tags demo,steam"},
 		{"build", []string{"--tags", "demo", "rocks", "snake"}, "build takes at most one game name (got: rocks snake)"},
 	}
 	for _, tt := range tests {
@@ -133,16 +133,16 @@ func TestDistOnlyTags(t *testing.T) {
 		options []string
 		refused bool
 	}{
-		{"build", (*cli).build, []string{"--tags", "steam,demo"}, true},
+		{"build", (*cli).build, []string{"--tags", "itch,demo"}, true},
 		{"run", (*cli).run, []string{"--tags", "demo"}, true},
 		{"run --dist", (*cli).run, []string{"--dist", "--tags", "demo"}, false},
 		{"dist", (*cli).dist, []string{"--tags", "demo"}, false},
 		{"shot", (*cli).shot, []string{"--tags", "demo"}, false},
 		{"test", (*cli).test, []string{"rocks", "--tags", "demo"}, false},
-		{"build, another tag", (*cli).build, []string{"--tags", "steam"}, false},
+		{"build, another tag", (*cli).build, []string{"--tags", "itch"}, false},
 	} {
 		tp := newTestProject(t, "windows", "rocks")
-		writeFile(t, tp.c.path("games", "rocks", gameInfoFile), `{"title": "Rocks", "buildTags": {"demo": "dist", "steam": "any"}}`)
+		writeFile(t, tp.c.path("games", "rocks", gameInfoFile), `{"title": "Rocks", "buildTags": {"demo": "dist", "itch": "any"}}`)
 		code := tt.command(tp.c, tt.options)
 		refusal := "[fail] games/rocks/game.json keeps the build tag demo to dist builds"
 		if !tt.refused {

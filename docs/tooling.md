@@ -180,6 +180,35 @@ A platform with no checksum in `llmChecksums` has no release yet: setup prints a
 
 When something fails: a game that says `language models need GoLib's library for them, golibllm..., which isn't next to the game` was started from somewhere golib didn't put it (use `golib run` or `golib dist`); `golibllm... is version N` means an old library in `.tools/llm/`: run `golib setup`; `there is no .../models/<name>` means the model isn't in the game's `models/` folder and `game.json` doesn't list it; `llama.cpp could not make a context` means too little memory for `LanguageModelOptions.Context`. On Windows, a game that ends without a word with exit code `-1073740791` (`0xC0000409`) as its model loads, with `llama.dll` as the faulting module in the Event Viewer, has the libraries of release llm-2, each with a C++ runtime of its own inside, so `llama.dll` can't read the file `ggml-base.dll` opened for it: run `golib setup` for llm-3 or later, whose libraries share one runtime, then build the game again.
 
+## Steamworks
+
+A game sold on Steam calls Valve's Steamworks API (`golib.SteamUnlockAchievement` and the rest of [Steam in the API guide](../framework/README.md#steam)), a library of Valve's: `steam_api64.dll` on Windows, `libsteam_api.so` on Linux, `libsteam_api.dylib` on macOS. Valve's Steamworks SDK Access Agreement lets a game carry that library and nothing else of the SDK, so neither GoLib's repository nor `golib setup` holds it: each developer downloads the SDK from [partner.steamgames.com](https://partner.steamgames.com) with their Steamworks account, and copies its libraries into the project once:
+
+```sh
+./golib steam-sdk ~/Downloads/steamworks_sdk_164.zip   # or the zip's sdk folder, unzipped
+```
+
+`steam-sdk` (`tools/cli/steam.go`) takes the SDK's zip, its `sdk` folder or the folder that holds it, and copies `redistributable_bin/`'s libraries for the platforms GoLib builds for into `.tools/steamworks/`, in the SDK's own folders: `win64/steam_api64.dll`, `linux64/libsteam_api.so`, `linuxarm64/libsteam_api.so` and `osx/libsteam_api.dylib`, the last for Intel and Apple silicon both. It writes the SDK's version into `.tools/steamworks/VERSION`, from the first line of the SDK's `Readme.txt` that starts a version's notes, such as `v1.64 11th March 2026`, or else from the zip's name, `steamworks_sdk_164.zip` for 1.64. The rest of the SDK, its headers and examples, stays where it is. `golib doctor` says which version `.tools/steamworks/` holds, or, with an `[info]` line, that it holds none: only games built for Steam need it.
+
+A game gets Steam with the build tag `steam` (see [Build tags](#build-tags)) and its app ID on Steam in `game.json`, `"steamAppID": 480` (480 is Spacewar, Valve's app for trying the API):
+
+| Command, with `--tags steam` | What golib does |
+| --- | --- |
+| `build`, `run`, `shot` | Copies this platform's library from `.tools/steamworks/` next to the executable, in `build/<game>/`, and writes `steam_appid.txt` there with the app ID, which tells Steam the game when Steam didn't start it. `golib.Run` also sets `SteamAppId` for a debug build, since Steam reads `steam_appid.txt` from the working directory, and `run`'s is the game's folder. `shot` leaves Steam off, so shots repeat and unlock nothing |
+| `dist`, `run --dist` | Copies the library next to the executable, or into the app's `Contents/Frameworks/` on macOS, signed with the app, and adds a note to `THIRD-PARTY-LICENSES.txt` that it is Valve's, redistributed under the Steamworks SDK Access Agreement. Never `steam_appid.txt`: a dist build that Steam didn't start asks Steam to start it (`SteamAPI_RestartAppIfNecessary`) and ends at once, so on a machine without Steam, `run --dist` ends without a window. To try a dist build outside Steam, put a `steam_appid.txt` with the app ID in the folder it runs from, and never ship it |
+| `test` | `.tools/steamworks/<platform>/` on the library search path after `.tools/llm/`; the framework's `TestSteamStarts` (`framework/internal/device/steam_desktop_test.go`) loads the library and starts Steam for app 480, and is skipped without the library |
+| `web`, `dist --web` | Nothing: a browser has no Steam, and the framework's functions do nothing there |
+
+Every build, with the tag or without, passes the app ID with `-ldflags=-X golib.steamAppID=<id>`, as it passes the version. The tag `steam` without `steamAppID` in `game.json`, or without the library in `.tools/steamworks/`, stops the build with a `[fail]` line that says what to do; Steam has no library for Windows on ARM, where the tag stops the build too. Without the tag, a game neither carries nor loads the library: the framework's `steam_off.go` replaces the calls.
+
+The framework calls Steam's flat C API through purego, with no C compiler, in `framework/internal/device/steam_desktop.go`, built only with the tag. It loads the library from beside the executable, then from `../Frameworks/`, then from the library search path; starts Steam with `SteamAPI_InitFlat` before the window opens; calls `SteamAPI_RunCallbacks` and sends unlocked achievements each frame, on the main thread; and calls `SteamAPI_Shutdown` when `golib.Run` returns. When Steam doesn't start, the game plays without it, and `golib.SteamError` says why: `Steam isn't running, or isn't logged in`, the Steam client being older than the library, or Steam's own message.
+
+To move GoLib to a newer SDK:
+
+1. Download it from partner.steamgames.com and run `golib steam-sdk` with it: it replaces what `.tools/steamworks/` holds. Each developer does the same, since the libraries never enter git.
+2. Compare the interfaces in the new SDK's `public/steam/steam_api_flat.h`, such as `SteamAPI_SteamUserStats_v013`, `SteamAPI_SteamApps_v009` and `SteamAPI_SteamUtils_v010`, with the constants in `framework/internal/device/steam.go`, and the signatures of the functions `steam_desktop.go` calls. A newer library keeps the old interfaces working, so this is only needed for something new; when a version changes, change the constant and check the functions of that interface.
+3. Run `golib test --tags steam` and a game built with `--tags steam`, with the Steam client running and logged in, and see `golib.SteamRunning` true.
+
 ## Screenshots
 
 `golib shot [game] [frame...] [--input "<script>"] [--save <file>] [--scale <n>]` builds a game and runs it with these environment variables set:
@@ -308,6 +337,7 @@ The licenses of Go, jfxr, purego (Apache-2.0), ffi and libffi ask for their noti
 | Each Go module the game is built from, as `go list -deps` reports with the dist build tags, except the game's own and GoLib's | The files in the module's folder whose names start with `LICENSE`, `LICENCE`, `COPYING`, `COPYRIGHT` or `NOTICE`. A module without one gets a `[warn]` line: find its license and add its notice by hand |
 | raylib, and libffi when the platform has it | `libs/LICENSE` in raylib-go, `assets/libffi/LICENSE` in ffi. For raylib, also `tools/cli/notices/raylib-<version>.txt` (below) |
 | Jolt Physics, in a game with rigid bodies; in a web build, JoltPhysics.js with it | `tools/cli/notices/jolt-physics.txt` and `jolt-physics-js.txt` (MIT), copied from Jolt's source at the pinned commit and from the npm package. Change them with `native/CMakeLists.txt`'s commit or `joltJSVersion` |
+| The Steamworks API, in a game built with the build tag `steam` | No license text: a note, written in `tools/cli/steam.go`, that the library is Valve's and is redistributed under the Steamworks SDK Access Agreement (see [Steamworks](#steamworks)) |
 | `assets/ATTRIBUTION.md`, when the game has one | The file itself: where the files in the assets folder that weren't made for the game come from, and their licenses (see [framework/README.md](../framework/README.md)) |
 
 GoLib is left out because its license, zlib, asks for nothing in games (see [roadmap.md](roadmap.md#decisions)); jfxr's code inside it is the exception. The file starts with the game's title from `game.json`. `dist` writes it again on every build, so don't edit it: put what it should say in `assets/ATTRIBUTION.md`.
@@ -387,6 +417,8 @@ const demo = false
 
 `./golib run --tags demo` plays the demo, `./golib dist --tags demo` and `./golib dist --web --tags demo` make it to share, and `./golib test --tags demo` vets and tests the files it is built from.
 
+The tag `steam` is GoLib's for Steam: it puts the Steamworks API in the game, and needs `steamAppID` in `game.json` and `golib steam-sdk` first (see [Steamworks](#steamworks)).
+
 - **Where they go.** After GoLib's own: a debug build gets `-tags=raylib_no_embed,ffi_no_embed,<tags>`, since `-tags` replaces the tags in `GOFLAGS` (see [Go toolchain and environment](#go-toolchain-and-environment)), a dist build `-tags=golib_dist,raylib_no_embed,ffi_no_embed,<tags>` (`golib_dist,<tags>` on macOS), a web build `-tags=golib_dist,<tags>`, and `golib test` gives them to `go vet` and `go test`. The command's first line names them: `[info] building with the build tags demo, from --tags`.
 - **What they can be.** Each tag is letters, digits, `_` and `.`, and is listed once. In PowerShell, quote a list of them, `--tags 'demo,steam'` (see [PowerShell argument splitting](#powershell-argument-splitting)). GoLib's own tags, `golib_dist`, `raylib_no_embed` and `ffi_no_embed`, are set by the commands, and `--tags` can't name them.
 - **What changes.** Only the files built, and the zip's name, which carries the tags after the version, so a demo's zip is never taken for the full game's: `rocks-1.2.0-demo-windows-amd64.zip`, `rocks-1.2.0-demo-web.zip`. The rest is the same as without them: the folders the builds go in, which a build with other tags replaces (`golib dist` empties `build/<game>/dist/` first, the zips of earlier builds included, so copy a zip elsewhere before making the other), the executable's name, the app's title, the icon and the version from `game.json`, and the folder `golib.SaveData` saves in, named after the game's folder. A demo that should keep its saved data apart from the full game's on the same machine saves it under names of its own.
@@ -445,9 +477,10 @@ PowerShell also reads words joined by commas as a list, so `--tags demo,steam` d
 | `.tools/raylib/` | The raylib library, extracted from raylib-go; libffi, copied from the ffi module on Windows amd64 and macOS; and a `VERSION` file naming both versions |
 | `.tools/native/` | GoLib's native library, `golibnative`, downloaded from its release or built by `native/build.sh` |
 | `.tools/jolt/` | JoltPhysics.js, for web builds of games with rigid bodies |
+| `.tools/steamworks/` | The Steamworks API's libraries, copied from Valve's SDK by `golib steam-sdk`, and a `VERSION` file naming the SDK's version (see [Steamworks](#steamworks)) |
 | `.tools/config/`, `.tools/home/` | Go's telemetry counters (Windows and Linux; macOS) |
 | `.tools/gotools/` | Tools the VS Code Go extension installs, such as gopls |
-| `build/<game>/` | A game's debug executable, next to its copies of the raylib libraries, and of `golibnative` when it uses rigid bodies |
+| `build/<game>/` | A game's debug executable, next to its copies of the raylib libraries, of `golibnative` when it uses rigid bodies, and, built with `--tags steam`, of the Steamworks API, with `steam_appid.txt` |
 | `build/native/` | `native/build.sh`'s CMake build |
 | `build/<game>/shots/` | Screenshots from the latest `golib shot` |
 | `build/<game>/dist/` | The latest `golib dist` build: the folder to share, `<game>/`, and its zip |

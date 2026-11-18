@@ -34,6 +34,8 @@ var commands = map[string]func(c *cli, options []string) int{
 	"test":  (*cli).test,
 	"dist":  (*cli).dist,
 	"web":   (*cli).web,
+
+	"steam-sdk": (*cli).steamSDK,
 }
 
 func main() {

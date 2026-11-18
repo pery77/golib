@@ -10,7 +10,9 @@
 //	web*.go      //go:build js    WebGL 2 and Web Audio in a browser
 //
 // raylib_darwin.go holds what the window needs on macOS alone, and
-// raylib_other.go the same functions for Windows and Linux. language_*.go
+// raylib_other.go the same functions for Windows and Linux. steam*.go call
+// Valve's Steamworks API in a desktop build with the tag steam, and do
+// nothing in any other build. language_*.go
 // ask each desktop system for its languages: Windows, macOS, and the
 // environment's on Linux.
 //

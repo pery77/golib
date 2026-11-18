@@ -217,7 +217,7 @@ func TestDistLeaveOut(t *testing.T) {
 	"besideExecutable": ["assets/locale", "assets/roms", "README.txt"],
 	"leaveOut": {
 		"demo": ["assets/locale/en-full.txt", "assets/locale/*-full.txt", "assets/locale/extra", "assets/roms", "assets/typo"],
-		"steam": ["README.txt"]
+		"itch": ["README.txt"]
 	}
 }`
 	files := map[string]string{
@@ -293,12 +293,12 @@ func TestDistLeaveOut(t *testing.T) {
 
 	t.Run("two tags", func(t *testing.T) {
 		tp := setUp(t)
-		if code := tp.c.run([]string{"--dist", "--tags", "steam,demo"}); code != 0 {
+		if code := tp.c.run([]string{"--dist", "--tags", "itch,demo"}); code != 0 {
 			t.Fatalf("exit code %d, output:\n%s%s", code, tp.stdout.String(), tp.stderr.String())
 		}
 		for _, want := range []string{
 			"[ok]   copied assets/locale next to it, as game.json's \"besideExecutable\" asks: players see them there\n",
-			"[ok]   left out README.txt, as game.json's \"leaveOut\" asks for the build tag steam\n",
+			"[ok]   left out README.txt, as game.json's \"leaveOut\" asks for the build tag itch\n",
 		} {
 			if !strings.Contains(tp.stdout.String(), want) {
 				t.Errorf("output:\n%s\nwant it to contain:\n%s", tp.stdout.String(), want)
