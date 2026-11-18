@@ -76,6 +76,12 @@ func MousePosition() (x, y float32) {
 	return number(inMouseX), number(inMouseY)
 }
 
+// MouseMovement returns how far the mouse moved since the last frame, in CSS
+// pixels, as the browser reports it: locked or not.
+func MouseMovement() (x, y float32) {
+	return number(inMoveX), number(inMoveY)
+}
+
 // MouseInWindow reports whether the mouse pointer is over the canvas.
 func MouseInWindow() bool {
 	if !js_().Truthy() {

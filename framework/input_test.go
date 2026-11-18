@@ -166,6 +166,24 @@ func TestInputQueueAddsUpTheWheelUntilAnUpdateRuns(t *testing.T) {
 	}
 }
 
+func TestInputQueueAddsUpMouseMovementUntilAnUpdateRuns(t *testing.T) {
+	var queue inputQueue
+	var input Input
+
+	// Two frames without an update: a locked pointer stands still while the
+	// mouse moves right and then up.
+	queue.readMovement(12, 0)
+	queue.readMovement(3, -5)
+	queue.next(&input)
+	if x, y := input.MouseMovement(); x != 15 || y != -5 {
+		t.Errorf("MouseMovement() = %v, %v, want 15, -5", x, y)
+	}
+	queue.next(&input)
+	if x, y := input.MouseMovement(); x != 0 || y != 0 {
+		t.Errorf("second update: MouseMovement() = %v, %v, want 0, 0: each move goes to one update", x, y)
+	}
+}
+
 func TestInputIgnoresUnknownMouseButtons(t *testing.T) {
 	var input Input
 	if input.MouseDown(MouseButton(-1)) || input.MousePressed(MouseButton(99)) {

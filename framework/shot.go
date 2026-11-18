@@ -367,6 +367,7 @@ func (s inputScript) at(update int) Input {
 		// As in a window, the first update sees no move.
 		x, y := s.pointerAt(update - 1)
 		in.mouseMoved = in.mouseX != x || in.mouseY != y
+		in.moveX, in.moveY = in.mouseX-x, in.mouseY-y
 	}
 	for _, turn := range s.wheel {
 		if turn.update == update {
