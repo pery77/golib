@@ -15,6 +15,7 @@ type Input struct {
 
 	mouseX, mouseY float32
 	mouseMoved     bool
+	moveX, moveY   float32
 	mouseDown      [mouseButtonCount]bool
 	mousePressed   [mouseButtonCount]bool
 	mouseWheel     float32
@@ -99,6 +100,25 @@ func (in *Input) MousePressed(button MouseButton) bool {
 //	}
 func (in *Input) MouseWheel() float32 {
 	return in.mouseWheel
+}
+
+// MouseMovement returns how far the mouse moved since the previous update:
+// x positive to the right and y positive towards the player, like screen
+// coordinates. It counts in the window's units, as the system moves its
+// pointer, however large the window or the screen is, so the same move of the
+// hand turns a camera as far in any window. It goes on while
+// SetMouseLocked holds the pointer still, which is how a first-person camera
+// is turned:
+//
+//	moveX, moveY := input.MouseMovement()
+//	s.yaw -= moveX * 0.12 // degrees per unit: moving right turns right
+//	s.pitch = golib.Clamp(s.pitch-moveY*0.12, -85, 85)
+//
+// Each move is reported to exactly one update, so it is 0, 0 when the mouse
+// didn't move. Under golib shot, it is how far the script's Mouse items moved
+// the pointer, in screen pixels.
+func (in *Input) MouseMovement() (x, y float32) {
+	return in.moveX, in.moveY
 }
 
 // GamepadConnected reports whether gamepad number pad is connected. Pads are
@@ -212,6 +232,7 @@ type inputQueue struct {
 	deliveredY     float32
 	deliveredAny   bool    // an update has seen the pointer
 	mouseWheel     float32 // turned, not yet delivered to an update
+	moveX, moveY   float32 // moved, not yet delivered to an update
 
 	touches     [maxTouches]Touch // the fingers on the screen now
 	touchCount  int
@@ -284,6 +305,13 @@ func (q *inputQueue) readMouse(x, y, wheel float32, isDown, wasPressed func(Mous
 			q.mousePending[button] = true
 		}
 	}
+}
+
+// readMovement records how far the mouse moved in the current frame, which
+// adds up until an update takes it.
+func (q *inputQueue) readMovement(x, y float32) {
+	q.moveX += x
+	q.moveY += y
 }
 
 // readTouches records the fingers on the screen for the current frame, in the
@@ -377,6 +405,7 @@ func (q *inputQueue) next(input *Input) {
 	input.mouseDown = q.mouseDown
 	input.mousePressed = q.mousePending
 	input.mouseWheel = q.mouseWheel
+	input.moveX, input.moveY = q.moveX, q.moveY
 	input.touchCount = 0
 	for i := range q.touchCount {
 		touch := q.touches[i]
@@ -399,6 +428,7 @@ func (q *inputQueue) next(input *Input) {
 	q.pending = [keyCount]bool{}
 	q.mousePending = [mouseButtonCount]bool{}
 	q.mouseWheel = 0
+	q.moveX, q.moveY = 0, 0
 	q.landedCount = 0
 	for pad := range q.gamepads {
 		q.gamepads[pad].pressed = [gamepadButtonCount]bool{}

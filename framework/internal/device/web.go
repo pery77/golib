@@ -307,6 +307,13 @@ func SetCursorVisible(visible bool) {
 	js_().Call("setCursorVisible", visible)
 }
 
+// SetCursorLocked asks the browser to lock the mouse pointer to the canvas,
+// which it grants on a click, at once when the player has just acted and at
+// their next click otherwise, or gives it back.
+func SetCursorLocked(locked bool) {
+	js_().Call("setCursorLocked", locked)
+}
+
 // SavePicture sends what was drawn into target back to the golib that opened
 // the page, which writes it as a PNG file at path. A page cannot write files
 // itself, so golib shot --web serves the game and takes the pictures it posts

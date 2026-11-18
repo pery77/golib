@@ -20,7 +20,9 @@ const (
 	inSticks     = 3 // 4 pads of leftX, leftY, rightX, rightY
 	inTouchCount = inSticks + 4*maxPads
 	inTouches    = inTouchCount + 1 // MaxTouches fingers of id, x, y
-	inFloats     = inTouches + 3*MaxTouches
+	inMoveX      = inTouches + 3*MaxTouches
+	inMoveY      = inMoveX + 1
+	inFloats     = inMoveY + 1
 	inBytes      = inFloats * 4 // where the bytes start
 
 	padButtons = GamepadRightStickButton + 1 // buttons a pad can report
