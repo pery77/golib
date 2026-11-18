@@ -220,6 +220,17 @@ func SetCursorVisible(visible bool) {
 	}
 }
 
+// SetCursorLocked hides the mouse pointer and holds it in the window, where
+// MouseMovement goes on reporting how the mouse moves, or gives it back,
+// shown. Showing or hiding the pointer gives it back too.
+func SetCursorLocked(locked bool) {
+	if locked {
+		rl.DisableCursor()
+	} else {
+		rl.EnableCursor()
+	}
+}
+
 // SavePicture writes what was drawn into target to a PNG file, scaled by whole
 // numbers when scale is above 1, and reports whether it was written. It is how
 // golib shot saves a frame.
