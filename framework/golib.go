@@ -249,7 +249,9 @@ type Game interface {
 // console can't show that error, Run also shows it, or a panic in the game, in
 // a message box: a golib dist build on Windows has no console, and a debug
 // build started from Explorer has a console window of its own, which closes
-// as soon as the game ends.
+// as soon as the game ends. A panic in the game is also kept in a file,
+// crash.txt in the folder where SaveData saves, for the player to send to the
+// game's author: the message box says where it is.
 func Run(game Game, config Config) (err error) {
 	if startup.ErrorsUnseen() || device.ShowsErrors {
 		title := config.Title
@@ -258,6 +260,7 @@ func Run(game Game, config Config) (err error) {
 		}
 		defer reportInDialog(title, &err)
 	}
+	defer keepCrash() // after the dialog's defer, so it runs before it
 	// Forget requests made before Run started.
 	quitRequested.Store(false)
 	takeSceneRequest()

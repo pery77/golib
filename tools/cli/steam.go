@@ -129,6 +129,9 @@ type steamSDKFiles struct {
 // inside it, or the folder that holds that sdk folder.
 func openSteamSDK(source string) (*steamSDKFiles, error) {
 	info, err := os.Stat(source)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, errors.New("no such file or folder: give the Steamworks SDK's zip, such as steamworks_sdk_164.zip, or its sdk folder")
+	}
 	if err != nil {
 		return nil, err
 	}

@@ -33,5 +33,6 @@
     "APPDATA": "${workspaceFolder}/.tools/config",
     "XDG_CONFIG_HOME": "${workspaceFolder}/.tools/config"
   },
-  "chat.useAgentsMdFile": true
+  "chat.useAgentsMdFile": true,
+  "cmake.sourceDirectory": "${workspaceFolder}/native"
 }

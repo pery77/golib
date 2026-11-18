@@ -238,15 +238,15 @@ func (c *cli) distGame(game string) string {
 
 	switch c.goos {
 	case "windows":
-		c.check("info", fmt.Sprintf("players unzip it and start %s, which needs the files next to it and writes nothing to their machine but what the game saves with golib.SaveData, in %%AppData%%\\GoLib games\\%s", exe, name))
+		c.check("info", fmt.Sprintf("players unzip it and start %s, which needs the files next to it and writes nothing to their machine but what the game saves with golib.SaveData, and crash.txt if it crashes, in %%AppData%%\\GoLib games\\%s", exe, name))
 	case "linux":
-		c.check("info", fmt.Sprintf("players unzip it and start %s, which needs the files next to it, and libX11.so.6, libGL.so.1 and libffi.so.8 from their system. What the game saves with golib.SaveData goes in ~/.config/GoLib games/%s", exe, name))
+		c.check("info", fmt.Sprintf("players unzip it and start %s, which needs the files next to it, and libX11.so.6, libGL.so.1 and libffi.so.8 from their system. What the game saves with golib.SaveData, and crash.txt if it crashes, goes in ~/.config/GoLib games/%s", exe, name))
 	default:
 		native := ""
 		if usesNative {
 			native = ", and golibnative.dylib, which it loads from Contents/Frameworks/"
 		}
-		c.check("info", fmt.Sprintf("players unzip it and open %s, which carries %s inside, and copies them into the player's ~/Library/Caches folder when it first starts%s. What the game saves with golib.SaveData goes in ~/Library/Application Support/GoLib games/%s. No Apple developer account signs the app, so the first time macOS stops it: players open it from System Settings, Privacy & Security, Open Anyway", built, joinWords(names), native, name))
+		c.check("info", fmt.Sprintf("players unzip it and open %s, which carries %s inside, and copies them into the player's ~/Library/Caches folder when it first starts%s. What the game saves with golib.SaveData, and crash.txt if it crashes, goes in ~/Library/Application Support/GoLib games/%s. No Apple developer account signs the app, so the first time macOS stops it: players open it from System Settings, Privacy & Security, Open Anyway", built, joinWords(names), native, name))
 	}
 	return exePath
 }

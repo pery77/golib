@@ -121,7 +121,7 @@ func TestSteamSDKFailures(t *testing.T) {
 		{notSDK, "holds no redistributable_bin folder"},
 		{notZip, "isn't a zip nor a folder"},
 		{t.TempDir(), "has no redistributable_bin folder"},
-		{filepath.Join(t.TempDir(), "missing.zip"), "no such file"},
+		{filepath.Join(t.TempDir(), "missing.zip"), "no such file or folder"},
 	} {
 		tp.stdout.Reset()
 		tp.c.failures = 0
