@@ -63,7 +63,7 @@ func TestDistWindows(t *testing.T) {
 [ok]   copied raylib.dll and libffi-8.dll next to it: the game loads them when it starts
 [ok]   wrote THIRD-PARTY-LICENSES.txt next to it, with the licenses of Go 1.27.1, jfxr, github.com/ebitengine/purego v0.10.0, github.com/gen2brain/raylib-go/raylib v0.60.1, github.com/jupiterrider/ffi v0.7.0, raylib 6.0, libffi and assets/ATTRIBUTION.md
 [ok]   zipped build/rocks/dist/rocks/ into build/rocks/dist/rocks-1.0.0-windows-amd64.zip (0.0 MB): share this file
-[info] players unzip it and start rocks.exe, which needs the files next to it and writes nothing to their machine but what the game saves with golib.SaveData, in %AppData%\GoLib games\rocks
+[info] players unzip it and start rocks.exe, which needs the files next to it and writes nothing to their machine but what the game saves with golib.SaveData, and crash.txt if it crashes, in %AppData%\GoLib games\rocks
 
 dist: 0 failed, 0 warning(s)
 `
@@ -373,7 +373,7 @@ func TestDistLinux(t *testing.T) {
 [ok]   copied libraylib.so.6.0.0 next to it: the game loads them when it starts
 [ok]   wrote THIRD-PARTY-LICENSES.txt next to it, with the licenses of Go 1.27.1, jfxr, github.com/ebitengine/purego v0.10.0, github.com/gen2brain/raylib-go/raylib v0.60.1, github.com/jupiterrider/ffi v0.7.0 and raylib 6.0
 [ok]   zipped build/snake/dist/snake/ into build/snake/dist/snake-0.0.0-linux-amd64.zip (0.0 MB): share this file
-[info] players unzip it and start snake, which needs the files next to it, and libX11.so.6, libGL.so.1 and libffi.so.8 from their system. What the game saves with golib.SaveData goes in ~/.config/GoLib games/snake
+[info] players unzip it and start snake, which needs the files next to it, and libX11.so.6, libGL.so.1 and libffi.so.8 from their system. What the game saves with golib.SaveData, and crash.txt if it crashes, goes in ~/.config/GoLib games/snake
 `
 	if !strings.HasPrefix(tp.stdout.String(), want) {
 		t.Errorf("output:\n%s\nwant it to start with:\n%s", tp.stdout.String(), want)
@@ -417,7 +417,7 @@ func TestDistMacOS(t *testing.T) {
 [ok]   built games/rocks into build/rocks/dist/rocks/rocks.app
 [ok]   wrote THIRD-PARTY-LICENSES.txt next to it, with the licenses of Go 1.27.1, jfxr, github.com/ebitengine/purego v0.10.0, github.com/gen2brain/raylib-go/raylib v0.60.1, github.com/jupiterrider/ffi v0.7.0, raylib 6.0 and libffi
 [ok]   zipped build/rocks/dist/rocks/ into build/rocks/dist/rocks-0.0.0-macos-amd64.zip (0.0 MB): share this file
-[info] players unzip it and open rocks.app, which carries libraylib.6.0.0.dylib and libffi.8.dylib inside, and copies them into the player's ~/Library/Caches folder when it first starts. What the game saves with golib.SaveData goes in ~/Library/Application Support/GoLib games/rocks. No Apple developer account signs the app, so the first time macOS stops it: players open it from System Settings, Privacy & Security, Open Anyway
+[info] players unzip it and open rocks.app, which carries libraylib.6.0.0.dylib and libffi.8.dylib inside, and copies them into the player's ~/Library/Caches folder when it first starts. What the game saves with golib.SaveData, and crash.txt if it crashes, goes in ~/Library/Application Support/GoLib games/rocks. No Apple developer account signs the app, so the first time macOS stops it: players open it from System Settings, Privacy & Security, Open Anyway
 `
 	if !strings.HasPrefix(tp.stdout.String(), want) {
 		t.Errorf("output:\n%s\nwant it to start with:\n%s", tp.stdout.String(), want)
@@ -577,7 +577,7 @@ func TestDistFileName(t *testing.T) {
 	}
 	for _, want := range []string{
 		"[ok]   built games/_rocks into build/_rocks/dist/RocksInSpace/RocksInSpace.exe\n",
-		`players unzip it and start RocksInSpace.exe, which needs the files next to it and writes nothing to their machine but what the game saves with golib.SaveData, in %AppData%\GoLib games\RocksInSpace`,
+		`players unzip it and start RocksInSpace.exe, which needs the files next to it and writes nothing to their machine but what the game saves with golib.SaveData, and crash.txt if it crashes, in %AppData%\GoLib games\RocksInSpace`,
 	} {
 		if !strings.Contains(tp.stdout.String(), want) {
 			t.Errorf("output:\n%s\nwant it to contain:\n%s", tp.stdout.String(), want)

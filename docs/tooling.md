@@ -248,6 +248,7 @@ build/<game>/dist/                  emptied first
 | raylib and libffi | Loaded from next to the executable | Loaded from next to the executable, except on macOS (below) |
 | The game's `assets/` folder | Read from disk, in the working directory, which `run`, `shot`, `test` and F5 set to the game's folder, `games/<game>/` or `examples/<game>/`. When the working directory has no `assets/` folder, as when the executable is started from Explorer in `build/<game>/`, from `games/<game>/assets/` or `examples/<game>/assets/` instead | Embedded, through the game's `assets.go` |
 | `golib.SaveData` | Saves in `build/<game>/save/`, next to the executable; in memory under `shot` and `test` | Saves in the player's settings folder, in `GoLib games/<game>`, or `game.json`'s `fileName` in place of `<game>`: `%AppData%GoLib games<game>` on Windows, `~/.config/GoLib games/<game>` on Linux, `~/Library/Application Support/GoLib games/<game>` on macOS |
+| A panic in the game | Kept in `crash.txt` in `build/<game>/save/`, with its whole stack trace, the game's version and the system; not under `shot` and `test` | Kept in `crash.txt` in the same folder as the saved data, and the message box says where it is, so a player can send it to the game's author. Each crash replaces the one before |
 
 It runs `go build -trimpath` with these build tags and linker flags:
 
