@@ -107,6 +107,7 @@ func (r *renderer) resize(width, height float32) {
 // found while it drew, or while it updated before.
 func (r *renderer) drawScene(scene Game, screen *Screen) error {
 	device.BeginTarget(r.scene)
+	screen.captureTarget = r.scene
 	if r.samples > 1 {
 		device.SetDrawSize(r.width, r.height)
 	}
@@ -114,6 +115,7 @@ func (r *renderer) drawScene(scene Game, screen *Screen) error {
 	smoothEdges3D = !r.pixelArt && r.samples == 1
 	scene.Draw(screen)
 	screen.endDraw()
+	screen.captureTarget = device.Target{}
 	textScale = 1
 	device.EndTarget()
 	// What goes at the window's resolution waits for present.
