@@ -8,6 +8,12 @@ Desktop games may opt into the display's physical framebuffer with `Config.HighD
 
 ## Framework and games
 
+`Screen.Capture` reads the current scene target through `device.ReadTarget`
+while `Draw` is running, into a reusable `Image`. It captures drawing so far,
+before post-processing and deferred full-resolution overlays. Backends preserve
+the framebuffer binding across reads so drawing may continue after a capture.
+Games should capture on demand, since a readback waits for the graphics card.
+
 GoLib has two sides, and they don't mix.
 
 | | Framework | Game |

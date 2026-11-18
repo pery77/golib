@@ -44,8 +44,10 @@ func openTestWindow(t *testing.T, width, height int) (*Screen, func(draw func())
 		var picture *image.NRGBA
 		onMainThread(func() {
 			device.BeginTarget(render.scene)
+			screen.captureTarget = render.scene
 			screen.Clear(Blank)
 			draw()
+			screen.captureTarget = device.Target{}
 			device.EndTarget()
 			picture = device.ReadTarget(render.scene)
 		})
