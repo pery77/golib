@@ -138,6 +138,19 @@ func NewSmoothTexture(pixels []byte, width, height int) Texture {
 	return texture
 }
 
+// NewLinearTexture puts a picture on the graphics card as NewTexture does,
+// but smoothed between its pixels wherever it is drawn larger, with no
+// mipmaps, so that it can change every frame; its edges are clamped, so
+// nothing from the far side bleeds in.
+func NewLinearTexture(pixels []byte, width, height int) Texture {
+	texture := NewTexture(pixels, width, height)
+	if texture.ID != 0 {
+		rl.SetTextureFilter(texture, rl.FilterBilinear)
+		rl.SetTextureWrap(texture, rl.WrapClamp)
+	}
+	return texture
+}
+
 // UpdateTexture replaces every pixel of a texture: pixels are RGBA, one byte
 // a channel, the top row first, as many as the texture has.
 func UpdateTexture(texture Texture, pixels []byte) {

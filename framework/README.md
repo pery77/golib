@@ -498,7 +498,7 @@ A sprite is a picture from the game's assets folder, made of frames of one size:
 | `DrawOptions.Rotation` | 0 | Degrees, clockwise, around the origin. |
 | `DrawOptions.OriginX`, `DrawOptions.OriginY` | 0, 0 | The point of the frame, in its own pixels from its top-left corner, that goes at x, y and that `Rotation` turns around. The middle of a 32 by 32 frame is 16, 16. |
 | `DrawOptions.Tint` | `White` | Multiplies the frame's colors; its `A` makes the frame see-through: `golib.Color{R: 255, G: 255, B: 255, A: 128}` is half. |
-| `DrawOptions.Smooth` | `false` | Filter a sprite with bilinear sampling and mipmaps, with positions between pixels. For painted backgrounds and rendered icons. Keeps the current draw order, camera, blending and post-processing; pixel-art draws of the same sprite keep their sharp sampling. Applies to `DrawSprite`; `DrawImage` keeps its pixel sampling. |
+| `DrawOptions.Smooth` | `false` | Filter a sprite with bilinear sampling and mipmaps, with positions between pixels. For painted backgrounds and rendered icons. Keeps the current draw order, camera, blending and post-processing; pixel-art draws of the same sprite keep their sharp sampling. On `DrawImage`, bilinear only, with no mipmaps, so a picture that changes every frame stays cheap: see [Pictures made pixel by pixel](#pictures-made-pixel-by-pixel). |
 | `DrawOptions.FullResolution` | `false` | Draw the frame at the window's own resolution, smoothed, instead of in the screen's pixels: for a picture with more detail than the screen has room for, such as a studio's logo or art painted at high resolution, in a game whose small screen the window enlarges. See below. |
 
 An `Animation` is a list of frames, each shown for a while. It keeps no time of its own: keep the seconds it has played in the game's state, add `dt` in `Update`, and ask which frame to draw.
@@ -596,7 +596,7 @@ func (g *game) Draw(screen *golib.Screen) {
 ```
 
 - Changing pixels is plain Go, and cheap: the picture goes to the graphics card once, at the next `DrawImage` after it changed, however many pixels changed. Setting a pixel to the color it has isn't a change.
-- It is drawn without smoothing, at whole pixels, so its pixels stay square and sharp at any scale, as a sprite's do.
+- It is drawn without smoothing, at whole pixels, so its pixels stay square and sharp at any scale, as a sprite's do. With `DrawOptions{Smooth: true}` it is blended between its pixels instead, each pixel's color at its middle, and x and y keep their fractions: a coarse picture that stands for something smooth, such as fog of war or a heat map, drawn large. A see-through pixel blends its color too, so give one beside opaque ones their color, or the edge between them darkens. The same picture can be drawn both ways.
 - A size below 1 or above 4096 stops `Run` with an error the first time the picture is drawn.
 - Make pictures once, as package variables or in the game's state, as sprites are: each stays on the graphics card until `Run` ends.
 

@@ -121,3 +121,41 @@ func TestSpritesInAWindow(t *testing.T) {
 		}
 	}
 }
+
+// A picture made pixel by pixel blends between its pixels with
+// DrawOptions.Smooth, the same picture stays sharp without it, and a change
+// after both were drawn reaches both.
+func TestSmoothImagesInAWindow(t *testing.T) {
+	screen, capture := openTestWindow(t, 16, 4)
+	img := NewImage(2, 1)
+	red, blue, green := Color{R: 255, A: 255}, Color{B: 255, A: 255}, Color{G: 255, A: 255}
+	img.SetPixel(0, 0, red)
+	img.SetPixel(1, 0, blue)
+	draw := func() *image.NRGBA {
+		return capture(func() {
+			screen.Clear(Black)
+			screen.DrawImage(img, 0, 0, DrawOptions{Scale: 4, Smooth: true})
+			screen.DrawImage(img, 8, 0, DrawOptions{Scale: 4})
+		})
+	}
+	picture := draw()
+	if err := takeError(); err != nil {
+		t.Fatal(err)
+	}
+	if p := picture.NRGBAAt(3, 2); p.R == 0 || p.R == 255 || p.B == 0 || p.B == 255 {
+		t.Errorf("a smooth picture has no colors between its pixels: %v", p)
+	}
+	for x, want := range map[int]color.NRGBA{11: {R: 255, A: 255}, 12: {B: 255, A: 255}} {
+		if got := picture.NRGBAAt(x, 2); got != want {
+			t.Errorf("the sharp picture at %d: got %v, want %v", x, got, want)
+		}
+	}
+	img.SetPixel(0, 0, green)
+	picture = draw()
+	if p := picture.NRGBAAt(0, 2); p.G < 200 || p.R > 40 {
+		t.Errorf("the smooth picture didn't take a change: %v", p)
+	}
+	if p := picture.NRGBAAt(8, 2); p.G != 255 || p.R != 0 {
+		t.Errorf("the sharp picture didn't take a change: %v", p)
+	}
+}

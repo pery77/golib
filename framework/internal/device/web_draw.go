@@ -248,7 +248,7 @@ func NewTexture(pixels []byte, width, height int) Texture {
 	flush()
 	buffer := js.Global().Get("Uint8Array").New(len(pixels))
 	js.CopyBytesToJS(buffer, pixels)
-	id := js_().Call("newTexture", width, height, buffer, false).Int()
+	id := js_().Call("newTexture", width, height, buffer, 0).Int()
 	return Texture{ID: uint32(id), Width: int32(width), Height: int32(height)}
 }
 
@@ -262,7 +262,19 @@ func NewSmoothTexture(pixels []byte, width, height int) Texture {
 	flush()
 	buffer := js.Global().Get("Uint8Array").New(len(pixels))
 	js.CopyBytesToJS(buffer, pixels)
-	id := js_().Call("newTexture", width, height, buffer, true).Int()
+	id := js_().Call("newTexture", width, height, buffer, 1).Int()
+	return Texture{ID: uint32(id), Width: int32(width), Height: int32(height)}
+}
+
+// NewLinearTexture puts a picture on the graphics card as NewTexture does,
+// but smoothed between its pixels wherever it is drawn larger, with no
+// mipmaps, so that it can change every frame; its edges are clamped, so
+// nothing from the far side bleeds in.
+func NewLinearTexture(pixels []byte, width, height int) Texture {
+	flush()
+	buffer := js.Global().Get("Uint8Array").New(len(pixels))
+	js.CopyBytesToJS(buffer, pixels)
+	id := js_().Call("newTexture", width, height, buffer, 2).Int()
 	return Texture{ID: uint32(id), Width: int32(width), Height: int32(height)}
 }
 

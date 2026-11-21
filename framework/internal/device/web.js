@@ -1515,15 +1515,18 @@ void main() {
 
 	// -------------------------------------------------------------- pictures
 
-	// newTexture loads a picture, unsmoothed as raylib loads one, or smoothed
-	// with mipmaps, as raylib's trilinear filter does, so a large picture drawn
-	// small keeps its detail.
-	function newTexture(width, height, pixels, smooth) {
+	// newTexture loads a picture, unsmoothed as raylib loads one (filter 0),
+	// smoothed with mipmaps, as raylib's trilinear filter does, so a large
+	// picture drawn small keeps its detail (1), or smoothed between its
+	// pixels with no mipmaps, for a picture that changes as a game runs (2).
+	function newTexture(width, height, pixels, filter) {
 		const id = nextID++;
 		const made = gl.createTexture();
 		gl.bindTexture(gl.TEXTURE_2D, made);
 		gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
-		if (smooth) {
+		if (filter === 2) {
+			clampAndFilter(gl.LINEAR); // smoothed, with no mipmaps: a picture that changes
+		} else if (filter === 1) {
 			clampAndFilter(gl.LINEAR);
 			gl.generateMipmap(gl.TEXTURE_2D);
 			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);

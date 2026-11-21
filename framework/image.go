@@ -21,14 +21,21 @@ import (
 // Changing pixels is plain Go, and cheap: the picture goes to the graphics
 // card once, in the next DrawImage after a change, however many pixels
 // changed. It is drawn without smoothing, so its pixels stay square and
-// sharp at any scale.
+// sharp at any scale, unless DrawOptions.Smooth asks for it: then it is
+// blended between its pixels, for a picture that stands for something
+// smooth at a coarser grid, such as fog of war or a heat map.
 type Image struct {
 	mu            sync.Mutex
 	width, height int
-	pixels        []byte // RGBA, one byte a channel, the top row first
-	changed       bool   // pixels changed since they went to the texture
-	texture       device.Texture
-	loaded        bool
+	pixels        []byte  // RGBA, one byte a channel, the top row first
+	sharp, smooth texture // the picture on the graphics card, unsmoothed and smoothed, each made when first drawn so
+}
+
+// texture is a picture's pixels on the graphics card, filtered one way.
+type texture struct {
+	texture device.Texture
+	loaded  bool
+	changed bool // pixels changed since they went to the texture
 }
 
 // maxImageSide is the widest and tallest an Image can be: every graphics
@@ -72,7 +79,7 @@ func (img *Image) SetPixel(x, y int, color Color) {
 	at := img.pixels[4*(y*img.width+x):]
 	if at[0] != color.R || at[1] != color.G || at[2] != color.B || at[3] != color.A {
 		at[0], at[1], at[2], at[3] = color.R, color.G, color.B, color.A
-		img.changed = true
+		img.sharp.changed, img.smooth.changed = true, true
 	}
 }
 
@@ -101,13 +108,17 @@ func (img *Image) Clear(color Color) {
 	for at := 0; at < len(img.pixels); at += 4 {
 		img.pixels[at], img.pixels[at+1], img.pixels[at+2], img.pixels[at+3] = color.R, color.G, color.B, color.A
 	}
-	img.changed = true
+	img.sharp.changed, img.smooth.changed = true, true
 }
 
 // DrawImage draws a picture made with NewImage with its top-left corner at x,
 // y, one screen pixel for each of its pixels. Pass one DrawOptions to scale,
 // flip, rotate or tint it, as with DrawSprite. x and y are rounded to whole
-// pixels, and the picture isn't smoothed, so its pixels stay sharp.
+// pixels, and the picture isn't smoothed, so its pixels stay sharp, unless
+// DrawOptions.Smooth is true: then each pixel's color is at its middle and
+// blended into its neighbours' between them, with no mipmaps, and x and y
+// are kept as they are. A see-through pixel blends its color too, so give
+// one beside opaque ones their color, or edges darken.
 func (s *Screen) DrawImage(img *Image, x, y float32, options ...DrawOptions) {
 	if img == nil {
 		reportError(fmt.Errorf("golib: Screen.DrawImage got a nil picture: make pictures with golib.NewImage"))
@@ -117,39 +128,45 @@ func (s *Screen) DrawImage(img *Image, x, y float32, options ...DrawOptions) {
 		reportError(fmt.Errorf("golib: Screen.DrawImage got %d DrawOptions: pass at most one", len(options)))
 		return
 	}
-	texture, err := img.upload()
-	if err != nil {
-		reportError(err)
-		return
-	}
 	var option DrawOptions
 	if len(options) == 1 {
 		option = options[0]
 	}
+	texture, err := img.upload(option.Smooth)
+	if err != nil {
+		reportError(err)
+		return
+	}
 	option.draw(texture, image.Rect(0, 0, img.width, img.height), x, y)
 }
 
-// upload puts the picture on the graphics card the first time it is drawn,
-// and its pixels again after they change.
-func (img *Image) upload() (device.Texture, error) {
+// upload puts the picture on the graphics card, smoothed or not, the first
+// time it is drawn so, and its pixels again after they change.
+func (img *Image) upload(smooth bool) (device.Texture, error) {
 	if err := img.sizeError(); err != nil {
 		return device.Texture{}, err
 	}
 	img.mu.Lock()
 	defer img.mu.Unlock()
+	t, newTexture := &img.sharp, device.NewTexture
+	if smooth {
+		t, newTexture = &img.smooth, device.NewLinearTexture
+	}
 	switch {
-	case !img.loaded:
-		img.texture = device.NewTexture(img.pixels, img.width, img.height)
-		if img.texture.ID == 0 {
+	case !t.loaded:
+		t.texture = newTexture(img.pixels, img.width, img.height)
+		if t.texture.ID == 0 {
 			return device.Texture{}, fmt.Errorf("golib.NewImage(%d, %d): the graphics card could not take the picture: see the raylib warnings above", img.width, img.height)
 		}
-		img.loaded, img.changed = true, false
-		loadedImages.add(img)
-	case img.changed:
-		device.UpdateTexture(img.texture, img.pixels)
-		img.changed = false
+		t.loaded, t.changed = true, false
+		if !img.sharp.loaded || !img.smooth.loaded { // the first of the two
+			loadedImages.add(img)
+		}
+	case t.changed:
+		device.UpdateTexture(t.texture, img.pixels)
+		t.changed = false
 	}
-	return img.texture, nil
+	return t.texture, nil
 }
 
 // unload frees the picture's texture; its pixels stay, and go to the
@@ -157,10 +174,12 @@ func (img *Image) upload() (device.Texture, error) {
 func (img *Image) unload() {
 	img.mu.Lock()
 	defer img.mu.Unlock()
-	if img.loaded {
-		device.UnloadTexture(img.texture)
+	for _, t := range []*texture{&img.sharp, &img.smooth} {
+		if t.loaded {
+			device.UnloadTexture(t.texture)
+		}
+		*t = texture{}
 	}
-	img.loaded, img.texture = false, device.Texture{}
 }
 
 // loadedImages are the pictures on the graphics card, for Run to free when

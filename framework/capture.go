@@ -54,5 +54,5 @@ func (s *Screen) Capture(picture *Image) {
 			copy(picture.pixels[to:to+4], source.Pix[from:from+4])
 		}
 	}
-	picture.changed = true
+	picture.sharp.changed, picture.smooth.changed = true, true
 }

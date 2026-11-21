@@ -11,15 +11,15 @@ func TestImagePixels(t *testing.T) {
 	if img.Width() != 4 || img.Height() != 3 || img.Pixel(0, 0) != (Color{}) {
 		t.Fatalf("a new 4 by 3 picture: %d by %d, pixel 0, 0 = %v", img.Width(), img.Height(), img.Pixel(0, 0))
 	}
-	img.changed = false
+	img.sharp.changed = false
 	img.SetPixel(3, 2, Red)
-	if img.Pixel(3, 2) != Red || !img.changed {
-		t.Errorf("after SetPixel: %v, changed %v", img.Pixel(3, 2), img.changed)
+	if img.Pixel(3, 2) != Red || !img.sharp.changed || !img.smooth.changed {
+		t.Errorf("after SetPixel: %v, changed %v", img.Pixel(3, 2), img.sharp.changed)
 	}
 	// Setting a pixel to the color it has changes nothing to upload.
-	img.changed = false
+	img.sharp.changed = false
 	img.SetPixel(3, 2, Red)
-	if img.changed {
+	if img.sharp.changed {
 		t.Error("the same color again counts as a change")
 	}
 	// Outside the picture: nothing, and no panic.
@@ -40,7 +40,7 @@ func TestImageSizes(t *testing.T) {
 		img := NewImage(size[0], size[1])
 		img.SetPixel(1, 1, Red) // no panic
 		img.Clear(Red)
-		if _, err := img.upload(); err == nil || !strings.Contains(err.Error(), "1 to 4096 pixels") {
+		if _, err := img.upload(false); err == nil || !strings.Contains(err.Error(), "1 to 4096 pixels") {
 			t.Errorf("NewImage(%d, %d): %v", size[0], size[1], err)
 		}
 	}
