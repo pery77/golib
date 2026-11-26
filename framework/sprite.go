@@ -7,6 +7,7 @@ import (
 	"image"
 	"image/draw"
 	"image/png"
+	"math"
 	"path"
 	"slices"
 	"strings"
@@ -448,6 +449,12 @@ func (l *spriteList) unloadAll() {
 //	screen.DrawSprite(hero, frame, x, y, golib.DrawOptions{FlipX: facingLeft, Scale: 2})
 type DrawOptions struct {
 	Scale float32 // Size, as a multiple of the frame's own. Default: 1.
+
+	// ScaleX and ScaleY stretch the frame along its own width and height,
+	// on top of Scale, before Rotation turns it: ScaleX: 2 draws it twice
+	// as wide, and a ball squashed as it lands is ScaleX: 1.3, ScaleY: 0.7.
+	// Default: 1. Mirror with FlipX and FlipY, not with negative numbers.
+	ScaleX, ScaleY float32
 	FlipX bool    // Mirror the frame left to right, such as a character facing the other way.
 	FlipY bool    // Mirror the frame top to bottom.
 
@@ -460,6 +467,13 @@ type DrawOptions struct {
 	// turns around. Default: 0, 0, the top-left corner. Flipping mirrors the
 	// frame around its middle, not around the origin.
 	OriginX, OriginY float32
+
+	// Flatten squashes what is drawn down the screen, around its origin,
+	// after Rotation has turned it: 0.75 draws a turned frame as something
+	// lying on ground seen from a tilted camera, which a frame squashed with
+	// ScaleY before it turns isn't. It is what sprite stacking draws its
+	// slices with. Default: 1; give it a number above 0.
+	Flatten float32
 
 	// Tint multiplies the frame's colors; its A makes the frame see-through,
 	// such as Color{R: 255, G: 255, B: 255, A: 128} for half. Default: White,
@@ -524,14 +538,34 @@ func (s *Screen) DrawSprite(sprite *Sprite, frame int, x, y float32, options ...
 
 // draw draws the part of texture at place with its origin at x, y.
 func (o DrawOptions) draw(texture device.Texture, place image.Rectangle, x, y float32) {
-	scale := o.scale()
+	scaleX, scaleY := o.scales()
 	width, height := float32(place.Dx()), float32(place.Dy())
 	if !o.Smooth {
 		x, y = wholePixel(x), wholePixel(y)
 	}
-	dest := device.Rectangle{X: x, Y: y, Width: width * scale, Height: height * scale}
-	origin := device.Vector2{X: o.OriginX * scale, Y: o.OriginY * scale}
-	device.DrawTexture(texture, o.source(place), dest, origin, o.Rotation, o.tint())
+	dest := device.Rectangle{X: x, Y: y, Width: width * scaleX, Height: height * scaleY}
+	origin := device.Vector2{X: o.OriginX * scaleX, Y: o.OriginY * scaleY}
+	drawTurned(texture, o.source(place), dest, origin, o.Rotation, o.flatten(), o.tint())
+}
+
+// drawTurned draws the source part of texture into dest, turned rotation
+// degrees around origin, which is measured from dest's corner, and then
+// squashed down the screen by flatten around that same point.
+func drawTurned(texture device.Texture, source, dest device.Rectangle, origin device.Vector2, rotation, flatten float32, tint Color) {
+	if flatten == 1 {
+		device.DrawTexture(texture, source, dest, origin, rotation, tint)
+		return
+	}
+	sin, cos := math.Sincos(float64(rotation) * math.Pi / 180)
+	corner := func(x, y float32) device.Vector2 {
+		x, y = x-origin.X, y-origin.Y
+		return device.Vector2{
+			X: dest.X + x*float32(cos) - y*float32(sin),
+			Y: dest.Y + (x*float32(sin)+y*float32(cos))*flatten,
+		}
+	}
+	device.DrawTextureQuad(texture, source,
+		corner(0, 0), corner(0, dest.Height), corner(dest.Width, dest.Height), corner(dest.Width, 0), tint)
 }
 
 // over returns the part of texture at place, drawn with its origin at x, y
@@ -539,10 +573,10 @@ func (o DrawOptions) draw(texture device.Texture, place image.Rectangle, x, y fl
 // screen at the window's resolution: unrounded, and with the tint
 // premultiplied by its opacity, as the smooth texture's colors are.
 func (o DrawOptions) over(texture device.Texture, place image.Rectangle, x, y float32, camera *Camera) overDraw {
-	scale := o.scale()
+	scaleX, scaleY := o.scales()
 	if camera != nil {
 		at := camera.ToScreen(Vector2{X: x, Y: y})
-		x, y, scale = at.X, at.Y, scale*camera.zoom()
+		x, y, scaleX, scaleY = at.X, at.Y, scaleX*camera.zoom(), scaleY*camera.zoom()
 	}
 	tint := o.tint()
 	opacity := uint32(tint.A)
@@ -553,9 +587,10 @@ func (o DrawOptions) over(texture device.Texture, place image.Rectangle, x, y fl
 	return overDraw{
 		texture:  texture,
 		source:   o.source(place),
-		dest:     device.Rectangle{X: x, Y: y, Width: width * scale, Height: height * scale},
-		origin:   device.Vector2{X: o.OriginX * scale, Y: o.OriginY * scale},
+		dest:     device.Rectangle{X: x, Y: y, Width: width * scaleX, Height: height * scaleY},
+		origin:   device.Vector2{X: o.OriginX * scaleX, Y: o.OriginY * scaleY},
 		rotation: o.Rotation,
+		flatten:  o.flatten(),
 		tint:     tint,
 	}
 }
@@ -566,6 +601,27 @@ func (o DrawOptions) scale() float32 {
 		return 1
 	}
 	return o.Scale
+}
+
+// scales returns how many times its own width and height the frame is drawn:
+// Scale times ScaleX and ScaleY, each 0 counting as 1.
+func (o DrawOptions) scales() (x, y float32) {
+	x, y = o.scale(), o.scale()
+	if o.ScaleX != 0 {
+		x *= o.ScaleX
+	}
+	if o.ScaleY != 0 {
+		y *= o.ScaleY
+	}
+	return x, y
+}
+
+// flatten returns Flatten, with 0 counting as 1.
+func (o DrawOptions) flatten() float32 {
+	if o.Flatten == 0 {
+		return 1
+	}
+	return o.Flatten
 }
 
 // tint returns Tint, with the zero Color counting as White.

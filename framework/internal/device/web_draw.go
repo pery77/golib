@@ -66,6 +66,9 @@ const (
 	opMultiply3D
 	opDepthTest
 	opCullFront
+
+	// A 2D command added after the 3D ones, so their numbers stay.
+	opTextureQuad
 )
 
 // The blend modes, for opBlend.
@@ -239,6 +242,19 @@ func DrawTexture(texture Texture, source, dest Rectangle, origin Vector2, rotati
 		source.X, source.Y, source.Width, source.Height,
 		dest.X, dest.Y, dest.Width, dest.Height,
 		origin.X, origin.Y, rotation)
+	putColor(tint)
+}
+
+// DrawTextureQuad draws the source part of texture into the four-sided shape
+// whose corners are the picture's top-left, bottom-left, bottom-right and
+// top-right ones, colored by tint: a picture leaned or flattened, which
+// DrawTexture's rectangle can't be. A negative source width or height draws
+// the picture mirrored, as in DrawTexture.
+func DrawTextureQuad(texture Texture, source Rectangle, topLeft, bottomLeft, bottomRight, topRight Vector2, tint Color) {
+	push(opTextureQuad, float32(texture.ID), float32(texture.Width), float32(texture.Height),
+		source.X, source.Y, source.Width, source.Height,
+		topLeft.X, topLeft.Y, bottomLeft.X, bottomLeft.Y,
+		bottomRight.X, bottomRight.Y, topRight.X, topRight.Y)
 	putColor(tint)
 }
 
