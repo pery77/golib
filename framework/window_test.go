@@ -88,6 +88,52 @@ func TestSmoothSpritesInAWindow(t *testing.T) {
 	}
 }
 
+// TestStretchedAndFlattenedSprites draws a frame wider than it is high, one
+// squashed down the screen, and one turned and then squashed, which is how
+// sprite stacking draws a slice.
+func TestStretchedAndFlattenedSprites(t *testing.T) {
+	useAssets(t, map[string][]byte{"dots.png": pngFile(t, 4, 2)})
+	screen, capture := openTestWindow(t, 16, 8)
+	dots := NewSpriteSheet("dots.png", 2, 2)
+	picture := capture(func() {
+		screen.DrawSprite(dots, 0, 0, 0, DrawOptions{ScaleX: 4})                            // 8 by 2
+		screen.DrawSprite(dots, 0, 0, 4, DrawOptions{Scale: 4, Flatten: 0.5})                // 8 by 4
+		screen.DrawSprite(dots, 0, 16, 0, DrawOptions{Scale: 4, Rotation: 90, Flatten: 0.5}) // turned, 8 by 4
+	})
+	if err := takeError(); err != nil {
+		t.Fatal(err)
+	}
+	// pngFile gives pixel x, y red x and green y.
+	tests := []struct {
+		x, y int
+		want color.NRGBA
+	}{
+		{0, 0, color.NRGBA{R: 0, G: 0, A: 255}},
+		{3, 0, color.NRGBA{R: 0, G: 0, A: 255}},
+		{4, 0, color.NRGBA{R: 1, G: 0, A: 255}},
+		{7, 1, color.NRGBA{R: 1, G: 1, A: 255}},
+		{0, 2, color.NRGBA{}},
+
+		{0, 4, color.NRGBA{R: 0, G: 0, A: 255}},
+		{0, 5, color.NRGBA{R: 0, G: 0, A: 255}},
+		{0, 6, color.NRGBA{R: 0, G: 1, A: 255}},
+		{7, 7, color.NRGBA{R: 1, G: 1, A: 255}},
+
+		// Turned a quarter, the frame's top is on the right and its left
+		// side at the top; flattened, it is 4 pixels high instead of 8.
+		{14, 0, color.NRGBA{R: 0, G: 0, A: 255}},
+		{9, 0, color.NRGBA{R: 0, G: 1, A: 255}},
+		{14, 3, color.NRGBA{R: 1, G: 0, A: 255}},
+		{9, 3, color.NRGBA{R: 1, G: 1, A: 255}},
+		{9, 4, color.NRGBA{}},
+	}
+	for _, test := range tests {
+		if got := picture.NRGBAAt(test.x, test.y); got != test.want {
+			t.Errorf("pixel %d, %d = %v, want %v", test.x, test.y, got, test.want)
+		}
+	}
+}
+
 func TestSpritesInAWindow(t *testing.T) {
 	useAssets(t, map[string][]byte{"dots.png": pngFile(t, 4, 2)})
 	screen, capture := openTestWindow(t, 16, 8)

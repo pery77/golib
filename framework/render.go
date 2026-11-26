@@ -36,6 +36,7 @@ type overDraw struct {
 	source, dest device.Rectangle
 	origin       device.Vector2
 	rotation     float32
+	flatten      float32 // DrawOptions.Flatten; 1 for none
 	tint         Color
 }
 
@@ -219,7 +220,7 @@ func (r *renderer) drawOver(fit device.Rectangle) {
 		}
 		device.BeginBlendPremultiplied()
 		dest := device.Rectangle{X: fit.X + d.dest.X*scale, Y: fit.Y + d.dest.Y*scale, Width: d.dest.Width * scale, Height: d.dest.Height * scale}
-		device.DrawTexture(d.texture, d.source, dest, device.Vector2{X: d.origin.X * scale, Y: d.origin.Y * scale}, d.rotation, d.tint)
+		drawTurned(d.texture, d.source, dest, device.Vector2{X: d.origin.X * scale, Y: d.origin.Y * scale}, d.rotation, d.flatten, d.tint)
 		device.EndBlend()
 	}
 	r.pointer.draw(fit, scale)

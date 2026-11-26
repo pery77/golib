@@ -38,6 +38,7 @@ func TestAFullResolutionFrameWaitsInScreenPixels(t *testing.T) {
 		source:  device.Rectangle{X: 10, Y: 0, Width: -10, Height: 8},
 		dest:    device.Rectangle{X: 100.25, Y: 50.5, Width: 5, Height: 4},
 		origin:  device.Vector2{X: 2},
+		flatten: 1,
 		tint:    Color{R: 128, G: 64, B: 0, A: 128},
 	}
 	if got != want {

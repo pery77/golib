@@ -493,10 +493,12 @@ A sprite is a picture from the game's assets folder, made of frames of one size:
 | `DrawOptions` field | Default | Meaning |
 | --- | --- | --- |
 | `DrawOptions.Scale` | 1 | Size, as a multiple of the frame's own. |
+| `DrawOptions.ScaleX`, `DrawOptions.ScaleY` | 1, 1 | Stretch the frame along its own width and height, on top of `Scale`, before `Rotation` turns it: `ScaleX: 2` is twice as wide, and a ball squashed as it lands is `ScaleX: 1.3, ScaleY: 0.7`. Mirror with `FlipX` and `FlipY`, not with negative numbers. |
 | `DrawOptions.FlipX` | `false` | Mirror left to right: a character facing the other way. |
 | `DrawOptions.FlipY` | `false` | Mirror top to bottom. |
 | `DrawOptions.Rotation` | 0 | Degrees, clockwise, around the origin. |
 | `DrawOptions.OriginX`, `DrawOptions.OriginY` | 0, 0 | The point of the frame, in its own pixels from its top-left corner, that goes at x, y and that `Rotation` turns around. The middle of a 32 by 32 frame is 16, 16. |
+| `DrawOptions.Flatten` | 1 | Squash what is drawn down the screen, around its origin, after `Rotation` has turned it: 0.75 draws a turned frame as something lying on ground seen from a tilted camera, which `ScaleY` can't, since it squashes the frame before it turns. Sprite stacking draws each slice of an object this way, one over another, a pixel higher each. Above 0. |
 | `DrawOptions.Tint` | `White` | Multiplies the frame's colors; its `A` makes the frame see-through: `golib.Color{R: 255, G: 255, B: 255, A: 128}` is half. |
 | `DrawOptions.Smooth` | `false` | Filter a sprite with bilinear sampling and mipmaps, with positions between pixels. For painted backgrounds and rendered icons. Keeps the current draw order, camera, blending and post-processing; pixel-art draws of the same sprite keep their sharp sampling. Applies to `DrawSprite`; `DrawImage` keeps its pixel sampling. |
 | `DrawOptions.FullResolution` | `false` | Draw the frame at the window's own resolution, smoothed, instead of in the screen's pixels: for a picture with more detail than the screen has room for, such as a studio's logo or art painted at high resolution, in a game whose small screen the window enlarges. See below. |

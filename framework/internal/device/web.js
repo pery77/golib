@@ -27,6 +27,9 @@ window.golib = (function () {
 		COLOR_WRITE = 44, COPY_PASS = 45, BIND_PASS_COPY = 46, MULTIPLY_3D = 47,
 		DEPTH_TEST = 48, CULL_FRONT = 49;
 
+	// A 2D command added after the 3D ones, so their numbers stay.
+	const TEXTURE_QUAD = 50;
+
 	// The vertex layouts of 3D meshes, as gpu.go defines them, and how many
 	// floats an instance of a lit mesh takes: its matrix and its tint.
 	const LAYOUT_LIT = 0, LAYOUT_COLORED = 1, LAYOUT_SKINNED = 2, LAYOUT_LIGHTMAPPED = 3, INSTANCE_FLOATS = 20;
@@ -332,6 +335,10 @@ void main() {
 				case TEXTURE:
 					texture(c, i);
 					i += 18;
+					break;
+				case TEXTURE_QUAD:
+					textureQuad(c, i);
+					i += 19;
 					break;
 				case BEGIN_TARGET:
 					bindTarget(c[i]);
@@ -720,6 +727,32 @@ void main() {
 		vertex(ax, ay, u0, v0, c, at);
 		vertex(cx, cy, u1, v1, c, at);
 		vertex(ex, ey, u1, v0, c, at);
+	}
+
+	// textureQuad draws a part of a picture into a four-sided shape, given
+	// by where the picture's top-left, bottom-left, bottom-right and
+	// top-right corners go: a picture leaned or flattened.
+	function textureQuad(c, i) {
+		const id = c[i], width = c[i + 1], height = c[i + 2];
+		let sx = c[i + 3], sy = c[i + 4], sw = c[i + 5], sh = c[i + 6];
+		const at = i + 15;
+		if (width <= 0 || height <= 0) return;
+
+		let flipX = false;
+		if (sw < 0) { flipX = true; sw = -sw; }
+		if (sh < 0) sy -= sh;
+
+		let u0 = sx / width, u1 = (sx + sw) / width;
+		if (flipX) { const swap = u0; u0 = u1; u1 = swap; }
+		const v0 = sy / height, v1 = (sy + sh) / height;
+
+		useTexture(id);
+		vertex(c[i + 7], c[i + 8], u0, v0, c, at);
+		vertex(c[i + 9], c[i + 10], u0, v1, c, at);
+		vertex(c[i + 11], c[i + 12], u1, v1, c, at);
+		vertex(c[i + 7], c[i + 8], u0, v0, c, at);
+		vertex(c[i + 11], c[i + 12], u1, v1, c, at);
+		vertex(c[i + 13], c[i + 14], u1, v0, c, at);
 	}
 
 	// useTexture picks the picture the next corners are cut from; 0 is the

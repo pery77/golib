@@ -156,6 +156,52 @@ func DrawTexture(texture Texture, source, dest Rectangle, origin Vector2, rotati
 	rl.DrawTexturePro(texture, source, dest, origin, rotation, tint)
 }
 
+// DrawTextureQuad draws the source part of texture into the four-sided shape
+// whose corners are the picture's top-left, bottom-left, bottom-right and
+// top-right ones, colored by tint: a picture leaned or flattened, which
+// DrawTexture's rectangle can't be. A negative source width or height draws
+// the picture mirrored, as in DrawTexture. The corners go around the shape
+// counterclockwise as the screen shows them, or nothing is drawn.
+func DrawTextureQuad(texture Texture, source Rectangle, topLeft, bottomLeft, bottomRight, topRight Vector2, tint Color) {
+	if texture.ID == 0 || texture.Width <= 0 || texture.Height <= 0 {
+		return
+	}
+	u0, u1, v0, v1 := quadTextureCorners(texture, source)
+	rl.SetTexture(texture.ID)
+	rl.Begin(rl.Quads)
+	rl.Color4ub(tint.R, tint.G, tint.B, tint.A)
+	rl.Normal3f(0, 0, 1)
+	rl.TexCoord2f(u0, v0)
+	rl.Vertex2f(topLeft.X, topLeft.Y)
+	rl.TexCoord2f(u0, v1)
+	rl.Vertex2f(bottomLeft.X, bottomLeft.Y)
+	rl.TexCoord2f(u1, v1)
+	rl.Vertex2f(bottomRight.X, bottomRight.Y)
+	rl.TexCoord2f(u1, v0)
+	rl.Vertex2f(topRight.X, topRight.Y)
+	rl.End()
+	rl.SetTexture(0)
+}
+
+// quadTextureCorners returns where in a texture, from 0 to 1, the left,
+// right, top and bottom edges of source are, swapped where source's width or
+// height is negative, as raylib's DrawTexturePro reads them.
+func quadTextureCorners(texture Texture, source Rectangle) (u0, u1, v0, v1 float32) {
+	width, height := float32(texture.Width), float32(texture.Height)
+	flipX := source.Width < 0
+	if flipX {
+		source.Width = -source.Width
+	}
+	if source.Height < 0 {
+		source.Y -= source.Height
+	}
+	u0, u1 = source.X/width, (source.X+source.Width)/width
+	if flipX {
+		u0, u1 = u1, u0
+	}
+	return u0, u1, source.Y / height, (source.Y + source.Height) / height
+}
+
 // NewTarget makes a texture the game can draw into, smoothed when it is
 // scaled unless smooth is false, as pixel art wants.
 func NewTarget(width, height int, smooth bool) Target {
